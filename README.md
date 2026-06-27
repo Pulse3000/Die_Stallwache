@@ -84,14 +84,19 @@ fertig. Die App ist als PWA installierbar (Homescreen).
 | `lib/config.ts` | go2rtc-Endpunkte aus Umgebungsvariablen |
 | `bridge/` | go2rtc + Cloudflare Tunnel (Docker Compose) für das Stall-Netz |
 
+## Live
+
+Deployt auf Vercel: **https://die-stallwache.vercel.app**
+(zeigt „Warte auf Bridge", bis `NEXT_PUBLIC_GO2RTC_URL` gesetzt und die Bridge im Stall verbunden ist).
+
 ## Tech-Stack
 
-Next.js 15 (App Router) · React 19 · Tailwind CSS · hls.js · go2rtc · Cloudflare Tunnel
+Next.js 16 (App Router) · React 19 · Tailwind CSS · hls.js · go2rtc · Cloudflare Tunnel
 
 ---
 
 ## Roadmap
 
-1. ✅ **Livestream 24/7 abrufbar** (dieses Repo)
+1. ✅ **Livestream 24/7 abrufbar** (dieses Repo, Webapp live auf Vercel; Wiedergabe-Pipeline end-to-end mit Headless-Chromium verifiziert)
 2. ⏳ KI-Erkennung Brunst & Kalbung (YOLO-basiert, vgl. Stallsimulator)
 3. ⏳ Alarmierung (z. B. Telegram) bei erkannten Ereignissen

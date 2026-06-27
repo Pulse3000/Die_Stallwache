@@ -9,3 +9,4 @@ bridge/.env
 next-env.d.ts
 .DS_Store
 .vercel
+.env*

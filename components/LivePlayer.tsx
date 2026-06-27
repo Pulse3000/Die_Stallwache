@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import { hlsUrl, isConfigured, webrtcUrl } from "@/lib/config";
 
@@ -25,6 +25,9 @@ function fmtUptime(sec: number): string {
  * Live-Player fuer den go2rtc-Stream.
  * Primaer WebRTC (niedrige Latenz, < 1 s), automatischer Fallback auf HLS,
  * automatischer Reconnect mit Backoff und Uptime-Anzeige.
+ *
+ * Die gesamte Verbindungslogik laeuft ueber Refs, damit der Effekt nur einmal
+ * startet und ein Transportwechsel (WebRTC -> HLS) keinen Neustart ausloest.
  */
 export default function LivePlayer() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -33,6 +36,8 @@ export default function LivePlayer() {
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptsRef = useRef(0);
   const liveSinceRef = useRef<number | null>(null);
+  const transportRef = useRef<"WebRTC" | "HLS" | null>(null);
+  const disposedRef = useRef(false);
 
   const [status, setStatus] = useState<Status>(
     isConfigured ? "idle" : "unconfigured",
@@ -41,51 +46,56 @@ export default function LivePlayer() {
   const [muted, setMuted] = useState(true);
   const [uptime, setUptime] = useState(0);
 
-  // Uptime-Ticker, solange live.
+  // Alle Routinen liegen in Refs -> stabile Identitaet, keine Render-Loops.
+  const fns = useRef({
+    teardown: () => {},
+    connect: () => {},
+    markLive: () => {},
+    startHls: () => {},
+    startWebrtc: async () => {},
+    scheduleReconnect: () => {},
+  });
+
   useEffect(() => {
-    const id = setInterval(() => {
-      if (liveSinceRef.current) {
-        setUptime(Math.floor((Date.now() - liveSinceRef.current) / 1000));
-      }
-    }, 1000);
-    return () => clearInterval(id);
-  }, []);
+    const setTransportBoth = (t: "WebRTC" | "HLS" | null) => {
+      transportRef.current = t;
+      setTransport(t);
+    };
 
-  const teardown = useCallback(() => {
-    if (retryRef.current) clearTimeout(retryRef.current);
-    pcRef.current?.close();
-    pcRef.current = null;
-    hlsRef.current?.destroy();
-    hlsRef.current = null;
-  }, []);
+    fns.current.teardown = () => {
+      if (retryRef.current) clearTimeout(retryRef.current);
+      pcRef.current?.close();
+      pcRef.current = null;
+      hlsRef.current?.destroy();
+      hlsRef.current = null;
+    };
 
-  const markLive = useCallback(() => {
-    attemptsRef.current = 0;
-    liveSinceRef.current = liveSinceRef.current ?? Date.now();
-    setStatus("live");
-  }, []);
+    fns.current.markLive = () => {
+      attemptsRef.current = 0;
+      liveSinceRef.current = liveSinceRef.current ?? Date.now();
+      setStatus("live");
+    };
 
-  // Reconnect mit exponentiellem Backoff (max. 30 s).
-  const scheduleReconnect = useCallback((connect: () => void) => {
-    liveSinceRef.current = null;
-    setUptime(0);
-    const delay = Math.min(30000, 2000 * 2 ** attemptsRef.current);
-    attemptsRef.current += 1;
-    if (retryRef.current) clearTimeout(retryRef.current);
-    retryRef.current = setTimeout(connect, delay);
-  }, []);
+    fns.current.scheduleReconnect = () => {
+      if (disposedRef.current) return;
+      liveSinceRef.current = null;
+      setUptime(0);
+      const delay = Math.min(30000, 2000 * 2 ** attemptsRef.current);
+      attemptsRef.current += 1;
+      if (retryRef.current) clearTimeout(retryRef.current);
+      retryRef.current = setTimeout(() => fns.current.connect(), delay);
+    };
 
-  const startHls = useCallback(
-    (connect: () => void) => {
+    fns.current.startHls = () => {
       const video = videoRef.current;
       if (!video) return;
-      setTransport("HLS");
+      setTransportBoth("HLS");
       const url = hlsUrl();
 
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = url; // Safari / iOS: natives HLS
         video.play().catch(() => {});
-        markLive();
+        fns.current.markLive();
         return;
       }
       if (Hls.isSupported()) {
@@ -95,28 +105,25 @@ export default function LivePlayer() {
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           video.play().catch(() => {});
-          markLive();
+          fns.current.markLive();
         });
         hls.on(Hls.Events.ERROR, (_e, data) => {
           if (data.fatal) {
             setStatus("error");
-            scheduleReconnect(connect);
+            fns.current.scheduleReconnect();
           }
         });
       } else {
         setStatus("error");
-        scheduleReconnect(connect);
+        fns.current.scheduleReconnect();
       }
-    },
-    [markLive, scheduleReconnect],
-  );
+    };
 
-  const startWebrtc = useCallback(
-    async (connect: () => void) => {
+    fns.current.startWebrtc = async () => {
       const video = videoRef.current;
       if (!video) return;
       setStatus((s) => (s === "live" ? s : "connecting"));
-      setTransport("WebRTC");
+      setTransportBoth("WebRTC");
 
       try {
         const pc = new RTCPeerConnection({
@@ -133,15 +140,13 @@ export default function LivePlayer() {
           }
         };
         pc.onconnectionstatechange = () => {
-          if (pc.connectionState === "connected") markLive();
+          if (pc.connectionState === "connected") fns.current.markLive();
           if (
             pc.connectionState === "failed" ||
             pc.connectionState === "disconnected"
           ) {
             pc.close();
-            // erst HLS-Fallback, dann Reconnect-Schleife
-            if (transport !== "HLS") startHls(connect);
-            else scheduleReconnect(connect);
+            if (transportRef.current === "WebRTC") fns.current.startHls();
           }
         };
 
@@ -157,32 +162,42 @@ export default function LivePlayer() {
         const answer = await res.json();
         await pc.setRemoteDescription(answer);
       } catch (err) {
-        console.warn("WebRTC fehlgeschlagen, Fallback auf HLS:", err);
+        console.warn("WebRTC nicht verfuegbar, nutze HLS:", err);
         pcRef.current?.close();
         pcRef.current = null;
-        startHls(connect);
+        fns.current.startHls();
       }
-    },
-    [markLive, scheduleReconnect, startHls, transport],
-  );
+    };
 
-  const connect = useCallback(() => {
-    if (!isConfigured) {
-      setStatus("unconfigured");
-      return;
-    }
-    teardown();
-    startWebrtc(connect);
-  }, [teardown, startWebrtc]);
+    fns.current.connect = () => {
+      if (!isConfigured) {
+        setStatus("unconfigured");
+        return;
+      }
+      fns.current.teardown();
+      void fns.current.startWebrtc();
+    };
 
-  useEffect(() => {
-    connect();
-    return teardown;
-  }, [connect, teardown]);
+    // Einmaliger Start beim Mount.
+    disposedRef.current = false;
+    fns.current.connect();
+
+    const ticker = setInterval(() => {
+      if (liveSinceRef.current) {
+        setUptime(Math.floor((Date.now() - liveSinceRef.current) / 1000));
+      }
+    }, 1000);
+
+    return () => {
+      disposedRef.current = true;
+      clearInterval(ticker);
+      fns.current.teardown();
+    };
+  }, []);
 
   const manualRetry = () => {
     attemptsRef.current = 0;
-    connect();
+    fns.current.connect();
   };
 
   const toggleMute = () => {
@@ -216,10 +231,8 @@ export default function LivePlayer() {
           controls={false}
         />
 
-        {/* Animierter Warte-Hintergrund, wenn (noch) kein Bild */}
         {waiting && <WaitingScene />}
 
-        {/* Status-Badge oben links */}
         <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold backdrop-blur">
           <span
             className={`inline-block h-2.5 w-2.5 rounded-full ${
@@ -238,14 +251,12 @@ export default function LivePlayer() {
           ) : null}
         </div>
 
-        {/* Uptime oben rechts */}
         {isLive && (
           <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-black/60 px-3 py-1 font-mono text-xs text-white/70 backdrop-blur">
             {fmtUptime(uptime)}
           </div>
         )}
 
-        {/* Overlay-Text bei Warten/Fehler */}
         {waiting && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
             <p className="max-w-sm text-sm text-white/80">
@@ -263,7 +274,6 @@ export default function LivePlayer() {
         )}
       </div>
 
-      {/* Steuerung */}
       <div className="mt-3 grid grid-cols-3 gap-2">
         <button
           onClick={manualRetry}
@@ -293,7 +303,6 @@ function WaitingScene() {
   return (
     <div className="absolute inset-0 overflow-hidden bg-gradient-to-b from-slate-800 via-slate-900 to-black">
       <div className="absolute inset-0 opacity-30 [background-image:radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.15)_1px,transparent_0)] [background-size:22px_22px]" />
-      {/* sanft pulsierender Scan-Ring */}
       <div className="absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full border border-stall-accent/40 [animation:ping_2.4s_cubic-bezier(0,0,0.2,1)_infinite]" />
       <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-stall-accent/80" />
     </div>
