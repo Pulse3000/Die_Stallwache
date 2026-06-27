@@ -1,0 +1,38 @@
+# Cloud-Transcoder: go2rtc + Caddy (Auto-HTTPS) auf einem kleinen VPS.
+# Kein Geraet im Stall – der VPS holt RTSP direkt von der Kamera.
+#
+# Start:  cp .env.example .env  (Werte eintragen) && docker compose up -d
+# Logs:   docker compose logs -f
+
+services:
+  go2rtc:
+    image: alexxit/go2rtc:latest
+    container_name: stallwache-go2rtc
+    restart: unless-stopped
+    network_mode: host # noetig fuer WebRTC-Port 8555
+    environment:
+      TAPO_USER: ${TAPO_USER}
+      TAPO_PASS: ${TAPO_PASS}
+      CAM_HOST: ${CAM_HOST}
+      CAM_RTSP_PORT: ${CAM_RTSP_PORT}
+      VPS_PUBLIC_IP: ${VPS_PUBLIC_IP}
+    volumes:
+      - ./go2rtc.yaml:/config/go2rtc.yaml:ro
+
+  caddy:
+    image: caddy:2
+    container_name: stallwache-caddy
+    restart: unless-stopped
+    network_mode: host # erreicht go2rtc auf localhost:1984
+    environment:
+      STREAM_DOMAIN: ${STREAM_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - go2rtc
+
+volumes:
+  caddy_data:
+  caddy_config:
