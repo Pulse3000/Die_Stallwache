@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   description:
     "KI-basierte Brunst- und Kalbueberwachung im Stall. Livestream der Tapo TCA72 Kamera.",
   manifest: "/manifest.webmanifest",
+  icons: { icon: "/logo-mark.svg", apple: "/logo-mark.svg" },
 };
 
 export const viewport: Viewport = {

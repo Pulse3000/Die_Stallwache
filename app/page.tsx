@@ -8,13 +8,21 @@ export default function Home() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-3xl flex-col px-4 pb-10 pt-6">
       <header className="mb-5 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="truncate text-xl font-bold tracking-tight sm:text-2xl">
-            🐄 Die Stallwache
-          </h1>
-          <p className="truncate text-xs text-white/50 sm:text-sm">
-            KI-basierte Brunst- &amp; Kalbüberwachung · Tapo TCA72
-          </p>
+        <div className="flex min-w-0 items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo-mark.svg"
+            alt="Oberer Stollenhof"
+            className="h-11 w-11 shrink-0 rounded-lg bg-white/95 p-1 ring-1 ring-white/10"
+          />
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-bold tracking-tight sm:text-2xl">
+              Die Stallwache
+            </h1>
+            <p className="truncate text-xs text-white/50 sm:text-sm">
+              KI-basierte Brunst- &amp; Kalbüberwachung · Tapo TCA72
+            </p>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 rounded-full bg-stall-card px-3 py-1.5 text-sm ring-1 ring-white/10">
           <span className="h-2 w-2 animate-pulse rounded-full bg-stall-accent" />
@@ -46,12 +54,20 @@ export default function Home() {
         </div>
       )}
 
-      <footer className="mt-auto pt-8 text-center text-[11px] text-white/30">
-        {GO2RTC_URL ? (
-          <>Quelle: {safeHost(GO2RTC_URL)}</>
-        ) : (
-          "Demeter Stollenhof · Stallwache"
-        )}
+      <footer className="mt-auto flex flex-col items-center gap-3 pt-10">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/logo.svg"
+          alt="Oberer Stollenhof – seit 1497"
+          className="h-28 w-28 rounded-xl bg-white/95 p-2 ring-1 ring-white/10"
+        />
+        <p className="text-center text-[11px] text-white/30">
+          {GO2RTC_URL ? (
+            <>Quelle: {safeHost(GO2RTC_URL)}</>
+          ) : (
+            "Oberer Stollenhof · seit 1497"
+          )}
+        </p>
       </footer>
     </main>
   );
