@@ -1,3 +1,4 @@
+import Link from "next/link";
 import LivePlayer from "@/components/LivePlayer";
 import LiveClock from "@/components/LiveClock";
 import { GO2RTC_URL, isConfigured, STREAM_NAME } from "@/lib/config";
@@ -38,6 +39,22 @@ export default function Home() {
         <InfoCard label="Transport" value="WebRTC / HLS" />
         <InfoCard label="Bridge" value={isConfigured ? "konfiguriert" : "—"} />
       </section>
+
+      <Link
+        href="/stall3d"
+        className="mt-3 flex items-center justify-between rounded-xl bg-stall-card px-4 py-3.5 ring-1 ring-white/10 transition active:scale-[0.99]"
+      >
+        <span className="flex items-center gap-3">
+          <span className="text-xl">🧊</span>
+          <span>
+            <span className="block text-sm font-semibold">3D-Stall begehen</span>
+            <span className="block text-xs text-white/50">
+              Interaktiver Rundgang durch die Reihe
+            </span>
+          </span>
+        </span>
+        <span className="text-white/40">→</span>
+      </Link>
 
       {!isConfigured && (
         <div className="mt-6 rounded-xl border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-100">
