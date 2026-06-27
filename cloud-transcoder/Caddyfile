@@ -1,0 +1,15 @@
+# Auto-HTTPS-Reverse-Proxy vor go2rtc.
+# Liefert den Stream unter https://STREAM_DOMAIN aus (Let's Encrypt automatisch).
+# Optionaler Basic-Auth-Schutz: Zeile unten einkommentieren und Hash via
+#   docker run --rm caddy:2 caddy hash-password --plaintext 'DEIN_PASSWORT'
+# erzeugen.
+
+{$STREAM_DOMAIN} {
+	encode gzip
+
+	# basicauth {
+	#	stallwache JC_HASH_HIER_EINFUEGEN
+	# }
+
+	reverse_proxy localhost:1984
+}

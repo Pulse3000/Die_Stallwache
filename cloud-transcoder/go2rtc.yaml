@@ -1,0 +1,30 @@
+# go2rtc – RTSP -> WebRTC/HLS/MSE Transcoder fuer einen Cloud-VPS
+#
+# Holt den RTSP-Stream DIREKT von der Tapo TCA72 (ueber die Router-Portfreigabe
+# erreichbare oeffentliche Adresse) und liefert ihn browser-fertig aus –
+# ohne Geraet im Stall.
+#
+# Werte kommen aus .env (siehe .env.example). Niemals Klartext-Passwoerter
+# ins Repo committen.
+
+streams:
+  stallwache:
+    - rtsp://${TAPO_USER}:${TAPO_PASS}@${CAM_HOST}:${CAM_RTSP_PORT}/stream1
+  stallwache_sd:
+    - rtsp://${TAPO_USER}:${TAPO_PASS}@${CAM_HOST}:${CAM_RTSP_PORT}/stream2
+
+api:
+  listen: ":1984" # wird von Caddy via HTTPS nach aussen gereicht
+
+rtsp:
+  listen: ":8554"
+
+webrtc:
+  listen: ":8555"
+  candidates:
+    # Oeffentliche IP des VPS, damit WebRTC (niedrigste Latenz) klappt.
+    - ${VPS_PUBLIC_IP}:8555
+    - stun:8555
+
+log:
+  level: info

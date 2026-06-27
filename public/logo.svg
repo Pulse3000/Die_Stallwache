@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" fill="none">
+  <style>
+    .wm { fill:#6b3f1d; font-family: Georgia, 'Times New Roman', serif; }
+  </style>
+  <g fill="#6b3f1d">
+    <!-- ===== KUH (Profil, Kopf rechts) ===== -->
+    <!-- Schwanz -->
+    <path d="M122 162 c-8 2 -12 10 -11 24 c1 12 4 24 9 34 l4 -2 c-4 -10 -6 -21 -7 -32 c-1 -9 1 -16 6 -20 Z"/>
+    <path d="M120 216 c-3 5 -3 13 1 19 c3 -4 4 -11 2 -18 Z"/>
+    <!-- Hintere Beine -->
+    <rect x="148" y="178" width="9" height="62" rx="3.5"/>
+    <rect x="166" y="180" width="9" height="60" rx="3.5"/>
+    <!-- Vordere Beine -->
+    <rect x="224" y="176" width="9" height="64" rx="3.5"/>
+    <rect x="240" y="174" width="9" height="66" rx="3.5"/>
+    <!-- Koerper + Hals + Kopf (eine Silhouette) -->
+    <path d="M120 166
+             C118 150 132 140 156 138
+             C186 135 214 140 230 150
+             C236 138 246 129 258 126
+             C268 124 278 132 287 146
+             C291 152 290 161 285 167
+             C281 172 273 173 266 171
+             C258 177 248 180 238 181
+             C210 185 175 187 150 184
+             C134 183 122 176 120 166 Z"/>
+    <!-- Hoerner -->
+    <path d="M256 126 c1 -8 -2 -16 -9 -21 c2 8 2 15 1 22 Z"/>
+    <path d="M266 125 c4 -7 12 -11 21 -9 c-8 2 -13 7 -16 14 Z"/>
+    <!-- Ohr -->
+    <path d="M250 140 c-10 -3 -19 0 -24 7 c9 -1 17 1 23 6 Z"/>
+    <!-- Auge -->
+    <circle cx="272" cy="152" r="3" fill="#fff"/>
+    <circle cx="272" cy="152" r="1.5"/>
+    <!-- Nuestern -->
+    <circle cx="284" cy="160" r="1.6" fill="#fff"/>
+    <!-- Euter -->
+    <path d="M196 182 c5 0 8 4 8 9 c0 4 -3 7 -8 7 c-5 0 -8 -3 -8 -7 c0 -5 3 -9 8 -9 Z"/>
+    <!-- Flecken -->
+    <path d="M150 150 c12 -7 30 -8 44 -2 c-12 5 -28 5 -44 2 Z" opacity=".9"/>
+    <path d="M198 154 c10 -3 22 -2 30 3 c-10 3 -22 2 -30 -3 Z" opacity=".9"/>
+
+    <!-- ===== KALB (saugend, unter der Kuh) ===== -->
+    <!-- Beine -->
+    <rect x="180" y="216" width="6" height="28" rx="2"/>
+    <rect x="198" y="218" width="6" height="26" rx="2"/>
+    <!-- Koerper -->
+    <path d="M178 212
+             C180 200 192 194 206 196
+             C218 198 226 205 227 215
+             C231 216 233 220 231 224
+             C228 228 222 229 217 226
+             C208 231 195 231 185 226
+             C179 222 176 218 178 212 Z"/>
+    <!-- Kopf nach oben zum Euter -->
+    <path d="M186 210 c-6 -6 -6 -16 0 -22 c5 -5 14 -5 19 0 c-9 1 -16 7 -19 16 Z"/>
+  </g>
+
+  <!-- Wortmarke -->
+  <text x="200" y="300" text-anchor="middle" class="wm" font-size="62" font-weight="700" letter-spacing="1">Oberer</text>
+  <text x="200" y="352" text-anchor="middle" class="wm" font-size="58" font-weight="700" letter-spacing="0.5">Stollenhof</text>
+
+  <!-- seit · Milchflasche · 1497 -->
+  <g fill="#6b3f1d">
+    <text x="150" y="386" text-anchor="middle" class="wm" font-size="26" font-style="italic">seit</text>
+    <text x="252" y="386" text-anchor="middle" class="wm" font-size="26">1497</text>
+    <!-- Milchflasche -->
+    <path d="M196 366 h8 v4 l3 4 v18 a3 3 0 0 1 -3 3 h-11 a3 3 0 0 1 -3 -3 v-18 l3 -4 Z"
+          fill="none" stroke="#6b3f1d" stroke-width="2.4"/>
+    <rect x="190" y="376" width="20" height="5" fill="#6b3f1d" opacity=".5"/>
+    <!-- Weizen-Aehren -->
+    <path d="M120 372 C108 374 100 380 96 388 C106 388 114 384 120 378 Z"/>
+    <path d="M280 372 C292 374 300 380 304 388 C294 388 286 384 280 378 Z"/>
+  </g>
+</svg>

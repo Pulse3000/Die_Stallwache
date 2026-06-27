@@ -1,0 +1,30 @@
+{
+  "name": "die-stallwache",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KI-basierte Brunst- und Kalbueberwachung im Stall - Livestream-Webapp fuer die Tapo TCA72 Kamera",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "eslint-config-next": "^16.2.9",
+    "hls.js": "1.6.2",
+    "next": "^16.2.9",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "three": "^0.171.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.17.30",
+    "@types/react": "19.1.2",
+    "@types/react-dom": "19.1.2",
+    "@types/three": "^0.171.0",
+    "autoprefixer": "10.4.21",
+    "postcss": "8.5.3",
+    "tailwindcss": "3.4.17",
+    "typescript": "5.8.3"
+  }
+}
