@@ -1,0 +1,32 @@
+# go2rtc – RTSP -> WebRTC/HLS Bridge fuer die Tapo TCA72
+# Laeuft im Stall-Netzwerk (selber LAN wie die Kamera).
+#
+# Die Tapo TCA72 stellt zwei RTSP-Streams bereit (Kamera-Konto erforderlich,
+# in der Tapo-App unter "Erweiterte Einstellungen" -> "Kamerakonto" aktivieren):
+#   stream1 = HD  (Hauptstream)
+#   stream2 = SD  (niedrige Bandbreite, ideal fuer Mobilfunk)
+#
+# Zugangsdaten werden ueber Umgebungsvariablen injiziert (siehe docker-compose.yml),
+# damit keine Klartext-Passwoerter im Repo liegen.
+
+streams:
+  stallwache:
+    - rtsp://${TAPO_USER}:${TAPO_PASS}@${TAPO_IP}:554/stream1
+  stallwache_sd:
+    - rtsp://${TAPO_USER}:${TAPO_PASS}@${TAPO_IP}:554/stream2
+
+api:
+  listen: ":1984"
+
+rtsp:
+  listen: ":8554"
+
+webrtc:
+  listen: ":8555"
+  candidates:
+    # Bei reinem Cloudflare-Tunnel-Betrieb laeuft WebRTC ueber den TCP-Fallback.
+    # Fuer beste Latenz optional die oeffentliche IP + Portfreigabe 8555 eintragen.
+    - stun:8555
+
+log:
+  level: info

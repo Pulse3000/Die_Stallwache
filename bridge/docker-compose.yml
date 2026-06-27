@@ -1,0 +1,32 @@
+# Stallwache-Bridge: go2rtc + Cloudflare Tunnel
+#
+# Macht den lokalen RTSP-Stream der Tapo TCA72 24/7 oeffentlich per HTTPS
+# erreichbar – ohne Portfreigabe am Router.
+#
+# Start:   cd bridge && cp .env.example .env  (Werte eintragen) && docker compose up -d
+# Logs:    docker compose logs -f
+# Stop:    docker compose down
+
+services:
+  go2rtc:
+    image: alexxit/go2rtc:latest
+    container_name: stallwache-go2rtc
+    restart: unless-stopped
+    network_mode: host # noetig fuer WebRTC/RTSP im LAN
+    environment:
+      TAPO_IP: ${TAPO_IP}
+      TAPO_USER: ${TAPO_USER}
+      TAPO_PASS: ${TAPO_PASS}
+    volumes:
+      - ./go2rtc.yaml:/config/go2rtc.yaml:ro
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: stallwache-tunnel
+    restart: unless-stopped
+    network_mode: host
+    # Token aus dem Cloudflare-Zero-Trust-Dashboard (Named Tunnel).
+    # Public Hostname dort auf service http://localhost:1984 zeigen lassen.
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - go2rtc
