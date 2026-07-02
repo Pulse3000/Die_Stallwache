@@ -2,9 +2,30 @@
 
 **KI-basierte Brunst- und Kalbüberwachung im Stall.**
 
-Eine schlanke, mobil-optimierte Webapp, die den Livestream der **Tapo TCA72**
-Stallkamera zeigt – als erste Stufe des Projekts (später: KI-Erkennung von
-Brunst & Kalbung, vgl. den [Stallsimulator](https://stollenhof.vercel.app/stallsimulator)).
+Eine schlanke, mobil-optimierte Webapp – als erste Stufe des Projekts
+(später: KI-Erkennung von Brunst & Kalbung, vgl. den
+[Stallsimulator](https://stollenhof.vercel.app/stallsimulator)).
+
+## Stallblick – 2 Kameras auf einen Blick
+
+Der Startscreen ist **Stallblick**: ein schneller, ruhiger Überblick über
+zwei Stallkameras.
+
+* **Stallwache** = Hauptkamera (großes Livebild, WebRTC/HLS, lädt zuerst)
+* **Futterwache** = Zweitkamera (leichte Vorschau per Snapshot-Refresh –
+  bewusst kein zweiter Live-Stream auf dem Startscreen)
+
+Modulreihenfolge: Header → Hauptkamera → Zweitkamera → *Status auf einen
+Blick* (4 Kacheln) → *Schnellaktionen* (immer bezogen auf die aktuell große
+Kamera) → *Letzte Ereignisse* (nachgelagert geladen).
+
+* **Tauschen** / **Als Hauptbild**: Rollenwechsel ohne Seiten-Neuaufbau –
+  nur die Kamera-Container werden neu gebunden.
+* **Vollbild**: Tipp auf das Hauptbild bzw. Button; reines CSS auf dem
+  bestehenden Container, der Stream läuft ununterbrochen weiter. Rückkehr
+  per *Zurück* (oder Escape), der Zustand des Screens bleibt erhalten.
+* Statusblock und Ereignisliste rendern unabhängig vom Videostream und
+  blockieren den initialen Bildaufbau nicht.
 
 ---
 
@@ -70,8 +91,9 @@ npm run dev      # lokal: http://localhost:3000
 ```
 
 **Deploy auf Vercel:** Repo importieren und die Umgebungsvariable
-`NEXT_PUBLIC_GO2RTC_URL` (und optional `NEXT_PUBLIC_STREAM_NAME`) setzen –
-fertig. Die App ist als PWA installierbar (Homescreen).
+`NEXT_PUBLIC_GO2RTC_URL` (und optional `NEXT_PUBLIC_STREAM_NAME` für die
+Stallwache sowie `NEXT_PUBLIC_STREAM_NAME_FUTTERWACHE` für die Futterwache)
+setzen – fertig. Die App ist als PWA installierbar (Homescreen).
 
 ---
 
@@ -79,9 +101,11 @@ fertig. Die App ist als PWA installierbar (Homescreen).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `app/` | Next.js App Router – Livestream-Seite (mobil optimiert) |
-| `components/LivePlayer.tsx` | WebRTC-Player mit automatischem HLS-Fallback |
-| `lib/config.ts` | go2rtc-Endpunkte aus Umgebungsvariablen |
+| `app/` | Next.js App Router – Stallblick-Startscreen (mobil optimiert) |
+| `components/StallblickApp.tsx` | Startscreen: Kamera-Karten, Rollenwechsel, Vollbild |
+| `components/LivePlayer.tsx` | WebRTC-Player mit automatischem HLS-Fallback (Hauptkamera) |
+| `components/PreviewPlayer.tsx` | Snapshot-Vorschau der Zweitkamera (alle 5 s) |
+| `lib/config.ts` | Kameras & go2rtc-Endpunkte aus Umgebungsvariablen |
 | `bridge/` | go2rtc + Cloudflare Tunnel (Docker Compose) für das Stall-Netz |
 
 ## Live

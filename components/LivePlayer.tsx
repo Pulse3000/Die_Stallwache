@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import { hlsUrl, isConfigured, webrtcUrl } from "@/lib/config";
+import type { CameraState } from "@/lib/state";
 
 type Status = "idle" | "connecting" | "live" | "error" | "unconfigured";
 
@@ -14,6 +15,20 @@ const STATUS_LABEL: Record<Status, string> = {
   unconfigured: "Warte auf Bridge",
 };
 
+function toCameraState(s: Status): CameraState {
+  switch (s) {
+    case "live":
+      return "online";
+    case "idle":
+    case "connecting":
+      return "laedt";
+    case "error":
+      return "instabil";
+    case "unconfigured":
+      return "offline";
+  }
+}
+
 function fmtUptime(sec: number): string {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
@@ -21,15 +36,27 @@ function fmtUptime(sec: number): string {
   return [h, m, s].map((n) => String(n).padStart(2, "0")).join(":");
 }
 
+type Props = {
+  /** Name des go2rtc-Streams, der abgespielt werden soll. */
+  streamName: string;
+  /** Meldet den Kamera-State (online/offline/lädt/instabil) an den Screen. */
+  onStateChange?: (state: CameraState) => void;
+};
+
 /**
- * Live-Player fuer den go2rtc-Stream.
+ * Live-Player fuer einen go2rtc-Stream (Hauptkamera, hoechste Prioritaet).
  * Primaer WebRTC (niedrige Latenz, < 1 s), automatischer Fallback auf HLS,
  * automatischer Reconnect mit Backoff und Uptime-Anzeige.
  *
  * Die gesamte Verbindungslogik laeuft ueber Refs, damit der Effekt nur einmal
  * startet und ein Transportwechsel (WebRTC -> HLS) keinen Neustart ausloest.
+ * Beim Rollenwechsel wird die Komponente ueber `key={streamName}` sauber neu
+ * gebunden – der umgebende Karten-Container bleibt bestehen.
+ *
+ * Mit `memo` exportiert: Status- und Feature-Updates des Screens loesen
+ * keinen Re-Render des Livebildbereichs aus.
  */
-export default function LivePlayer() {
+function LivePlayer({ streamName, onStateChange }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -38,13 +65,22 @@ export default function LivePlayer() {
   const liveSinceRef = useRef<number | null>(null);
   const transportRef = useRef<"WebRTC" | "HLS" | null>(null);
   const disposedRef = useRef(false);
+  const onStateChangeRef = useRef(onStateChange);
+  onStateChangeRef.current = onStateChange;
 
-  const [status, setStatus] = useState<Status>(
+  const [status, setStatusRaw] = useState<Status>(
     isConfigured ? "idle" : "unconfigured",
   );
   const [transport, setTransport] = useState<"WebRTC" | "HLS" | null>(null);
-  const [muted, setMuted] = useState(true);
   const [uptime, setUptime] = useState(0);
+
+  const setStatus = (next: Status | ((s: Status) => Status)) => {
+    setStatusRaw((prev) => {
+      const value = typeof next === "function" ? next(prev) : next;
+      if (value !== prev) onStateChangeRef.current?.(toCameraState(value));
+      return value;
+    });
+  };
 
   // Alle Routinen liegen in Refs -> stabile Identitaet, keine Render-Loops.
   const fns = useRef({
@@ -90,7 +126,7 @@ export default function LivePlayer() {
       const video = videoRef.current;
       if (!video) return;
       setTransportBoth("HLS");
-      const url = hlsUrl();
+      const url = hlsUrl(streamName);
 
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = url; // Safari / iOS: natives HLS
@@ -153,7 +189,7 @@ export default function LivePlayer() {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
 
-        const res = await fetch(webrtcUrl(), {
+        const res = await fetch(webrtcUrl(streamName), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ type: "offer", sdp: offer.sdp }),
@@ -180,6 +216,9 @@ export default function LivePlayer() {
 
     // Einmaliger Start beim Mount.
     disposedRef.current = false;
+    onStateChangeRef.current?.(
+      toCameraState(isConfigured ? "connecting" : "unconfigured"),
+    );
     fns.current.connect();
 
     const ticker = setInterval(() => {
@@ -193,118 +232,84 @@ export default function LivePlayer() {
       clearInterval(ticker);
       fns.current.teardown();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamName]);
 
   const manualRetry = () => {
     attemptsRef.current = 0;
     fns.current.connect();
   };
 
-  const toggleMute = () => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.muted = !v.muted;
-    setMuted(v.muted);
-  };
-
-  const enterFullscreen = () => {
-    const v = videoRef.current as
-      | (HTMLVideoElement & { webkitEnterFullscreen?: () => void })
-      | null;
-    if (!v) return;
-    if (v.requestFullscreen) v.requestFullscreen().catch(() => {});
-    else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
-  };
-
   const isLive = status === "live";
   const waiting = status === "error" || status === "unconfigured";
 
   return (
-    <div className="w-full">
-      <div className="relative w-full overflow-hidden rounded-2xl bg-black shadow-2xl ring-1 ring-white/10 aspect-video">
-        <video
-          ref={videoRef}
-          className="h-full w-full object-contain"
-          playsInline
-          autoPlay
-          muted={muted}
-          controls={false}
+    <div className="absolute inset-0">
+      <video
+        ref={videoRef}
+        className="h-full w-full object-contain"
+        playsInline
+        autoPlay
+        muted
+        controls={false}
+      />
+
+      {waiting && <WaitingScene />}
+
+      <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold">
+        <span
+          className={`inline-block h-2.5 w-2.5 rounded-full ${
+            isLive
+              ? "bg-stall-accent shadow-[0_0_8px] shadow-stall-accent"
+              : status === "error"
+                ? "bg-red-500"
+                : status === "unconfigured"
+                  ? "bg-sky-400"
+                  : "animate-pulse bg-amber-400"
+          }`}
         />
+        {STATUS_LABEL[status]}
+        {transport && isLive ? (
+          <span className="text-white/50">· {transport}</span>
+        ) : null}
+      </div>
 
-        {waiting && <WaitingScene />}
-
-        <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold backdrop-blur">
-          <span
-            className={`inline-block h-2.5 w-2.5 rounded-full ${
-              isLive
-                ? "animate-pulse bg-stall-accent shadow-[0_0_8px] shadow-stall-accent"
-                : status === "error"
-                  ? "bg-red-500"
-                  : status === "unconfigured"
-                    ? "bg-sky-400"
-                    : "animate-pulse bg-amber-400"
-            }`}
-          />
-          {STATUS_LABEL[status]}
-          {transport && isLive ? (
-            <span className="text-white/50">· {transport}</span>
-          ) : null}
+      {isLive && (
+        <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-black/70 px-3 py-1 font-mono text-xs text-white/70">
+          {fmtUptime(uptime)}
         </div>
+      )}
 
-        {isLive && (
-          <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-black/60 px-3 py-1 font-mono text-xs text-white/70 backdrop-blur">
-            {fmtUptime(uptime)}
-          </div>
-        )}
-
-        {waiting && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-            <p className="max-w-sm text-sm text-white/80">
-              {status === "unconfigured"
-                ? "Die Webapp läuft. Sobald die go2rtc-Bridge im Stall verbunden ist, erscheint hier automatisch das Live-Bild."
-                : "Stream nicht erreichbar – versuche automatisch erneut zu verbinden. Läuft die Bridge & der Cloudflare-Tunnel?"}
-            </p>
-            <button
-              onClick={manualRetry}
-              className="rounded-lg bg-stall-accent px-4 py-2 text-sm font-semibold text-black transition active:scale-95"
-            >
-              Jetzt verbinden
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <button
-          onClick={manualRetry}
-          className="rounded-xl bg-stall-card px-3 py-3 text-sm font-semibold ring-1 ring-white/10 transition active:scale-95"
-        >
-          ↻ Verbinden
-        </button>
-        <button
-          onClick={toggleMute}
-          className="rounded-xl bg-stall-card px-3 py-3 text-sm font-semibold ring-1 ring-white/10 transition active:scale-95"
-        >
-          {muted ? "🔇 Ton an" : "🔊 Ton aus"}
-        </button>
-        <button
-          onClick={enterFullscreen}
-          className="rounded-xl bg-stall-card px-3 py-3 text-sm font-semibold ring-1 ring-white/10 transition active:scale-95"
-        >
-          ⛶ Vollbild
-        </button>
-      </div>
+      {waiting && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+          <p className="max-w-sm text-sm text-white/80">
+            {status === "unconfigured"
+              ? "Sobald die go2rtc-Bridge im Stall verbunden ist, erscheint hier automatisch das Live-Bild."
+              : "Stream nicht erreichbar – versuche automatisch erneut zu verbinden."}
+          </p>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              manualRetry();
+            }}
+            className="rounded-lg bg-stall-accent px-4 py-2 text-sm font-semibold text-black transition active:scale-95"
+          >
+            Jetzt verbinden
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-/** Dezent animierte „Stall"-Szene als Platzhalter, solange kein Live-Bild da ist. */
+/** Ruhige Platzhalter-Szene, solange kein Live-Bild da ist. */
 function WaitingScene() {
   return (
     <div className="absolute inset-0 overflow-hidden bg-gradient-to-b from-slate-800 via-slate-900 to-black">
       <div className="absolute inset-0 opacity-30 [background-image:radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.15)_1px,transparent_0)] [background-size:22px_22px]" />
-      <div className="absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full border border-stall-accent/40 [animation:ping_2.4s_cubic-bezier(0,0,0.2,1)_infinite]" />
       <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-stall-accent/80" />
     </div>
   );
 }
+
+export default memo(LivePlayer);
