@@ -1,10 +1,13 @@
-# 🐄 Die Stallwache
+# 🐄 Stallblick
 
-**KI-basierte Brunst- und Kalbüberwachung im Stall.**
+**Schneller, ruhiger Überblick über zwei Stallkameras.**
 
-Eine schlanke, mobil-optimierte Webapp, die den Livestream der **Tapo TCA72**
-Stallkamera zeigt – als erste Stufe des Projekts (später: KI-Erkennung von
-Brunst & Kalbung, vgl. den [Stallsimulator](https://stollenhof.vercel.app/stallsimulator)).
+Eine schlanke, mobil-optimierte Kamera-Mini-App: **Stallwache** (Hauptkamera,
+standardmäßig groß, WebRTC/HLS-Livestream) und **Futterwache** (Zweitkamera,
+ressourcenschonende Snapshot-Vorschau). Rollenwechsel per „Tauschen" /
+„Als Hauptbild" bindet nur die Kamera-Container um – kein Seiten-Neuaufbau.
+Vollbild, Snapshot, kompakter Statusblock und nachgelagert geladene
+Ereignisliste inklusive.
 
 ---
 
@@ -70,8 +73,9 @@ npm run dev      # lokal: http://localhost:3000
 ```
 
 **Deploy auf Vercel:** Repo importieren und die Umgebungsvariable
-`NEXT_PUBLIC_GO2RTC_URL` (und optional `NEXT_PUBLIC_STREAM_NAME`) setzen –
-fertig. Die App ist als PWA installierbar (Homescreen).
+`NEXT_PUBLIC_GO2RTC_URL` (und optional `NEXT_PUBLIC_STREAM_NAME` sowie
+`NEXT_PUBLIC_STREAM_NAME_2` für die Futterwache) setzen – fertig.
+Die App ist als PWA installierbar (Homescreen).
 
 ---
 
@@ -79,9 +83,10 @@ fertig. Die App ist als PWA installierbar (Homescreen).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `app/` | Next.js App Router – Livestream-Seite (mobil optimiert) |
-| `components/LivePlayer.tsx` | WebRTC-Player mit automatischem HLS-Fallback |
-| `lib/config.ts` | go2rtc-Endpunkte aus Umgebungsvariablen |
+| `app/` | Next.js App Router – Stallblick-Startseite (mobil optimiert) |
+| `components/StallblickApp.tsx` | Hauptscreen: Kamera-Karten, Rollenwechsel, Vollbild, Status, Ereignisse |
+| `components/CameraStream.tsx` | Kamera-Container: WebRTC/HLS (Hauptbild) bzw. Snapshot-Polling (Vorschau) |
+| `lib/config.ts` | Kamera- & go2rtc-Konfiguration aus Umgebungsvariablen |
 | `bridge/` | go2rtc + Cloudflare Tunnel (Docker Compose) für das Stall-Netz |
 
 ## Live

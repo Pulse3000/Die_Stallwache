@@ -14,6 +14,11 @@ streams:
     - rtsp://${TAPO_USER}:${TAPO_PASS}@${TAPO_IP}:554/stream1
   stallwache_sd:
     - rtsp://${TAPO_USER}:${TAPO_PASS}@${TAPO_IP}:554/stream2
+  # Zweitkamera "Futterwache" (Vorschau in Stallblick)
+  futterwache:
+    - rtsp://${FUTTER_USER}:${FUTTER_PASS}@${FUTTER_IP}:554/stream1
+  futterwache_sd:
+    - rtsp://${FUTTER_USER}:${FUTTER_PASS}@${FUTTER_IP}:554/stream2
 
 api:
   listen: ":1984"

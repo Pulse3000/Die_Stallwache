@@ -17,6 +17,9 @@ services:
       TAPO_IP: ${TAPO_IP}
       TAPO_USER: ${TAPO_USER}
       TAPO_PASS: ${TAPO_PASS}
+      FUTTER_IP: ${FUTTER_IP:-}
+      FUTTER_USER: ${FUTTER_USER:-}
+      FUTTER_PASS: ${FUTTER_PASS:-}
     volumes:
       - ./go2rtc.yaml:/config/go2rtc.yaml:ro
 

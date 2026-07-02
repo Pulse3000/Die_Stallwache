@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Die Stallwache – Livestream",
+  title: "Stallblick",
   description:
-    "KI-basierte Brunst- und Kalbueberwachung im Stall. Livestream der Tapo TCA72 Kamera.",
+    "Schneller, ruhiger Ueberblick ueber zwei Stallkameras: Stallwache (Hauptkamera) und Futterwache (Vorschau).",
   manifest: "/manifest.webmanifest",
   icons: { icon: "/logo-mark.svg", apple: "/logo-mark.svg" },
 };
