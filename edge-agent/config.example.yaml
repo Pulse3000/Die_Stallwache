@@ -1,0 +1,51 @@
+# Konfiguration des Stallblick-Edge-Agenten (Brunst- & Kalbeerkennung).
+# Kopieren nach config.yaml und Werte anpassen:  cp config.example.yaml config.yaml
+
+stream:
+  # go2rtc stellt neben WebRTC/HLS auch einen RTSP-Restream bereit (Port 8554).
+  # IP des Bridge-Rechners im Stall-LAN eintragen:
+  url: rtsp://192.168.178.50:8554/stallwache
+  # Fallback, falls RTSP nicht klappt: Snapshot-Polling ueber die go2rtc-API.
+  fallback_snapshot_url: http://192.168.178.50:1984/api/frame.jpeg?src=stallwache
+  # Kamera-Name fuer Meldungen (stallwache | futterwache)
+  kamera: stallwache
+  # 1 Frame/Sekunde reicht voellig: Kalbeanzeichen entwickeln sich ueber
+  # Minuten – so laeuft die Analyse auch auf einem alten Laptop ohne GPU.
+  ziel_fps: 1.0
+
+modell:
+  # Pfad zum trainierten YOLO-Pose-Modell (best.pt aus dem Colab-Training).
+  # Leer lassen -> Silent Mode: Agent sammelt nur Trainingsbilder.
+  pfad: ""
+  # Keypoint-Indizes im eigenen Modell (Reihenfolge aus dem CVAT-Skeleton).
+  keypoints:
+    spine_end: 0   # Nacken / Ruecken
+    tail_base: 1   # Schwanzansatz
+    tail_tip: 2    # Schwanzspitze
+  # Klassen-Indizes der Objekterkennung
+  klassen:
+    kuh: 0
+    amniotic_sac: 1  # Fruchtblase
+    calf_legs: 2     # Kaelberfuesse
+
+logik:
+  winkel_schwelle_grad: 45     # Schwanzwinkel-Schwelle
+  fenster_minuten: 30          # rollierendes Zeitfenster
+  anteil_schwelle: 0.20        # >20 % der Frames ueber Schwelle -> Kalbeverdacht
+  override_konfidenz: 0.80     # Fruchtblase/Fuesse ab dieser Konfidenz -> Sofort-Alarm
+  brunst_min_dauer_s: 4        # Aufsprung muss so lange anhalten (filtert Spielverhalten)
+
+telegram:
+  token: ""        # von @BotFather
+  chat_id: ""      # von @userinfobot
+  cooldown_minuten: 15
+
+dashboard:
+  # Stallblick-KI-Wache auf Vercel; leer lassen zum Deaktivieren.
+  url: https://die-stallwache.vercel.app/api/events
+  token: ""        # muss EDGE_INGEST_TOKEN in Vercel entsprechen
+
+silent_mode:
+  # Ohne Modell werden regelmaessig Bilder fuer das spaetere Training gesammelt.
+  ordner: ./aufnahmen
+  intervall_sekunden: 120

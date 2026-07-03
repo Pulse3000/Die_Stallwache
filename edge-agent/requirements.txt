@@ -1,0 +1,12 @@
+# Stallblick Edge-Agent – Brunst- & Kalbeerkennung
+# Getestet mit Python 3.10+. CPU reicht (1 FPS); GPU optional.
+
+opencv-python>=4.9,<5
+numpy>=1.26,<3
+requests>=2.31,<3
+PyYAML>=6.0,<7
+
+# KI-Inferenz (YOLO-Pose + ByteTrack-Tracking). Erst noetig, wenn ein
+# trainiertes Modell (best.pt) vorliegt – der Silent Mode laeuft auch ohne.
+ultralytics>=8.2,<9
+lapx>=0.5.5           # Zuordnungsloeser fuer ByteTrack

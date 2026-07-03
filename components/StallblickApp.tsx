@@ -295,8 +295,22 @@ export default function StallblickApp() {
           </div>
         </section>
 
+        {/* KI-Wache: Brunst- & Kalbeerkennung (eigene Seite, laedt nichts vor) */}
+        <a
+          href="/wache"
+          className="order-5 flex items-center justify-between rounded-xl bg-stall-card px-3 py-3 text-sm font-semibold ring-1 ring-white/10 transition-colors active:bg-white/10"
+        >
+          <span>
+            KI-Wache
+            <span className="ml-2 text-xs font-normal text-white/50">
+              Brunst- &amp; Kalbeerkennung
+            </span>
+          </span>
+          <span className="text-white/40">→</span>
+        </a>
+
         {/* 6 · Letzte Ereignisse – nachgelagert geladen */}
-        <section aria-label="Letzte Ereignisse" className="order-5">
+        <section aria-label="Letzte Ereignisse" className="order-6">
           <p className="mb-1.5 text-[10px] uppercase tracking-wider text-white/40">
             Letzte Ereignisse
           </p>

@@ -87,6 +87,8 @@ Die App ist als PWA installierbar (Homescreen).
 | `components/StallblickApp.tsx` | Hauptscreen: Kamera-Karten, Rollenwechsel, Vollbild, Status, Ereignisse |
 | `components/CameraStream.tsx` | Kamera-Container: WebRTC/HLS (Hauptbild) bzw. Snapshot-Polling (Vorschau) |
 | `lib/config.ts` | Kamera- & go2rtc-Konfiguration aus Umgebungsvariablen |
+| `app/wache/` + `app/api/events/` | **KI-Wache**: Alarm-Dashboard & Ingest-API für Brunst-/Kalbeerkennung |
+| `edge-agent/` | Python-Agent (YOLO-Pose + ByteTrack): Kalbe-/Brunsterkennung lokal im Stall, Telegram-Alarm |
 | `bridge/` | go2rtc + Cloudflare Tunnel (Docker Compose) für das Stall-Netz |
 
 ## Live
@@ -102,6 +104,7 @@ Next.js 16 (App Router) · React 19 · Tailwind CSS · hls.js · go2rtc · Cloud
 
 ## Roadmap
 
-1. ✅ **Livestream 24/7 abrufbar** (dieses Repo, Webapp live auf Vercel; Wiedergabe-Pipeline end-to-end mit Headless-Chromium verifiziert)
-2. ⏳ KI-Erkennung Brunst & Kalbung (YOLO-basiert, vgl. Stallsimulator)
-3. ⏳ Alarmierung (z. B. Telegram) bei erkannten Ereignissen
+1. ✅ **Livestream 24/7 abrufbar** (Webapp live auf Vercel; Wiedergabe-Pipeline end-to-end mit Headless-Chromium verifiziert)
+2. ✅ **KI-Erkennung Brunst & Kalbung** – Edge-Agent in `/edge-agent` (YOLOv8-Pose + ByteTrack, Schwanzwinkel-Zeitfilter, Fruchtblasen-Override, Aufsprung-Heuristik) + KI-Wache-Dashboard unter `/wache`
+3. ✅ **Alarmierung** – Telegram-Bot (Foto + Warnung, 15-Min-Cooldown) und Dashboard-Ingest (`POST /api/events`, Token-gesichert)
+4. ⏳ Eigenes Modell trainieren (Silent Mode → CVAT-Labeling → Colab-Training, Anleitung in `edge-agent/README.md`)
