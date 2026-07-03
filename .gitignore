@@ -10,3 +10,9 @@ next-env.d.ts
 .DS_Store
 .vercel
 .env*
+
+# Python (edge-agent)
+__pycache__/
+*.pyc
+edge-agent/config.yaml
+edge-agent/aufnahmen/
