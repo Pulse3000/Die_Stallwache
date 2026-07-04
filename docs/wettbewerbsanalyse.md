@@ -15,6 +15,12 @@ Colab-Training, Telegram, Vercel-Dashboard).
 | **smaXtec** | Pansen-Bolus (invasiv) | Brunst, Gesundheit, Kalbung (Körpertemperatur) | ~1.200–2.000 € einmalig + ~43 €/Kuh/Jahr |
 | **SenseHub (Allflex)** | Ohrmarke/Halsband | Brunst, Gesundheit | 19–28 €/Kuh/Jahr |
 | **Moocall** | Schwanz-Sensor (angeklemmt) | Kalbung (Schwanzbewegung) | ~300 €/Sensor + Datentarif |
+| **dsp-Agrosoft COW-AI** | Kamera über Laufgang (4,5–6 m) + Ohrmarken-Kamera zur Tier-ID | Lahmheit (automatisch, im Laufbereich) | Abo-Modell, Preis auf Anfrage |
+| **DeLaval BCS-Kamera** | 3D-Kamera über Selektionstor/VMS-Ausgang | Body Condition Score (täglich, automatisch) | Gerätekauf + DelPro-Bindung, Preis über Händler |
+| **CowManager** | Ohrsensor (Temperatur, Wiederkauen, Aktivität) | Brunst, Gesundheit (1–2 Tage Vorlauf), Transition | ~30 €/Sensor + Abo pro Kuh/Monat je Modul |
+| **Nedap CowControl** | Hals-/Fußband-SmartTag + Ortungs-Infrastruktur | Brunst inkl. Besamungszeitpunkt, Gesundheit, Kuh-Ortung | ~118 €/Tier (Tag) + Infrastruktur |
+| **HerdVision** | Stereo-3D-Kamera am Melkstand-Ausgang, EID-Tag-ID | BCS + Mobility-/Lahmheits-Score, Trend-Reports | ~£5.900 + Abo (1. Jahr frei) |
+| **VikingGenetics CowFIT** | 3D-Kamera + Deep Learning, berührungslose Waage | Tiergewicht täglich (Energiebilanz) | Kommerzielles System, Preis auf Anfrage |
 
 Kommerzielle Kamera-Komplettsysteme liegen laut Wissenspaket bei **45.000–75.000 €**
 Investition; Sensor-Systeme kosten laufend pro Kuh. Der DIY-Ansatz (dieses Repo)
@@ -36,6 +42,19 @@ pro Kuh und Jahr amortisiert er sich sofort.
 4. **Forschung Brunsterkennung: Zwei-Kamera-Fusion** (Ensemble zweier
    Blickwinkel steigert die Duldungs-Erkennung deutlich). Wir *haben* zwei
    Kameras (Stallwache + Futterwache). → **übernehmen (P2)**.
+5. **CowManager: Transition-Monitor** (erhöhte Wachsamkeit um den
+   Geburtstermin). Stallblick-Übersetzung: manueller **„Wach-Modus"** pro
+   Bucht — Landwirt schaltet die Abkalbebucht ~14 Tage vor Termin scharf,
+   niedrigere Schwellen nur dort. → **übernehmen (P2)**.
+6. **HerdVision: Trends statt Momentaufnahmen** (wöchentliche Score-Verläufe).
+   Ein 7-Tage-Aktivitäts-Trend je Bucht aus persistierten Events ist fast
+   gratis ableitbar. → **Roadmap (P3, setzt Persistenz voraus)**.
+7. **CowFIT/CattleEye: Peer-Review als Vertrauensargument.** Der
+   Open-Source-Gegenzug: eigene Precision/Recall-Werte auf annotierten
+   Stall-Clips transparent im Repo dokumentieren. → **übernehmen (P3)**.
+8. **Nedap: Ortung als Verkaufsschlager.** Stallblick markiert die Position
+   bereits per Bounding-Box im Alarmbild — gehört in die Kommunikation,
+   nicht in neue Features.
 
 ## 3. Was wir bewusst NICHT machen
 
@@ -46,6 +65,10 @@ pro Kuh und Jahr amortisiert er sich sofort.
 - **Keine Hardware-Verkäufe**: Anleitung statt Gerät („bring your own Rechner").
 - **Kein Feature-Zoo im Dashboard**: Stallblick-Prinzip „Ruhe vor Fülle" gilt
   auch für die KI-Wache — Alarme müssen in 3 Sekunden erfassbar sein.
+- **Keine BCS-/Gewichtsschätzung**: braucht 3D-Kameras bzw. kalibrierte
+  Messpunkte — verletzt „vorhandene Hardware" (DeLaval/HerdVision/CowFIT-Terrain).
+- **Keine tierindividuelle ID**: dsp-Agrosoft löst das mit einer zweiten
+  Ohrmarken-Kamera; Stallblick bleibt ehrlich **buchtbasiert** in der Alarmierung.
 
 ## 4. Produktentscheidungen (priorisiert)
 
@@ -56,6 +79,9 @@ pro Kuh und Jahr amortisiert er sich sofort.
 | **P2** | **Bildserie am Alarm** (3–5 Frames per Telegram-Album) | Ever.Ag; Fehlalarm-Triage am Handy |
 | **P2** | **Zwei-Kamera-Brunst-Fusion**: Aufsprung nur melden, wenn von der Zweitkamera plausibilisiert (falls beide dieselbe Bucht sehen) | Forschungsstand; halbiert Fehlalarme |
 | **P2** | **Täglicher Telegram-Digest** (1 Nachricht: Ereignisse, Agent-Uptime, Bildkontingent) | smaXtec/SenseHub-Apps; Vertrauen durch Routine |
+| **P2** | **Wach-Modus pro Bucht**: manuell scharfschalten ~14 Tage vor Kalbetermin → gesenkte Schwellen/dichtere Frames nur dort | CowManager Transition-Monitor; nur ein Config-Flag, konform mit „Ruhe vor Fülle" |
+| **P3** | **7-Tage-Aktivitäts-Trend je Bucht** (Sparkline aus persistierten Events) | HerdVision „Trends statt Momentaufnahmen"; setzt P1-Persistenz voraus |
+| **P3** | **Öffentliche Erkennungs-Metriken** (Precision/Recall auf annotierten Stall-Clips im Repo) | Peer-Review-Argument von CowFIT/CattleEye als Open-Source-Version; stärkstes Vertrauens-Feature gegen Blackbox-Abos |
 | **P3** | **Lahmheits-Frühwarnung** aus Rückenlinien-Winkel | CattleEye; Keypoints vorhanden, braucht aber eigene Validierung |
 | **P3** | **BCS-Schätzung** (Body Condition) | DeLaval/CattleEye; erst nach stabilem Kalbe-/Brunst-Betrieb |
 
@@ -74,3 +100,11 @@ pro Kuh und Jahr amortisiert er sich sofort.
 - [agrarheute: Brunsterkennung beim Rind – 11 Systeme im Überblick](https://www.agrarheute.com/tier/rind/brunsterkennung-beim-rind-11-systeme-ueberblick-575155)
 - [smaXtec – Früherkennung mit Bolus-Technologie](https://www.smaxtec.com/de/)
 - [Elite Magazin: Elf Sensoren unter der Lupe](https://www.elite-magazin.de/tiergesundheit/elf-sensoren-unter-der-lupe-23262.html)
+- [dsp-Agrosoft COW-AI](https://www.dsp-agrosoft.de/produkte/cowai/)
+- [DeLaval BCS-Kamera](https://www.delaval.com/de/unsere-losungen/farmmanagement/delaval-delpro/delaval-body-condition-scoring-kamera-bcs/)
+- [CowManager: System & Preise](https://www.cowmanager.com/cow-management/pricing-options/)
+- [Nedap CowControl](https://nedap-livestockmanagement.com/de/losungen/nedap-cowcontrol/)
+- [LK NÖ: Wenn die Technik die Brunsterkennung übernimmt (Praxistest)](https://noe.lko.at/wenn-die-technik-die-brunsterkennung-%C3%BCbernimmt+2400+3425060)
+- [HerdVision (AgSenze)](https://herd.vision/)
+- [VikingGenetics CowFIT](https://www.vikinggenetics.com/products-solutions/cowfit)
+- [DLG: EuroTier 2024 – Trends in der Tierhaltungstechnik](https://www.dlg.org/detail/eurotier-2024-trends-in-der-tierhaltungstechnik)

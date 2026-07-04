@@ -253,6 +253,13 @@ class LogicEngine:
         self.brunst_dauer = float(lg["brunst_min_dauer_s"])
         self.eskalation_s = float(lg.get("eskalation_minuten", 60)) * 60
         self.min_stichprobe = 20  # so viele Frames noetig, bevor der Filter urteilt
+        # Wach-Modus (kurz vor Kalbetermin): empfindlichere Schwellen nur dann,
+        # wenn der Landwirt ihn bewusst scharfschaltet.
+        if lg.get("wach_modus"):
+            self.anteil_schwelle *= 0.5
+            self.brunst_dauer = max(2.0, self.brunst_dauer * 0.5)
+            self.min_stichprobe = 10
+            log.info("Wach-Modus aktiv: gesenkte Alarm-Schwellen.")
 
     def bewerte(
         self, kuehe: list[KuhBeobachtung], objekte: list[ObjektErkennung]

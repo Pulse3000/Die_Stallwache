@@ -118,6 +118,7 @@ sudo systemctl enable --now stallblick-agent
 | **Brunstverdacht** | Aufsprung: zwei Kuh-Boxen überlappen (IoU > 0.15), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert Spielverhalten) | Telegram + Dashboard |
 | Anti-Spam | **15 Min Cooldown** pro Kuh-ID und Alarmtyp | – |
 | Bildserie | Jeder Alarm sendet die **letzten 4 Frames als Telegram-Album** (`bildserie_frames`) | Fehlalarm-Triage direkt am Handy |
+| Wach-Modus | `logik.wach_modus: true` ~14 Tage vor Kalbetermin: halbierte Schwellen, frühere Verdachtsalarme | erhöhte Wachsamkeit nur, wenn bewusst scharfgeschaltet |
 
 Tracking über **ByteTrack** (in Ultralytics integriert) hält die Kuh-Identität
 („Kuh #42") über die Zeit stabil – Grundlage des Zeitfilters.
