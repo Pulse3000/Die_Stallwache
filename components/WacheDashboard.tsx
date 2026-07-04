@@ -196,6 +196,11 @@ export default function WacheDashboard() {
             Alarm, Zeitfilter wird übersprungen.
           </p>
           <p className="mt-1.5">
+            <span className="font-semibold text-white/80">Eskalation:</span>{" "}
+            Austreibung ohne Fortschritt nach 60 Minuten – dringender
+            Kontroll-Alarm (Komplikationsverdacht).
+          </p>
+          <p className="mt-1.5">
             <span className="font-semibold text-white/80">Brunstverdacht:</span>{" "}
             Aufsprung-/Duldungsverhalten über mehrere Sekunden.
           </p>

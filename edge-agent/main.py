@@ -239,6 +239,10 @@ class LogicEngine:
     puffer: dict[int, deque] = field(default_factory=lambda: defaultdict(deque))
     # laufende Aufsprung-Kandidaten: (id_oben, id_unten) -> startzeit
     brunst_paare: dict[tuple[int, int], float] = field(default_factory=dict)
+    # Beginn der Austreibungsphase (erste Fruchtblasen-/Fuesse-Erkennung)
+    austreibung_start: float | None = None
+    austreibung_zuletzt: float | None = None
+    eskaliert: bool = False
 
     def __post_init__(self):
         lg = self.cfg["logik"]
@@ -247,6 +251,7 @@ class LogicEngine:
         self.anteil_schwelle = float(lg["anteil_schwelle"])
         self.override_konf = float(lg["override_konfidenz"])
         self.brunst_dauer = float(lg["brunst_min_dauer_s"])
+        self.eskalation_s = float(lg.get("eskalation_minuten", 60)) * 60
         self.min_stichprobe = 20  # so viele Frames noetig, bevor der Filter urteilt
 
     def bewerte(
@@ -258,6 +263,8 @@ class LogicEngine:
         # 1) Harter Override: Fruchtblase / Kaelberfuesse
         for o in objekte:
             if o.konfidenz >= self.override_konf:
+                self.austreibung_start = self.austreibung_start or jetzt
+                self.austreibung_zuletzt = jetzt
                 alarme.append(
                     Alarm(
                         "austreibung",
@@ -268,6 +275,36 @@ class LogicEngine:
                         o.box,
                     )
                 )
+                # Eskalation (Komplikationsverdacht): Austreibung laeuft, aber
+                # nach eskalation_minuten sind immer noch Fruchtblase/Fuesse
+                # sichtbar -> Geburt macht keinen Fortschritt, Kontrolle noetig.
+                if (
+                    not self.eskaliert
+                    and jetzt - self.austreibung_start >= self.eskalation_s
+                ):
+                    self.eskaliert = True
+                    alarme.append(
+                        Alarm(
+                            "austreibung",
+                            "Eskalation",
+                            f"⚠️ KEIN GEBURTSFORTSCHRITT: Austreibungsphase läuft "
+                            f"seit {(jetzt - self.austreibung_start) / 60:.0f} Minuten, "
+                            f"{'Fruchtblase' if o.klasse == 'amniotic_sac' else 'Kälberfüße'} "
+                            "weiterhin sichtbar – bitte sofort kontrollieren!",
+                            o.konfidenz,
+                            o.box,
+                        )
+                    )
+
+        # Austreibungs-Episode beenden, wenn 30 min keine Erkennung mehr kam
+        # (Geburt abgeschlossen) -> naechste Kalbung startet frisch.
+        if (
+            self.austreibung_zuletzt is not None
+            and jetzt - self.austreibung_zuletzt > 1800
+        ):
+            self.austreibung_start = None
+            self.austreibung_zuletzt = None
+            self.eskaliert = False
 
         # 2) Statistischer Zeitfilter pro Kuh (Schwanzwinkel)
         for kuh in kuehe:

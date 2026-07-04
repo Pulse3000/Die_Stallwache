@@ -34,6 +34,7 @@ logik:
   anteil_schwelle: 0.20        # >20 % der Frames ueber Schwelle -> Kalbeverdacht
   override_konfidenz: 0.80     # Fruchtblase/Fuesse ab dieser Konfidenz -> Sofort-Alarm
   brunst_min_dauer_s: 4        # Aufsprung muss so lange anhalten (filtert Spielverhalten)
+  eskalation_minuten: 60       # Austreibung ohne Fortschritt nach dieser Zeit -> Kontroll-Alarm
 
 telegram:
   token: ""        # von @BotFather
