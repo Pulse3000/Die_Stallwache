@@ -43,6 +43,9 @@ telegram:
   # Bildserie pro Alarm (letzte N Frames als Album, macht Fehlalarme am
   # Handy sofort erkennbar). 1 = nur Einzelbild.
   bildserie_frames: 4
+  # Taeglicher Statusbericht (1 Nachricht: Ereigniszaehler, Uptime, Modus).
+  # Leer lassen zum Deaktivieren.
+  digest_uhrzeit: "20:00"
 
 dashboard:
   # Stallblick-KI-Wache auf Vercel; leer lassen zum Deaktivieren.

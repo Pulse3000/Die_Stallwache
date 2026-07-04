@@ -392,6 +392,10 @@ class Notifier:
         self.tg_chat = str(tg.get("chat_id") or "").strip()
         self.cooldown_s = float(tg.get("cooldown_minuten", 15)) * 60
         self.bildserie = max(1, int(tg.get("bildserie_frames", 4)))
+        self.digest_uhrzeit = (tg.get("digest_uhrzeit") or "").strip()
+        self._digest_tag: str | None = None
+        self._start_ts = time.time()
+        self._zaehler: dict[str, int] = defaultdict(int)
 
         db = cfg.get("dashboard") or {}
         self.db_url = (db.get("url") or "").strip()
@@ -413,6 +417,7 @@ class Notifier:
         if jetzt - self._zuletzt.get(schluessel, 0) < self.cooldown_s:
             return
         self._zuletzt[schluessel] = jetzt
+        self._zaehler[alarm.typ] += 1
         log.warning("ALARM [%s] %s: %s", alarm.typ, alarm.kuh_id or "-", alarm.nachricht)
 
         bild = self._annotiere(frame, alarm) if frame is not None else None
@@ -429,6 +434,33 @@ class Notifier:
         """Info-Meldung nur ans Dashboard (kein Telegram-Weckruf)."""
         log.info(nachricht)
         self._dashboard(Alarm("info", None, nachricht, None, None))
+
+    def digest_tick(self, analyse_aktiv: bool) -> None:
+        """Sendet einmal taeglich (digest_uhrzeit) einen kompakten Tagesbericht."""
+        if not (self.digest_uhrzeit and self.tg_token and self.tg_chat):
+            return
+        heute = time.strftime("%Y-%m-%d")
+        if self._digest_tag == heute or time.strftime("%H:%M") < self.digest_uhrzeit:
+            return
+        self._digest_tag = heute
+        stunden = (time.time() - self._start_ts) / 3600
+        z = self._zaehler
+        text = (
+            "📋 Stallblick-Tagesbericht\n"
+            f"Modus: {'Analyse' if analyse_aktiv else 'Silent Mode (Datensammlung)'}\n"
+            f"Kalbeverdacht: {z['kalbeverdacht']} · Austreibung: {z['austreibung']} · "
+            f"Brunstverdacht: {z['brunstverdacht']}\n"
+            f"Agent läuft seit {stunden:.1f} h · Kamera: {self.kamera}"
+        )
+        self._zaehler.clear()
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{self.tg_token}/sendMessage",
+                data={"chat_id": self.tg_chat, "text": text},
+                timeout=20,
+            ).raise_for_status()
+        except requests.RequestException as e:
+            log.error("Digest-Versand fehlgeschlagen: %s", e)
 
     @staticmethod
     def _annotiere(frame: np.ndarray, alarm: Alarm) -> bytes:
@@ -546,6 +578,7 @@ def main() -> None:
     while True:
         try:
             frame = stream.naechster_frame()
+            notifier.digest_tick(engine.aktiv)
             if frame is None:
                 continue
 
