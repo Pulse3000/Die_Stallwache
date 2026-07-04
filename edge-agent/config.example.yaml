@@ -40,6 +40,9 @@ telegram:
   token: ""        # von @BotFather
   chat_id: ""      # von @userinfobot
   cooldown_minuten: 15
+  # Bildserie pro Alarm (letzte N Frames als Album, macht Fehlalarme am
+  # Handy sofort erkennbar). 1 = nur Einzelbild.
+  bildserie_frames: 4
 
 dashboard:
   # Stallblick-KI-Wache auf Vercel; leer lassen zum Deaktivieren.

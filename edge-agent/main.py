@@ -391,6 +391,7 @@ class Notifier:
         self.tg_token = (tg.get("token") or "").strip()
         self.tg_chat = str(tg.get("chat_id") or "").strip()
         self.cooldown_s = float(tg.get("cooldown_minuten", 15)) * 60
+        self.bildserie = max(1, int(tg.get("bildserie_frames", 4)))
 
         db = cfg.get("dashboard") or {}
         self.db_url = (db.get("url") or "").strip()
@@ -399,7 +400,14 @@ class Notifier:
         self.kamera = cfg["stream"].get("kamera", "stallwache")
         self._zuletzt: dict[tuple[str | None, str], float] = {}
 
-    def melde(self, alarm: Alarm, frame: np.ndarray | None) -> None:
+    def melde(
+        self,
+        alarm: Alarm,
+        frame: np.ndarray | None,
+        verlauf: list[np.ndarray] | None = None,
+    ) -> None:
+        """verlauf: die letzten Frames vor dem Alarm (aeltester zuerst) fuer
+        die Bildserie – macht Fehlalarme am Handy sofort erkennbar."""
         schluessel = (alarm.kuh_id, alarm.typ)
         jetzt = time.time()
         if jetzt - self._zuletzt.get(schluessel, 0) < self.cooldown_s:
@@ -408,7 +416,13 @@ class Notifier:
         log.warning("ALARM [%s] %s: %s", alarm.typ, alarm.kuh_id or "-", alarm.nachricht)
 
         bild = self._annotiere(frame, alarm) if frame is not None else None
-        self._telegram(alarm, bild)
+        serie: list[bytes] = []
+        if bild and verlauf and self.bildserie > 1:
+            for f in verlauf[-(self.bildserie - 1) :]:
+                ok, jpg = cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ok:
+                    serie.append(jpg.tobytes())
+        self._telegram(alarm, bild, serie)
         self._dashboard(alarm)
 
     def status(self, nachricht: str) -> None:
@@ -434,7 +448,9 @@ class Notifier:
         ok, jpg = cv2.imencode(".jpg", bild, [cv2.IMWRITE_JPEG_QUALITY, 85])
         return jpg.tobytes() if ok else b""
 
-    def _telegram(self, alarm: Alarm, bild: bytes | None) -> None:
+    def _telegram(
+        self, alarm: Alarm, bild: bytes | None, serie: list[bytes] | None = None
+    ) -> None:
         if not (self.tg_token and self.tg_chat):
             return
         text = f"⚠️ {alarm.typ.upper()}"
@@ -442,7 +458,29 @@ class Notifier:
             text += f" – {alarm.kuh_id}"
         text += f"\n{alarm.nachricht}\nKamera: {self.kamera}"
         try:
-            if bild:
+            if bild and serie:
+                # Album: Verlaufsbilder + annotiertes Alarmbild (Caption am ersten)
+                import json
+
+                fotos = serie + [bild]
+                media = [
+                    {
+                        "type": "photo",
+                        "media": f"attach://foto{i}",
+                        **({"caption": text} if i == 0 else {}),
+                    }
+                    for i in range(len(fotos))
+                ]
+                requests.post(
+                    f"https://api.telegram.org/bot{self.tg_token}/sendMediaGroup",
+                    data={"chat_id": self.tg_chat, "media": json.dumps(media)},
+                    files={
+                        f"foto{i}": (f"foto{i}.jpg", f, "image/jpeg")
+                        for i, f in enumerate(fotos)
+                    },
+                    timeout=30,
+                ).raise_for_status()
+            elif bild:
                 requests.post(
                     f"https://api.telegram.org/bot{self.tg_token}/sendPhoto",
                     data={"chat_id": self.tg_chat, "caption": text},
@@ -494,6 +532,8 @@ def main() -> None:
     logik = LogicEngine(cfg)
     notifier = Notifier(cfg)
 
+    frame_puffer: deque[np.ndarray] = deque(maxlen=8)  # Verlauf fuer Bildserien
+
     if engine.aktiv:
         notifier.status("Edge-Agent gestartet – Analyse-Modus aktiv")
     else:
@@ -518,9 +558,10 @@ def main() -> None:
                     log.info("Trainingsbild gespeichert: %s", name)
                 continue
 
+            frame_puffer.append(frame)
             kuehe, objekte = engine.analysiere(frame)
             for alarm in logik.bewerte(kuehe, objekte):
-                notifier.melde(alarm, frame)
+                notifier.melde(alarm, frame, verlauf=list(frame_puffer)[:-1])
 
         except KeyboardInterrupt:
             log.info("Beendet.")
