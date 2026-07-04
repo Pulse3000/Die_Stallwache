@@ -34,11 +34,22 @@ logik:
   anteil_schwelle: 0.20        # >20 % der Frames ueber Schwelle -> Kalbeverdacht
   override_konfidenz: 0.80     # Fruchtblase/Fuesse ab dieser Konfidenz -> Sofort-Alarm
   brunst_min_dauer_s: 4        # Aufsprung muss so lange anhalten (filtert Spielverhalten)
+  eskalation_minuten: 60       # Austreibung ohne Fortschritt nach dieser Zeit -> Kontroll-Alarm
+  # Wach-Modus: ~14 Tage vor dem Kalbetermin aktivieren. Senkt die Schwellen
+  # (frueherer Kalbeverdacht, kuerzere Brunst-Mindestdauer) - danach wieder aus,
+  # damit der Alltag ruhig bleibt.
+  wach_modus: false
 
 telegram:
   token: ""        # von @BotFather
   chat_id: ""      # von @userinfobot
   cooldown_minuten: 15
+  # Bildserie pro Alarm (letzte N Frames als Album, macht Fehlalarme am
+  # Handy sofort erkennbar). 1 = nur Einzelbild.
+  bildserie_frames: 4
+  # Taeglicher Statusbericht (1 Nachricht: Ereigniszaehler, Uptime, Modus).
+  # Leer lassen zum Deaktivieren.
+  digest_uhrzeit: "20:00"
 
 dashboard:
   # Stallblick-KI-Wache auf Vercel; leer lassen zum Deaktivieren.

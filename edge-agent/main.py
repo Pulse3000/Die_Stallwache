@@ -239,6 +239,10 @@ class LogicEngine:
     puffer: dict[int, deque] = field(default_factory=lambda: defaultdict(deque))
     # laufende Aufsprung-Kandidaten: (id_oben, id_unten) -> startzeit
     brunst_paare: dict[tuple[int, int], float] = field(default_factory=dict)
+    # Beginn der Austreibungsphase (erste Fruchtblasen-/Fuesse-Erkennung)
+    austreibung_start: float | None = None
+    austreibung_zuletzt: float | None = None
+    eskaliert: bool = False
 
     def __post_init__(self):
         lg = self.cfg["logik"]
@@ -247,7 +251,15 @@ class LogicEngine:
         self.anteil_schwelle = float(lg["anteil_schwelle"])
         self.override_konf = float(lg["override_konfidenz"])
         self.brunst_dauer = float(lg["brunst_min_dauer_s"])
+        self.eskalation_s = float(lg.get("eskalation_minuten", 60)) * 60
         self.min_stichprobe = 20  # so viele Frames noetig, bevor der Filter urteilt
+        # Wach-Modus (kurz vor Kalbetermin): empfindlichere Schwellen nur dann,
+        # wenn der Landwirt ihn bewusst scharfschaltet.
+        if lg.get("wach_modus"):
+            self.anteil_schwelle *= 0.5
+            self.brunst_dauer = max(2.0, self.brunst_dauer * 0.5)
+            self.min_stichprobe = 10
+            log.info("Wach-Modus aktiv: gesenkte Alarm-Schwellen.")
 
     def bewerte(
         self, kuehe: list[KuhBeobachtung], objekte: list[ObjektErkennung]
@@ -258,6 +270,8 @@ class LogicEngine:
         # 1) Harter Override: Fruchtblase / Kaelberfuesse
         for o in objekte:
             if o.konfidenz >= self.override_konf:
+                self.austreibung_start = self.austreibung_start or jetzt
+                self.austreibung_zuletzt = jetzt
                 alarme.append(
                     Alarm(
                         "austreibung",
@@ -268,6 +282,36 @@ class LogicEngine:
                         o.box,
                     )
                 )
+                # Eskalation (Komplikationsverdacht): Austreibung laeuft, aber
+                # nach eskalation_minuten sind immer noch Fruchtblase/Fuesse
+                # sichtbar -> Geburt macht keinen Fortschritt, Kontrolle noetig.
+                if (
+                    not self.eskaliert
+                    and jetzt - self.austreibung_start >= self.eskalation_s
+                ):
+                    self.eskaliert = True
+                    alarme.append(
+                        Alarm(
+                            "austreibung",
+                            "Eskalation",
+                            f"⚠️ KEIN GEBURTSFORTSCHRITT: Austreibungsphase läuft "
+                            f"seit {(jetzt - self.austreibung_start) / 60:.0f} Minuten, "
+                            f"{'Fruchtblase' if o.klasse == 'amniotic_sac' else 'Kälberfüße'} "
+                            "weiterhin sichtbar – bitte sofort kontrollieren!",
+                            o.konfidenz,
+                            o.box,
+                        )
+                    )
+
+        # Austreibungs-Episode beenden, wenn 30 min keine Erkennung mehr kam
+        # (Geburt abgeschlossen) -> naechste Kalbung startet frisch.
+        if (
+            self.austreibung_zuletzt is not None
+            and jetzt - self.austreibung_zuletzt > 1800
+        ):
+            self.austreibung_start = None
+            self.austreibung_zuletzt = None
+            self.eskaliert = False
 
         # 2) Statistischer Zeitfilter pro Kuh (Schwanzwinkel)
         for kuh in kuehe:
@@ -354,6 +398,11 @@ class Notifier:
         self.tg_token = (tg.get("token") or "").strip()
         self.tg_chat = str(tg.get("chat_id") or "").strip()
         self.cooldown_s = float(tg.get("cooldown_minuten", 15)) * 60
+        self.bildserie = max(1, int(tg.get("bildserie_frames", 4)))
+        self.digest_uhrzeit = (tg.get("digest_uhrzeit") or "").strip()
+        self._digest_tag: str | None = None
+        self._start_ts = time.time()
+        self._zaehler: dict[str, int] = defaultdict(int)
 
         db = cfg.get("dashboard") or {}
         self.db_url = (db.get("url") or "").strip()
@@ -362,22 +411,63 @@ class Notifier:
         self.kamera = cfg["stream"].get("kamera", "stallwache")
         self._zuletzt: dict[tuple[str | None, str], float] = {}
 
-    def melde(self, alarm: Alarm, frame: np.ndarray | None) -> None:
+    def melde(
+        self,
+        alarm: Alarm,
+        frame: np.ndarray | None,
+        verlauf: list[np.ndarray] | None = None,
+    ) -> None:
+        """verlauf: die letzten Frames vor dem Alarm (aeltester zuerst) fuer
+        die Bildserie – macht Fehlalarme am Handy sofort erkennbar."""
         schluessel = (alarm.kuh_id, alarm.typ)
         jetzt = time.time()
         if jetzt - self._zuletzt.get(schluessel, 0) < self.cooldown_s:
             return
         self._zuletzt[schluessel] = jetzt
+        self._zaehler[alarm.typ] += 1
         log.warning("ALARM [%s] %s: %s", alarm.typ, alarm.kuh_id or "-", alarm.nachricht)
 
         bild = self._annotiere(frame, alarm) if frame is not None else None
-        self._telegram(alarm, bild)
+        serie: list[bytes] = []
+        if bild and verlauf and self.bildserie > 1:
+            for f in verlauf[-(self.bildserie - 1) :]:
+                ok, jpg = cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ok:
+                    serie.append(jpg.tobytes())
+        self._telegram(alarm, bild, serie)
         self._dashboard(alarm)
 
     def status(self, nachricht: str) -> None:
         """Info-Meldung nur ans Dashboard (kein Telegram-Weckruf)."""
         log.info(nachricht)
         self._dashboard(Alarm("info", None, nachricht, None, None))
+
+    def digest_tick(self, analyse_aktiv: bool) -> None:
+        """Sendet einmal taeglich (digest_uhrzeit) einen kompakten Tagesbericht."""
+        if not (self.digest_uhrzeit and self.tg_token and self.tg_chat):
+            return
+        heute = time.strftime("%Y-%m-%d")
+        if self._digest_tag == heute or time.strftime("%H:%M") < self.digest_uhrzeit:
+            return
+        self._digest_tag = heute
+        stunden = (time.time() - self._start_ts) / 3600
+        z = self._zaehler
+        text = (
+            "📋 Stallblick-Tagesbericht\n"
+            f"Modus: {'Analyse' if analyse_aktiv else 'Silent Mode (Datensammlung)'}\n"
+            f"Kalbeverdacht: {z['kalbeverdacht']} · Austreibung: {z['austreibung']} · "
+            f"Brunstverdacht: {z['brunstverdacht']}\n"
+            f"Agent läuft seit {stunden:.1f} h · Kamera: {self.kamera}"
+        )
+        self._zaehler.clear()
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{self.tg_token}/sendMessage",
+                data={"chat_id": self.tg_chat, "text": text},
+                timeout=20,
+            ).raise_for_status()
+        except requests.RequestException as e:
+            log.error("Digest-Versand fehlgeschlagen: %s", e)
 
     @staticmethod
     def _annotiere(frame: np.ndarray, alarm: Alarm) -> bytes:
@@ -397,7 +487,9 @@ class Notifier:
         ok, jpg = cv2.imencode(".jpg", bild, [cv2.IMWRITE_JPEG_QUALITY, 85])
         return jpg.tobytes() if ok else b""
 
-    def _telegram(self, alarm: Alarm, bild: bytes | None) -> None:
+    def _telegram(
+        self, alarm: Alarm, bild: bytes | None, serie: list[bytes] | None = None
+    ) -> None:
         if not (self.tg_token and self.tg_chat):
             return
         text = f"⚠️ {alarm.typ.upper()}"
@@ -405,7 +497,29 @@ class Notifier:
             text += f" – {alarm.kuh_id}"
         text += f"\n{alarm.nachricht}\nKamera: {self.kamera}"
         try:
-            if bild:
+            if bild and serie:
+                # Album: Verlaufsbilder + annotiertes Alarmbild (Caption am ersten)
+                import json
+
+                fotos = serie + [bild]
+                media = [
+                    {
+                        "type": "photo",
+                        "media": f"attach://foto{i}",
+                        **({"caption": text} if i == 0 else {}),
+                    }
+                    for i in range(len(fotos))
+                ]
+                requests.post(
+                    f"https://api.telegram.org/bot{self.tg_token}/sendMediaGroup",
+                    data={"chat_id": self.tg_chat, "media": json.dumps(media)},
+                    files={
+                        f"foto{i}": (f"foto{i}.jpg", f, "image/jpeg")
+                        for i, f in enumerate(fotos)
+                    },
+                    timeout=30,
+                ).raise_for_status()
+            elif bild:
                 requests.post(
                     f"https://api.telegram.org/bot{self.tg_token}/sendPhoto",
                     data={"chat_id": self.tg_chat, "caption": text},
@@ -457,6 +571,8 @@ def main() -> None:
     logik = LogicEngine(cfg)
     notifier = Notifier(cfg)
 
+    frame_puffer: deque[np.ndarray] = deque(maxlen=8)  # Verlauf fuer Bildserien
+
     if engine.aktiv:
         notifier.status("Edge-Agent gestartet – Analyse-Modus aktiv")
     else:
@@ -469,6 +585,7 @@ def main() -> None:
     while True:
         try:
             frame = stream.naechster_frame()
+            notifier.digest_tick(engine.aktiv)
             if frame is None:
                 continue
 
@@ -481,9 +598,10 @@ def main() -> None:
                     log.info("Trainingsbild gespeichert: %s", name)
                 continue
 
+            frame_puffer.append(frame)
             kuehe, objekte = engine.analysiere(frame)
             for alarm in logik.bewerte(kuehe, objekte):
-                notifier.melde(alarm, frame)
+                notifier.melde(alarm, frame, verlauf=list(frame_puffer)[:-1])
 
         except KeyboardInterrupt:
             log.info("Beendet.")
