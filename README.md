@@ -11,6 +11,16 @@ Ereignisliste inklusive.
 
 ---
 
+## Verhaltens-Schicht, kein NVR
+
+Frigate, Viseron & Co. erkennen *Objekte* („Kuh im Bild"); Stallblick erkennt
+**Verhaltensphasen** („Kuh in der Austreibungsphase", „Duldung seit 6 s").
+Stallblick ersetzt deshalb keinen NVR — es läuft **parallel** dazu auf
+denselben RTSP-Streams der go2rtc-Bridge. Wer bereits Frigate betreibt, behält
+es für Aufzeichnung/Zonen und lässt den Stallblick-Edge-Agenten zusätzlich
+laufen; wer nichts davon hat, braucht nur diesen Stack. Details und
+DIY-Marktvergleich: [`docs/wettbewerbsanalyse.md`](docs/wettbewerbsanalyse.md).
+
 ## Warum eine Bridge?
 
 Die Tapo TCA72 liefert **nur lokal** einen RTSP-Stream
