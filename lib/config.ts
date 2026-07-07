@@ -31,7 +31,22 @@ export interface CameraConfig {
   streamName: string;
   /** Reduzierte Metadaten fuer die Vorschau-Karte. */
   ort: string;
+  /**
+   * Kann diese Kamera als Hauptbild ueber die Tuya-Cloud laufen?
+   * Wenn true, holt der Player zuerst eine HLS-URL von TUYA_STREAM_ENDPOINT
+   * und faellt bei 503/Fehler automatisch auf go2rtc zurueck.
+   */
+  tuyaFaehig: boolean;
 }
+
+/** API-Route, die serverseitig eine kurzlebige Tuya-HLS-URL allokiert. */
+export const TUYA_STREAM_ENDPOINT = "/api/futterwache/stream";
+
+/**
+ * Futterwache standardmaessig ueber Tuya-Cloud (mit go2rtc-Fallback).
+ * Zum Erzwingen von reinem go2rtc: NEXT_PUBLIC_FUTTERWACHE_TUYA=0.
+ */
+const FUTTERWACHE_TUYA = process.env.NEXT_PUBLIC_FUTTERWACHE_TUYA?.trim() !== "0";
 
 /** Stallwache = Hauptkamera (Default), Futterwache = Zweitkamera. */
 export const CAMERAS: readonly [CameraConfig, CameraConfig] = [
@@ -40,12 +55,14 @@ export const CAMERAS: readonly [CameraConfig, CameraConfig] = [
     name: "Stallwache",
     streamName: process.env.NEXT_PUBLIC_STREAM_NAME?.trim() || "stallwache",
     ort: "Abkalbebereich",
+    tuyaFaehig: false,
   },
   {
     id: "futterwache",
     name: "Futterwache",
     streamName: process.env.NEXT_PUBLIC_STREAM_NAME_2?.trim() || "futterwache",
     ort: "Futtertisch",
+    tuyaFaehig: FUTTERWACHE_TUYA,
   },
 ];
 

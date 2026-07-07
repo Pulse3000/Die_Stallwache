@@ -5,10 +5,12 @@ description: Schließt die Tuya-Cloud-Anbindung der Futterwache ab, sobald Acces
 
 # Futterwache über Tuya-Cloud anbinden
 
-Die Server-Seite ist fertig vorbereitet: `lib/tuya.ts` (signierte OpenAPI-Calls,
-Token-Cache) und `GET /api/futterwache/stream` (liefert kurzlebige HLS-URL,
-503 solange unkonfiguriert). Es fehlen nur die Zugangsdaten und die
-Frontend-Umschaltung.
+Server- UND Frontend-Seite sind fertig gebaut: `lib/tuya.ts` (signierte
+OpenAPI-Calls, Token-Cache), `GET /api/futterwache/stream` (kurzlebige HLS-URL,
+503 solange unkonfiguriert) und `components/CameraStream.tsx` (Tuya-Pfad mit
+go2rtc-Fallback, Ablauf-Neuabruf). **Es fehlen nur noch die Zugangsdaten** —
+sobald die `TUYA_*`-Env-Vars in Vercel gesetzt sind, läuft die Futterwache als
+Hauptbild automatisch über Tuya.
 
 ## Voraussetzungen (vom Nutzer)
 
@@ -33,16 +35,13 @@ Wichtig: In der Tuya-Projekt-Konsole muss die API **"IoT Video Live Stream"**
 2. Testen: `curl -s https://die-stallwache.vercel.app/api/futterwache/stream`
    → erwartet `{"url":"https://…m3u8","typ":"hls"}`; bei Fehler liefert die
    Route die Tuya-Fehlermeldung im Feld `fehler` (Codes oben beachten).
-3. Frontend umschalten (erst wenn Schritt 2 grün): In `CameraStream` für die
-   Futterwache statt go2rtc-Snapshot die HLS-URL von
-   `/api/futterwache/stream` abspielen (hls.js ist bereits Dependency).
-   Vorschau-Prinzip beibehalten: HLS nur laden, wenn die Futterwache Hauptbild
-   ist; als Vorschau weiterhin Einzelbilder (Canvas-Frame aus dem HLS-Stream
-   alle 5 s oder go2rtc-Snapshot als Fallback). Kein zweiter hochpriorisierter
-   Dauerstream auf dem Startscreen!
-4. Tuya-URLs laufen nach kurzer Zeit ab → bei HLS-Fehler neue URL von der
-   Route holen (sie allokiert pro Aufruf frisch).
-5. `stallblick-deploy`-Skill ausführen (Build → Smoke → Deploy → Live-Check).
+3. Frontend ist **bereits umgesetzt** (`components/CameraStream.tsx`,
+   `camera.tuyaFaehig`): Futterwache als Hauptbild holt die HLS-URL von
+   `/api/futterwache/stream`, bei fatalem HLS-Fehler eine frische (Tuya-URLs
+   laufen ab), und fällt bei 503 automatisch auf go2rtc zurück. Vorschau bleibt
+   leichtgewichtig (go2rtc-Snapshot oder ruhiger Platzhalter — kein zweiter
+   Dauerstream). Reines go2rtc erzwingen: `NEXT_PUBLIC_FUTTERWACHE_TUYA=0`.
+4. `stallblick-deploy`-Skill ausführen (Build → Smoke → Deploy → Live-Check).
 
 ## Sicherheitsregeln
 

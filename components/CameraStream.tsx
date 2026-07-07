@@ -8,6 +8,7 @@ import {
   hlsUrl,
   isConfigured,
   snapshotUrl,
+  TUYA_STREAM_ENDPOINT,
   webrtcUrl,
 } from "@/lib/config";
 
@@ -29,14 +30,19 @@ const PREVIEW_INITIAL_DELAY = 600;
 /**
  * Ein Kamera-Container fuer Stallblick.
  *
- * Rolle "haupt":    WebRTC (niedrige Latenz) mit automatischem HLS-Fallback
- *                   und Reconnect-Backoff – hoechste Stream-Prioritaet.
- * Rolle "vorschau": Snapshot-Polling per <img> – bewusst leichtgewichtig,
- *                   damit nie zwei hochpriorisierte Streams laufen.
+ * Quelle go2rtc (Stallwache):
+ *   Rolle "haupt"    → WebRTC (niedrige Latenz) mit HLS-Fallback + Reconnect.
+ *   Rolle "vorschau" → Snapshot-Polling per <img> (leichtgewichtig).
+ *
+ * Quelle Tuya-Cloud (Futterwache, camera.tuyaFaehig):
+ *   Rolle "haupt"    → HLS-URL von /api/futterwache/stream; bei 503/Fehler
+ *                      automatischer Fallback auf go2rtc. Tuya-URLs laufen ab
+ *                      → bei fatalem HLS-Fehler wird eine frische URL geholt.
+ *   Rolle "vorschau" → go2rtc-Snapshot wenn verfuegbar, sonst ruhiger
+ *                      Platzhalter (bewusst KEIN zweiter Live-Stream).
  *
  * Der Rollenwechsel bindet nur die Medienquelle im selben Container um;
  * die Komponente bleibt gemountet, es gibt keinen Seiten-Neuaufbau.
- * Das letzte Vorschaubild bleibt als Poster stehen, bis das Livebild steht.
  */
 export default function CameraStream({ camera, role, onState }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -46,6 +52,10 @@ export default function CameraStream({ camera, role, onState }: Props) {
   const attemptsRef = useRef(0);
   const wasLiveRef = useRef(false);
   const disposedRef = useRef(false);
+  // Tuya fehlgeschlagen -> fuer diese Haupt-Session auf go2rtc bleiben.
+  const tuyaAufgegebenRef = useRef(false);
+
+  const istTuya = camera.tuyaFaehig;
 
   const [videoLive, setVideoLive] = useState(false);
   const [snapSrc, setSnapSrc] = useState<string | null>(null);
@@ -58,6 +68,7 @@ export default function CameraStream({ camera, role, onState }: Props) {
 
   useEffect(() => {
     disposedRef.current = false;
+    tuyaAufgegebenRef.current = false;
     const report = (s: CameraState) => {
       if (disposedRef.current || stateRef.current === s) return;
       stateRef.current = s;
@@ -83,7 +94,8 @@ export default function CameraStream({ camera, role, onState }: Props) {
       setVideoLive(false);
     };
 
-    if (!isConfigured) {
+    // Kamera ist bedienbar, wenn go2rtc konfiguriert ODER Tuya moeglich ist.
+    if (!isConfigured && !istTuya) {
       report("offline");
       return () => {
         disposedRef.current = true;
@@ -91,15 +103,19 @@ export default function CameraStream({ camera, role, onState }: Props) {
     }
 
     if (role === "vorschau") {
-      // ---- Vorschau-Modus: Snapshot-Polling ----
       teardownLive();
-      const poll = () => {
-        if (disposedRef.current) return;
-        setSnapSrc(`${snapshotUrl(camera.streamName)}&t=${Date.now()}`);
-      };
-      report(wasLiveRef.current ? "online" : "laedt");
-      timerRef.current = setTimeout(poll, PREVIEW_INITIAL_DELAY);
-
+      if (isConfigured) {
+        // ---- Vorschau via go2rtc-Snapshot (auch fuer gebridgte Tuya-Cam) ----
+        const poll = () => {
+          if (disposedRef.current) return;
+          setSnapSrc(`${snapshotUrl(camera.streamName)}&t=${Date.now()}`);
+        };
+        report(wasLiveRef.current ? "online" : "laedt");
+        timerRef.current = setTimeout(poll, PREVIEW_INITIAL_DELAY);
+      } else {
+        // ---- Tuya-only: ruhiger Platzhalter, kein zweiter Live-Stream ----
+        report(wasLiveRef.current ? "online" : "laedt");
+      }
       return () => {
         disposedRef.current = true;
         clearTimer();
@@ -124,10 +140,10 @@ export default function CameraStream({ camera, role, onState }: Props) {
       timerRef.current = setTimeout(connect, delay);
     };
 
-    const startHls = () => {
+    /** Spielt eine HLS-URL ab (nativ oder via hls.js); onFatal bei Abbruch. */
+    const playHlsUrl = (url: string, onFatal: () => void) => {
       const video = videoRef.current;
       if (!video || disposedRef.current) return;
-      const url = hlsUrl(camera.streamName);
 
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = url; // Safari / iOS: natives HLS
@@ -144,12 +160,14 @@ export default function CameraStream({ camera, role, onState }: Props) {
           markLive();
         });
         hls.on(Hls.Events.ERROR, (_e, data) => {
-          if (data.fatal) scheduleReconnect();
+          if (data.fatal) onFatal();
         });
       } else {
-        scheduleReconnect();
+        onFatal();
       }
     };
+
+    const startHls = () => playHlsUrl(hlsUrl(camera.streamName), scheduleReconnect);
 
     const startWebrtc = async () => {
       const video = videoRef.current;
@@ -201,11 +219,36 @@ export default function CameraStream({ camera, role, onState }: Props) {
       }
     };
 
-    const connect = () => {
+    /** Holt eine frische Tuya-HLS-URL und spielt sie; Fallback go2rtc. */
+    const startTuya = async () => {
+      const video = videoRef.current;
+      if (!video || disposedRef.current) return;
+      try {
+        const res = await fetch(TUYA_STREAM_ENDPOINT, { cache: "no-store" });
+        if (!res.ok) throw new Error(`Tuya HTTP ${res.status}`);
+        const data = (await res.json()) as { url?: string };
+        if (disposedRef.current) return;
+        if (!data.url) throw new Error("Tuya ohne URL");
+        // Bei fatalem Fehler frische URL holen (Tuya-URLs laufen ab).
+        playHlsUrl(data.url, scheduleReconnect);
+      } catch {
+        if (disposedRef.current) return;
+        if (isConfigured) {
+          // Tuya nicht verfuegbar → fuer diese Session auf go2rtc umschalten.
+          tuyaAufgegebenRef.current = true;
+          void startWebrtc();
+        } else {
+          scheduleReconnect();
+        }
+      }
+    };
+
+    function connect() {
       teardownLive();
       report(wasLiveRef.current ? "instabil" : "laedt");
-      void startWebrtc();
-    };
+      if (istTuya && !tuyaAufgegebenRef.current) void startTuya();
+      else void startWebrtc();
+    }
 
     connect();
 
@@ -271,7 +314,8 @@ export default function CameraStream({ camera, role, onState }: Props) {
           role === "haupt" && videoLive ? "opacity-100" : "opacity-0"
         }`}
       />
-      {!isConfigured && (
+      {/* go2rtc nicht konfiguriert (nur fuer reine go2rtc-Kameras) */}
+      {!isConfigured && !istTuya && (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-slate-800 to-slate-950 p-4">
           <p className="max-w-xs text-center text-xs text-white/60">
             Warte auf Bridge – sobald{" "}
@@ -279,6 +323,16 @@ export default function CameraStream({ camera, role, onState }: Props) {
               NEXT_PUBLIC_GO2RTC_URL
             </code>{" "}
             gesetzt ist, erscheint hier das Bild der {camera.name}.
+          </p>
+        </div>
+      )}
+      {/* Tuya-Kamera ohne go2rtc: ruhiger Hinweis, solange kein Livebild steht */}
+      {istTuya && !isConfigured && !videoLive && !snapVisible && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-slate-800 to-slate-950 p-4">
+          <p className="max-w-xs text-center text-xs text-white/60">
+            {role === "haupt"
+              ? `${camera.name} über Tuya-Cloud – verbinde…`
+              : `${camera.name} · Vorschau`}
           </p>
         </div>
       )}
