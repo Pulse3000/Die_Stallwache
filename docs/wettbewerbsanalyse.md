@@ -97,6 +97,9 @@ durch den Subagenten `markt-analyst`:
 
 ## 4. Produktentscheidungen (priorisiert)
 
+> Konsolidierter Umsetzungsstatus aller Entscheidungen:
+> [`docs/roadmap.md`](./roadmap.md).
+
 | Prio | Entscheidung | Begründung / Wettbewerbsbezug |
 | --- | --- | --- |
 | **P1** | **Eskalations-Alarm**: Austreibung erkannt, aber nach konfigurierbarer Zeit (Default 60 min) kein Kalb → zweiter, dringlicherer Alarm („Kontrolle nötig") | Lely Zeta; größter Nutzen pro Codezeile, rettet Kälber |
