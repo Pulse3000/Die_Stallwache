@@ -27,6 +27,31 @@ Investition; Sensor-Systeme kosten laufend pro Kuh. Der DIY-Ansatz (dieses Repo)
 liegt bei **0–2.000 €** einmalig und **0 €/Kuh/Jahr** — bei ~370–400 € Mehrwert
 pro Kuh und Jahr amortisiert er sich sofort.
 
+## 1b. Open-Source-/DIY-Schiene (der eigentliche Vergleichsmaßstab)
+
+Was ein technikaffiner Landwirt heute selbst aufsetzen könnte — recherchiert
+durch den Subagenten `markt-analyst`:
+
+| System | Ansatz | Fürs Kalbe-/Brunst-Szenario | Kosten |
+| --- | --- | --- | --- |
+| **Frigate NVR (+ Frigate+)** | Open-Source-NVR, lokale Objekterkennung (COCO inkl. „cow"), Zonen, MQTT/Home Assistant | „Kuh anwesend", nicht „Kuh kalbt" — keine Pose/Verhaltenslogik | Kostenlos; Fine-Tuning nur via Frigate+-Abo 50 $/Jahr (ohne Nutztier-Labels) |
+| **Viseron** | Self-hosted NVR (MIT), YOLOv3–v7/Coral, natives Telegram + MQTT | Generische Objekterkennung, kein Tierverhalten | Kostenlos |
+| **Home Assistant + Kamera** | Smart-Home-Plattform als Alarmweg, Eigenbau-Automatisierungen | Keine Stall-Blueprints — Status quo bleibt „Stream aufs Handy + selber gucken" | Kostenlos, hoher Pflegeaufwand |
+| **CowCatcherAI** | YOLO/ONNX-Tool (Exe/Docker) + RTSP + Telegram-Fotoalarm, Brunst-/Kalbe-Modelle | Direktester DIY-Konkurrent; Box- statt Pose-Erkennung, keine Phasen/Eskalation/Dashboard; Lizenz mit Kommerz-Restriktion | Kostenlos |
+| **Forschungs-Repos** (YOLO-TransT, IPCLab-NEAU, CattleSense, CalvingDetection) | Paper-Begleitcode: Brunst-Tracking, Mounting-Detektion, Pose-Verhalten | Methodik-Beleg für den Pose-Ansatz, aber kein Produkt (kein Alarmweg, keine Wartung) | Kostenlos (Research) |
+
+**Kernbefunde:**
+- Es existiert **kein produktionsreifes Open-Source-Projekt für kamerabasierte
+  Kalbeerkennung** — genau diese Lücke füllt Stallblick.
+- NVRs erkennen *Objekte*, Stallblick erkennt *Verhaltensphasen* — Stallblick
+  ist kein NVR-Konkurrent, sondern die Schicht darüber (läuft parallel auf
+  denselben RTSP-Streams).
+- Der reale Gegner des Zielkunden ist das **nächtliche Selber-Gucken**
+  (Streaming-Barncams ohne KI).
+- Selbst im Open-Source-Lager wird Modellpflege zum Abo (Frigate+ 50 $/Jahr);
+  die DIY-KI-Kette hat brüchige Glieder (CodeProject.AI verwaist) — Stallblicks
+  schlanker, reproduzierbarer Eigen-Stack ist ein Robustheits-Argument.
+
 ## 2. Was die Konkurrenz besser macht (und was wir davon übernehmen)
 
 1. **Lely Zeta: Komplikations-Alarm** („Alarm, wenn der Geburtsvorgang zu lange
@@ -72,6 +97,9 @@ pro Kuh und Jahr amortisiert er sich sofort.
 
 ## 4. Produktentscheidungen (priorisiert)
 
+> Konsolidierter Umsetzungsstatus aller Entscheidungen:
+> [`docs/roadmap.md`](./roadmap.md).
+
 | Prio | Entscheidung | Begründung / Wettbewerbsbezug |
 | --- | --- | --- |
 | **P1** | **Eskalations-Alarm**: Austreibung erkannt, aber nach konfigurierbarer Zeit (Default 60 min) kein Kalb → zweiter, dringlicherer Alarm („Kontrolle nötig") | Lely Zeta; größter Nutzen pro Codezeile, rettet Kälber |
@@ -81,7 +109,10 @@ pro Kuh und Jahr amortisiert er sich sofort.
 | **P2** | **Täglicher Telegram-Digest** (1 Nachricht: Ereignisse, Agent-Uptime, Bildkontingent) | smaXtec/SenseHub-Apps; Vertrauen durch Routine |
 | **P2** | **Wach-Modus pro Bucht**: manuell scharfschalten ~14 Tage vor Kalbetermin → gesenkte Schwellen/dichtere Frames nur dort | CowManager Transition-Monitor; nur ein Config-Flag, konform mit „Ruhe vor Fülle" |
 | **P3** | **7-Tage-Aktivitäts-Trend je Bucht** (Sparkline aus persistierten Events) | HerdVision „Trends statt Momentaufnahmen"; setzt P1-Persistenz voraus |
-| **P3** | **Öffentliche Erkennungs-Metriken** (Precision/Recall auf annotierten Stall-Clips im Repo) | Peer-Review-Argument von CowFIT/CattleEye als Open-Source-Version; stärkstes Vertrauens-Feature gegen Blackbox-Abos |
+| **P3** | **Öffentliche Erkennungs-Metriken** (Precision/Recall auf annotierten Stall-Clips im Repo) → Methodik & Vorlage: [`docs/metriken.md`](./metriken.md) | Peer-Review-Argument von CowFIT/CattleEye als Open-Source-Version; stärkstes Vertrauens-Feature gegen Blackbox-Abos |
+| **P1** | **Positionierung „Verhaltens-Schicht, kein NVR"** prominent im README (Stallblick läuft neben Frigate auf denselben Streams) | Fängt technikaffine Landwirte ab, die zuerst Frigate googeln |
+| **P2** | **Optionale MQTT-Event-Ausgabe** (ein Topic je Ereignis; Telegram bleibt der primäre Alarmweg) | Erschließt die Home-Assistant-Community als Multiplikator, Edge-konform, 0 € |
+| **P3** | **Ein-Befehl-Setup** (geführtes Install-Skript inkl. Telegram-Bot-Assistent) | CowCatcherAI setzt die Onboarding-Messlatte („Exe + JSON") — bei gleichem Preis muss Stallblick im Aufwand vorn bleiben |
 | **P3** | **Lahmheits-Frühwarnung** aus Rückenlinien-Winkel | CattleEye; Keypoints vorhanden, braucht aber eigene Validierung |
 | **P3** | **BCS-Schätzung** (Body Condition) | DeLaval/CattleEye; erst nach stabilem Kalbe-/Brunst-Betrieb |
 
@@ -108,3 +139,8 @@ pro Kuh und Jahr amortisiert er sich sofort.
 - [HerdVision (AgSenze)](https://herd.vision/)
 - [VikingGenetics CowFIT](https://www.vikinggenetics.com/products-solutions/cowfit)
 - [DLG: EuroTier 2024 – Trends in der Tierhaltungstechnik](https://www.dlg.org/detail/eurotier-2024-trends-in-der-tierhaltungstechnik)
+- [Frigate NVR](https://github.com/blakeblackshear/frigate) · [Frigate+](https://frigate.video/plus/)
+- [Viseron](https://github.com/roflcoopter/viseron)
+- [CowCatcherAI](https://github.com/CowCatcherAI/CowCatcherAI)
+- [CattleSense (YOLOv8-Pose-Verhaltensanalyse)](https://github.com/mohitksahu/CattleSense)
+- [Scientific Reports: Lightweight cow mounting recognition (YOLOv5s)](https://www.nature.com/articles/s41598-023-40757-7)

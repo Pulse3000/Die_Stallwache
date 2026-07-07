@@ -56,6 +56,16 @@ dashboard:
   url: https://die-stallwache.vercel.app/api/events
   token: ""        # muss EDGE_INGEST_TOKEN in Vercel entsprechen
 
+mqtt:
+  # Optionaler stiller Zusatzausgang (z.B. Home Assistant / Node-RED).
+  # host leer lassen zum Deaktivieren - Telegram bleibt der primaere Alarmweg.
+  host: ""
+  port: 1883
+  username: ""
+  password: ""
+  # Ereignisse erscheinen als JSON unter <basis_topic>/<kamera>/<typ>
+  basis_topic: stallblick
+
 silent_mode:
   # Ohne Modell werden regelmaessig Bilder fuer das spaetere Training gesammelt.
   ordner: ./aufnahmen

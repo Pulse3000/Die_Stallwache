@@ -119,6 +119,7 @@ sudo systemctl enable --now stallblick-agent
 | Anti-Spam | **15 Min Cooldown** pro Kuh-ID und Alarmtyp | – |
 | Bildserie | Jeder Alarm sendet die **letzten 4 Frames als Telegram-Album** (`bildserie_frames`) | Fehlalarm-Triage direkt am Handy |
 | Wach-Modus | `logik.wach_modus: true` ~14 Tage vor Kalbetermin: halbierte Schwellen, frühere Verdachtsalarme | erhöhte Wachsamkeit nur, wenn bewusst scharfgeschaltet |
+| MQTT (optional) | `mqtt.host` setzen → jedes Ereignis als JSON unter `stallblick/<kamera>/<typ>` | stiller Zusatzausgang für Home Assistant/Node-RED; Telegram bleibt primär |
 
 Tracking über **ByteTrack** (in Ultralytics integriert) hält die Kuh-Identität
 („Kuh #42") über die Zeit stabil – Grundlage des Zeitfilters.
