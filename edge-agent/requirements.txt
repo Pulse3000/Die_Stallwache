@@ -10,3 +10,6 @@ PyYAML>=6.0,<7
 # trainiertes Modell (best.pt) vorliegt – der Silent Mode laeuft auch ohne.
 ultralytics>=8.2,<9
 lapx>=0.5.5           # Zuordnungsloeser fuer ByteTrack
+
+# Optionaler MQTT-Zusatzausgang (mqtt.host in config.yaml setzen)
+paho-mqtt>=2,<3

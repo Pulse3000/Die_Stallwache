@@ -411,6 +411,29 @@ class Notifier:
         self.kamera = cfg["stream"].get("kamera", "stallwache")
         self._zuletzt: dict[tuple[str | None, str], float] = {}
 
+        # Optionaler MQTT-Zusatzausgang (Home Assistant & Co.); Ausfall darf
+        # den Alarmweg nie beeintraechtigen.
+        mq = cfg.get("mqtt") or {}
+        self._mqtt_client = None
+        self._mqtt_topic = (mq.get("basis_topic") or "stallblick").strip("/")
+        host = (mq.get("host") or "").strip()
+        if host:
+            try:
+                import paho.mqtt.client as mqtt_mod
+
+                client = mqtt_mod.Client(
+                    mqtt_mod.CallbackAPIVersion.VERSION2,
+                    client_id=f"stallblick-{self.kamera}",
+                )
+                if mq.get("username"):
+                    client.username_pw_set(mq["username"], mq.get("password") or "")
+                client.connect_async(host, int(mq.get("port", 1883)))
+                client.loop_start()  # reconnectet selbststaendig
+                self._mqtt_client = client
+                log.info("MQTT-Ausgang aktiv: %s -> %s/#", host, self._mqtt_topic)
+            except Exception as e:  # noqa: BLE001
+                log.error("MQTT deaktiviert (Initialisierung fehlgeschlagen): %s", e)
+
     def melde(
         self,
         alarm: Alarm,
@@ -436,11 +459,14 @@ class Notifier:
                     serie.append(jpg.tobytes())
         self._telegram(alarm, bild, serie)
         self._dashboard(alarm)
+        self._mqtt(alarm)
 
     def status(self, nachricht: str) -> None:
         """Info-Meldung nur ans Dashboard (kein Telegram-Weckruf)."""
         log.info(nachricht)
-        self._dashboard(Alarm("info", None, nachricht, None, None))
+        meldung = Alarm("info", None, nachricht, None, None)
+        self._dashboard(meldung)
+        self._mqtt(meldung)
 
     def digest_tick(self, analyse_aktiv: bool) -> None:
         """Sendet einmal taeglich (digest_uhrzeit) einen kompakten Tagesbericht."""
@@ -534,6 +560,29 @@ class Notifier:
                 ).raise_for_status()
         except requests.RequestException as e:
             log.error("Telegram-Versand fehlgeschlagen: %s", e)
+
+    def _mqtt(self, alarm: Alarm) -> None:
+        if self._mqtt_client is None:
+            return
+        try:
+            import json
+
+            self._mqtt_client.publish(
+                f"{self._mqtt_topic}/{self.kamera}/{alarm.typ}",
+                json.dumps(
+                    {
+                        "typ": alarm.typ,
+                        "kuhId": alarm.kuh_id,
+                        "kamera": self.kamera,
+                        "nachricht": alarm.nachricht,
+                        "konfidenz": alarm.konfidenz,
+                        "zeit": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        except Exception as e:  # noqa: BLE001
+            log.error("MQTT-Publish fehlgeschlagen: %s", e)
 
     def _dashboard(self, alarm: Alarm) -> None:
         if not (self.db_url and self.db_token):
