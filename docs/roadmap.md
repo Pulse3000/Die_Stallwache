@@ -21,6 +21,7 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 | ✅ Infra | **MediaMTX als Bridge-Alternative** zu go2rtc (WHEP-Standard statt proprietärer API) | `lib/config.ts` (`NEXT_PUBLIC_BRIDGE_TYPE`), `components/CameraStream.tsx`, `bridge/mediamtx/`; Entscheidungshilfe `bridge/README.md` |
 | ✅ Infra | **CORS-Proxy für Tuya-Livestream** (behebt schwarzes Bild – Tuyas CDN setzt keine CORS-Header) | `app/api/futterwache/proxy/route.ts`; schreibt HLS-Manifest same-origin um |
 | ✅ Infra | **Bridge auf Android/Termux** (Workaround ohne dedizierte Hardware, für Betriebe mit nur einem Mobilgerät) | `bridge/termux/`; iOS nicht möglich (Apple-Beschränkung) |
+| ✅ Infra | **Passwortschutz (Login)** – ein gemeinsames Passwort schützt die ganze App, HMAC-signiertes Session-Cookie, keine Datenbank | `middleware.ts`, `lib/auth.ts`, `app/login/`; aktiv via `STALLBLICK_PASSWORT` |
 | 🔄 P3 | Öffentliche Erkennungs-Metriken | Methodik steht (`docs/metriken.md`); Werte nach 1. Training |
 
 ## Als Nächstes (kein Blocker)
