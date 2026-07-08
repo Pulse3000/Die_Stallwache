@@ -10,9 +10,15 @@ next-env.d.ts
 .DS_Store
 .vercel
 .env*
+!**/.env.example
 
 # Python (edge-agent)
 __pycache__/
 *.pyc
 edge-agent/config.yaml
 edge-agent/aufnahmen/
+
+# Termux-Bridge (heruntergeladene Binaries + Logs, nie committen)
+bridge/termux/go2rtc
+bridge/termux/cloudflared
+bridge/termux/logs/
