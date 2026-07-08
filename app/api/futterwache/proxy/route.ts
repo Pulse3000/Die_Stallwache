@@ -85,9 +85,23 @@ export async function GET(req: NextRequest) {
 
   let antwort: Response;
   try {
-    antwort = await fetch(zielUrl.toString(), { cache: "no-store" });
+    // redirect: "manual" schliesst einen SSRF-Bypass: Die Host-Allowlist prueft
+    // nur die initiale URL. Wuerde fetch einem 3xx-Redirect folgen, koennte ein
+    // erlaubter Host auf einen internen Host (z.B. Cloud-Metadaten 169.254.169.254)
+    // umleiten. Tuyas signierte URLs sind final und brauchen keine Redirects.
+    antwort = await fetch(zielUrl.toString(), {
+      cache: "no-store",
+      redirect: "manual",
+    });
   } catch {
     return NextResponse.json({ fehler: "Stream nicht erreichbar" }, { status: 502 });
+  }
+  // 3xx (auch als "opaqueredirect" mit status 0) verwerfen statt folgen.
+  if (antwort.status === 0 || (antwort.status >= 300 && antwort.status < 400)) {
+    return NextResponse.json(
+      { fehler: "Weiterleitung nicht erlaubt" },
+      { status: 502 },
+    );
   }
   if (!antwort.ok) {
     return NextResponse.json(
