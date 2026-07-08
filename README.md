@@ -31,23 +31,26 @@ spielen RTSP ohnehin nicht ab.
 Lösung (Standardweg, auch von go2rtc/RTSPtoWeb empfohlen):
 
 ```
-Tapo TCA72  ──RTSP──▶  go2rtc (im Stall-LAN)  ──WebRTC/HLS──▶  Cloudflare Tunnel ──HTTPS──▶  Browser / Webapp
+Tapo TCA72  ──RTSP──▶  Bridge (im Stall-LAN)  ──WebRTC/HLS──▶  Cloudflare Tunnel ──HTTPS──▶  Browser / Webapp
 ```
 
-* **go2rtc** wandelt RTSP in browser-taugliches **WebRTC** (< 1 s Latenz) bzw.
-  **HLS** (Fallback) um.
-* **Cloudflare Tunnel** macht go2rtc **24/7 ohne Portfreigabe** per HTTPS erreichbar.
-* Die Webapp spricht ausschließlich mit go2rtc – **keine Kamera-Zugangsdaten im Frontend**.
+* Die **Bridge** wandelt RTSP in browser-taugliches **WebRTC** (< 1 s Latenz)
+  bzw. **HLS** (Fallback) um – wahlweise **go2rtc** (Default) oder
+  **MediaMTX** (Standard-WHEP-Protokoll). Entscheidungshilfe & Setup beider
+  Varianten: [`bridge/README.md`](bridge/README.md).
+* **Cloudflare Tunnel** macht die Bridge **24/7 ohne Portfreigabe** per HTTPS erreichbar.
+* Die Webapp spricht ausschließlich mit der Bridge – **keine Kamera-Zugangsdaten im Frontend**.
 
 ---
 
 ## 1. Bridge im Stall einrichten (einmalig)
 
 Auf einem Gerät im selben Netz wie die Kamera (Raspberry Pi, Mini-PC, NAS …) mit
-Docker:
+Docker – **go2rtc** (Default) oder **MediaMTX** (Alternative,
+[Entscheidungshilfe](bridge/README.md)):
 
 ```bash
-cd bridge
+cd bridge                # oder: cd bridge/mediamtx
 cp .env.example .env
 #  -> TAPO_PASS und CLOUDFLARE_TUNNEL_TOKEN eintragen
 docker compose up -d
@@ -56,7 +59,7 @@ docker compose logs -f
 
 **Voraussetzungen an der Kamera:** In der Tapo-App unter *Erweiterte
 Einstellungen → Kamerakonto* ein Konto anlegen (hier: Benutzer `Stallwache`).
-Genau diese Daten nutzt go2rtc für RTSP.
+Genau diese Daten nutzt die Bridge für RTSP.
 
 **Cloudflare Tunnel:** Im [Zero-Trust-Dashboard](https://one.dash.cloudflare.com)
 einen *Named Tunnel* erstellen, Token in `.env` eintragen und einen *Public
@@ -67,8 +70,8 @@ zeigen lassen.
 > `cloudflared tunnel --url http://localhost:1984` (liefert eine zufällige
 > `*.trycloudflare.com`-URL).
 
-Prüfen: `https://stallwache.deine-domain.de` öffnet das go2rtc-Webinterface und
-zeigt den Stream `stallwache`.
+Prüfen: `https://stallwache.deine-domain.de` öffnet das Bridge-Webinterface
+(go2rtc) bzw. liefert die HLS-Playlist (MediaMTX) und zeigt den Stream `stallwache`.
 
 ---
 
@@ -76,16 +79,17 @@ zeigt den Stream `stallwache`.
 
 ```bash
 cp .env.example .env.local
-#  -> NEXT_PUBLIC_GO2RTC_URL = https://stallwache.deine-domain.de
+#  -> NEXT_PUBLIC_BRIDGE_URL = https://stallwache.deine-domain.de
+#  -> NEXT_PUBLIC_BRIDGE_TYPE = go2rtc  (oder mediamtx, falls diese Bridge genutzt wird)
 
 npm install
 npm run dev      # lokal: http://localhost:3000
 ```
 
 **Deploy auf Vercel:** Repo importieren und die Umgebungsvariable
-`NEXT_PUBLIC_GO2RTC_URL` (und optional `NEXT_PUBLIC_STREAM_NAME` sowie
-`NEXT_PUBLIC_STREAM_NAME_2` für die Futterwache) setzen – fertig.
-Die App ist als PWA installierbar (Homescreen).
+`NEXT_PUBLIC_BRIDGE_URL` (und optional `NEXT_PUBLIC_BRIDGE_TYPE`,
+`NEXT_PUBLIC_STREAM_NAME` sowie `NEXT_PUBLIC_STREAM_NAME_2` für die
+Futterwache) setzen – fertig. Die App ist als PWA installierbar (Homescreen).
 
 ---
 
@@ -96,19 +100,20 @@ Die App ist als PWA installierbar (Homescreen).
 | `app/` | Next.js App Router – Stallblick-Startseite (mobil optimiert) |
 | `components/StallblickApp.tsx` | Hauptscreen: Kamera-Karten, Rollenwechsel, Vollbild, Status, Ereignisse |
 | `components/CameraStream.tsx` | Kamera-Container: WebRTC/HLS (Hauptbild) bzw. Snapshot-Polling (Vorschau) |
-| `lib/config.ts` | Kamera- & go2rtc-Konfiguration aus Umgebungsvariablen |
+| `lib/config.ts` | Kamera- & Bridge-Konfiguration (go2rtc/MediaMTX) aus Umgebungsvariablen |
 | `app/wache/` + `app/api/events/` | **KI-Wache**: Alarm-Dashboard & Ingest-API für Brunst-/Kalbeerkennung |
 | `edge-agent/` | Python-Agent (YOLO-Pose + ByteTrack): Kalbe-/Brunsterkennung lokal im Stall, Telegram-Alarm |
-| `bridge/` | go2rtc + Cloudflare Tunnel (Docker Compose) für das Stall-Netz |
+| `bridge/` | go2rtc (Default) + Cloudflare Tunnel für das Stall-Netz |
+| `bridge/mediamtx/` | MediaMTX-Alternative (WHEP-Standard) + Caddy + Cloudflare Tunnel |
 
 ## Live
 
 Deployt auf Vercel: **https://die-stallwache.vercel.app**
-(zeigt „Warte auf Bridge", bis `NEXT_PUBLIC_GO2RTC_URL` gesetzt und die Bridge im Stall verbunden ist).
+(zeigt „Warte auf Bridge", bis `NEXT_PUBLIC_BRIDGE_URL` gesetzt und die Bridge im Stall verbunden ist).
 
 ## Tech-Stack
 
-Next.js 16 (App Router) · React 19 · Tailwind CSS · hls.js · go2rtc · Cloudflare Tunnel
+Next.js 16 (App Router) · React 19 · Tailwind CSS · hls.js · go2rtc/MediaMTX · Cloudflare Tunnel
 
 ---
 

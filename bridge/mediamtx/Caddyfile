@@ -1,0 +1,16 @@
+# Vereint MediaMTX' getrennte Ports (HLS :8888, WebRTC/WHEP :8889) unter
+# einem einzigen lokalen Port, damit der Cloudflare Tunnel (wie beim
+# go2rtc-Setup) nur EINEN Public Hostname braucht.
+#
+# WHEP-Anfragen erkennt man am Pfadende "/whep"; alles andere (HLS-Playlists,
+# Segmente, API) geht an den HLS-Port.
+
+:1984 {
+	@webrtc path_regexp whep /whep$
+	handle @webrtc {
+		reverse_proxy localhost:8889
+	}
+	handle {
+		reverse_proxy localhost:8888
+	}
+}
