@@ -17,6 +17,7 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 | ✅ P2 | Täglicher Telegram-Digest | `edge-agent/main.py` (`telegram.digest_uhrzeit`) |
 | ✅ P2 | Wach-Modus pro Bucht (gesenkte Schwellen vor Termin) | `edge-agent/main.py` (`logik.wach_modus`) |
 | ✅ P2 | Optionale MQTT-Event-Ausgabe (Home Assistant) | `edge-agent/main.py` (`mqtt.host`) |
+| ✅ P2 | Tuya-Futterwache-Frontend (HLS + go2rtc-Fallback) | `components/CameraStream.tsx`, `lib/tuya.ts`; nur noch `TUYA_*`-Env setzen |
 | 🔄 P3 | Öffentliche Erkennungs-Metriken | Methodik steht (`docs/metriken.md`); Werte nach 1. Training |
 
 ## Als Nächstes (kein Blocker)
@@ -25,7 +26,6 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 | --- | --- | --- |
 | ⏳ P1 | **Ereignis-Persistenz** (Vercel KV/Postgres statt In-Memory) | Betreiber legt Vercel-KV-Store an; `lib/events.ts` von In-Memory auf KV umstellen (API-Format bleibt) |
 | ⏳ P3 | **Ein-Befehl-Setup** (geführtes Install-Skript + Telegram-Bot-Assistent) | `edge-agent/setup.sh`: venv, pip, config-Assistent, systemd-Unit — matcht CowCatcherAI-Onboarding |
-| ⏳ P2 | **Tuya-Futterwache-Frontend** (Backend fertig) | Skill `tuya-futterwache` abarbeiten, sobald `TUYA_*`-Credentials vorliegen |
 
 ## Blockiert (wartet auf Voraussetzung)
 
