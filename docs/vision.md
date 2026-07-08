@@ -65,9 +65,12 @@ wiederkehrende Aufgabe hat einen benannten Zuständigen:
 | --- | --- | --- |
 | Markt beobachten | Agent `markt-analyst` + Skill `wettbewerbs-check` | quartalsweise / auf Zuruf |
 | Qualität sichern | Agent `qa-waechter` + Skill `ki-wache-smoketest` | vor jedem Merge |
+| Sicherheit härten | Skill `security-sweep` | vor Releases / nach neuen API-Routen |
 | Ausliefern | Skill `stallblick-deploy` | nach jedem Feature |
 | Futterwache-Cloud | Skill `tuya-futterwache` | sobald Tuya-Zugangsdaten vorliegen |
 
 Regel: Der Hauptagent orchestriert und entscheidet; Subagenten recherchieren
 und prüfen. Produktentscheidungen landen immer in
 `docs/wettbewerbsanalyse.md` (Was/Warum) — Code folgt Entscheidung, nie umgekehrt.
+Das vollständige Koordinationshandbuch (Rollen, Delegations-Entscheidung,
+Muster): [`docs/agenten-orchestrierung.md`](./agenten-orchestrierung.md).
