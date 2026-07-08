@@ -7,7 +7,12 @@ export const dynamic = "force-dynamic";
  * Liefert dem Frontend eine kurzlebige HLS-URL der Futterwache aus der
  * Tuya-Cloud. Zugangsdaten bleiben serverseitig; ohne TUYA_*-Env-Vars
  * bleibt der Endpoint geschlossen (503) und die Futterwache laeuft weiter
- * ueber die go2rtc-Bridge.
+ * ueber die Bridge.
+ *
+ * Die zurueckgegebene URL zeigt bewusst auf /api/futterwache/proxy statt
+ * direkt auf Tuyas CDN: Tuya setzt dort keine CORS-Header, wodurch hls.js
+ * im Browser die Antworten sonst nicht lesen koennte (schwarzes Bild ohne
+ * sichtbaren Fehler). Der Proxy macht den Stream same-origin.
  */
 export async function GET() {
   if (!tuyaKonfiguriert) {
@@ -21,7 +26,11 @@ export async function GET() {
   }
   try {
     const stream = await holeFutterwacheStream("hls");
-    return NextResponse.json(stream, {
+    const proxied = {
+      ...stream,
+      url: `/api/futterwache/proxy?url=${encodeURIComponent(stream.url)}`,
+    };
+    return NextResponse.json(proxied, {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (e) {
