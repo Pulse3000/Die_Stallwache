@@ -24,6 +24,15 @@ Code-Unterschied im Frontend nötig.
   hattest mit go2rtc Kompatibilitätsprobleme mit deiner Kamera. Die
   Vorschau-Kachel zeigt dann einen Platzhalter statt eines Live-Thumbnails.
 
+## Kein Raspberry Pi/Mini-PC zur Hand?
+
+Falls nur ein Android-Handy verfügbar ist, das dauerhaft im Stall-WLAN
+bleiben kann: [`bridge/termux/`](termux/README.md) beschreibt, wie go2rtc und
+cloudflared direkt unter Termux (Linux-Terminal für Android, kein Root)
+laufen — ohne Docker. **iOS/Apple-Geräte funktionieren dafür nicht** (Apple
+erlaubt keine dauerhaften Hintergrundprozesse). Weniger zuverlässig als
+dedizierte Hardware, aber ein funktionierender Einstieg ohne Zusatzkauf.
+
 ## Einrichtung
 
 Beide Wege sind identisch aufgebaut (`cp .env.example .env`, Werte eintragen,
