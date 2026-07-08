@@ -1,0 +1,46 @@
+# MediaMTX – Alternative zu go2rtc als RTSP -> WebRTC/HLS Bridge.
+# Laeuft im Stall-Netzwerk (selbes LAN wie die Kameras).
+#
+# Unterschied zu go2rtc (siehe /bridge/README.md fuer die Entscheidungshilfe):
+#   - Standardprotokoll WHEP fuer WebRTC (statt eigener JSON-API)
+#   - kein eingebautes JPEG-Snapshot-Endpoint (Stallblick zeigt dafuer bei
+#     der Vorschau einen ruhigen Platzhalter statt eines Thumbnails)
+#   - ein einzelnes, sehr aktiv gepflegtes Binary/Image
+#
+# Zugangsdaten werden ueber Umgebungsvariablen injiziert (siehe docker-compose.yml).
+
+paths:
+  stallwache:
+    source: rtsp://${TAPO_USER}:${TAPO_PASS}@${TAPO_IP}:554/stream1
+  stallwache_sd:
+    source: rtsp://${TAPO_USER}:${TAPO_PASS}@${TAPO_IP}:554/stream2
+  # Zweitkamera "Futterwache" (nur relevant, falls NICHT ueber Tuya-Cloud
+  # angebunden - siehe NEXT_PUBLIC_FUTTERWACHE_TUYA in der Webapp)
+  futterwache:
+    source: rtsp://${FUTTER_USER}:${FUTTER_PASS}@${FUTTER_IP}:554/stream1
+  futterwache_sd:
+    source: rtsp://${FUTTER_USER}:${FUTTER_PASS}@${FUTTER_IP}:554/stream2
+
+# HTTP-API (Health-Check, Metriken)
+api: yes
+apiAddress: :9997
+
+# HLS: robuster Fallback fuer die Hauptkamera
+hls: yes
+hlsAddress: :8888
+hlsAllowOrigin: "*"
+
+# WebRTC (WHEP/WHIP): niedrige Latenz fuer die Hauptkamera
+webrtc: yes
+webrtcAddress: :8889
+# Bei reinem Cloudflare-Tunnel-Betrieb laeuft WebRTC ueber den TCP-Fallback.
+# Fuer beste Latenz optional die oeffentliche IP + Portfreigabe eintragen.
+webrtcAdditionalHosts: []
+# HLS (8888) und WebRTC (8889) sind getrennte Ports - der beiliegende Caddy
+# (siehe docker-compose.yml) vereint sie lokal unter Port 1984, damit der
+# Cloudflare Tunnel wie beim go2rtc-Setup nur EINEN Hostname braucht.
+
+rtsp: yes
+rtspAddress: :8554
+
+logLevel: info

@@ -17,7 +17,8 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 | ✅ P2 | Täglicher Telegram-Digest | `edge-agent/main.py` (`telegram.digest_uhrzeit`) |
 | ✅ P2 | Wach-Modus pro Bucht (gesenkte Schwellen vor Termin) | `edge-agent/main.py` (`logik.wach_modus`) |
 | ✅ P2 | Optionale MQTT-Event-Ausgabe (Home Assistant) | `edge-agent/main.py` (`mqtt.host`) |
-| ✅ P2 | Tuya-Futterwache-Frontend (HLS + go2rtc-Fallback) | `components/CameraStream.tsx`, `lib/tuya.ts`; nur noch `TUYA_*`-Env setzen |
+| ✅ P2 | Tuya-Futterwache-Frontend (HLS + Bridge-Fallback) | `components/CameraStream.tsx`, `lib/tuya.ts`; nur noch `TUYA_*`-Env setzen |
+| ✅ Infra | **MediaMTX als Bridge-Alternative** zu go2rtc (WHEP-Standard statt proprietärer API) | `lib/config.ts` (`NEXT_PUBLIC_BRIDGE_TYPE`), `components/CameraStream.tsx`, `bridge/mediamtx/`; Entscheidungshilfe `bridge/README.md` |
 | 🔄 P3 | Öffentliche Erkennungs-Metriken | Methodik steht (`docs/metriken.md`); Werte nach 1. Training |
 
 ## Als Nächstes (kein Blocker)

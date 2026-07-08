@@ -8,6 +8,7 @@ import {
   type CameraState,
   cameraById,
   isConfigured,
+  snapshotSupported,
   snapshotUrl,
 } from "@/lib/config";
 
@@ -118,6 +119,12 @@ export default function StallblickApp() {
     const cam = cameraById(hauptkamera);
     if (!isConfigured) {
       addEreignis(`Snapshot nicht möglich – Bridge nicht verbunden`);
+      return;
+    }
+    if (!snapshotSupported) {
+      addEreignis(
+        `Snapshot nicht verfügbar – MediaMTX hat kein Einzelbild-Endpoint`,
+      );
       return;
     }
     try {
