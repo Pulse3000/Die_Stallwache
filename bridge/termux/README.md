@@ -26,6 +26,25 @@ Linux-Terminal für Android, ohne Root.
   Raspberry Pi Zero 2 W, ca. 20 €) langfristig die robustere Lösung — dieser
   Weg ist ein guter, funktionierender Einstieg ohne Zusatzkauf.
 
+## Schnellweg: Ein-Befehl-Installation
+
+Wer die Einzelschritte überspringen will: Nach dem Installieren von **Termux**
+(Schritt 1) genügt in Termux ein einziger Befehl — das Skript erkennt die
+CPU-Architektur, lädt go2rtc + cloudflared, fragt Kamera-Zugangsdaten und
+Tunnel-Token interaktiv ab, richtet den Autostart ein und startet die Bridge:
+
+```bash
+pkg install -y curl && \
+bash <(curl -fsSL https://raw.githubusercontent.com/Pulse3000/Die_Stallwache/main/bridge/termux/install.sh)
+```
+
+Danach nur noch im Cloudflare-Dashboard den Public Hostname auf
+`http://localhost:1984` zeigen lassen (Schritt 5) und die Tunnel-Adresse
+melden. Wer lieber jeden Schritt selbst nachvollzieht, folgt der Anleitung
+unten.
+
+---
+
 ## 1. Termux installieren
 
 **Nicht** aus dem Play Store (die dortige Version ist veraltet und wird
