@@ -43,6 +43,6 @@ export async function middleware(req: NextRequest) {
 export const config = {
   // Alles ausser Next-internen und statischen Dateien.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.svg$|.*\\.png$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|webp|gif|ico)$).*)",
   ],
 };
