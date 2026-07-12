@@ -150,15 +150,23 @@ export default function StallblickApp() {
     <>
       {/* 1 · Header – nur Orientierung, kompakt */}
       <header className="mb-4 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="truncate text-xl font-bold tracking-tight">
-            Stallblick
-          </h1>
-          <p className="truncate text-xs text-white/50">
-            {systemOk
-              ? "2 Kameras online"
-              : `${onlineCount} von 2 Kameras online`}
-          </p>
+        <div className="flex min-w-0 items-center gap-2.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo-stallwache.jpg"
+            alt=""
+            className="h-9 w-9 shrink-0 rounded-lg ring-1 ring-white/10"
+          />
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-bold tracking-tight">
+              Stallblick
+            </h1>
+            <p className="truncate text-xs text-white/50">
+              {systemOk
+                ? "2 Kameras online"
+                : `${onlineCount} von 2 Kameras online`}
+            </p>
+          </div>
         </div>
         <div
           className="flex shrink-0 items-center gap-2 rounded-full bg-stall-card px-3 py-1.5 text-xs ring-1 ring-white/10"
