@@ -22,6 +22,7 @@ alter CPU-Hardware:
 | --- | --- | --- |
 | **Bridge-Rechner mitbenutzen** (der Rechner, auf dem go2rtc läuft) | 0 € | ideal – liest den Stream über `localhost`, keine Netzlast |
 | **Ausgemusterter Laptop/Büro-PC** (i5 ab ~2015) | 0 € | 2–5 FPS mit YOLOv8n – mehr als genug |
+| **Altes Android-Handy (Termux)** | 0 € | nur für **Silent Mode** (Bilder sammeln) – Analyse-Modus (YOLO) läuft dort noch nicht, siehe [`termux/README.md`](termux/README.md) |
 | **Google Colab (Free)** | 0 € | fürs **Training** des Modells (GPU gratis), nicht für 24/7-Inferenz |
 | Raspberry Pi 5 + AI-Kit / Jetson Orin Nano | 100–600 € | späteres Upgrade, falls mehr Kameras/FPS gewünscht |
 
