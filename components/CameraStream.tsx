@@ -10,7 +10,6 @@ import {
   isConfigured,
   snapshotSupported,
   snapshotUrl,
-  TUYA_STREAM_ENDPOINT,
   webrtcUrl,
 } from "@/lib/config";
 
@@ -40,8 +39,8 @@ const PREVIEW_INITIAL_DELAY = 600;
  *                      ein leichtes HEAD-Status-Polling (kein Videodecode)
  *                      plus ruhiger Platzhalter statt Thumbnail.
  *
- * Quelle Tuya-Cloud (Futterwache, camera.tuyaFaehig):
- *   Rolle "haupt"    → HLS-URL von /api/futterwache/stream; bei 503/Fehler
+ * Quelle Tuya-Cloud (camera.tuyaFaehig, z.B. Futterwache/Stallbox):
+ *   Rolle "haupt"    → HLS-URL von camera.tuyaEndpoint; bei 503/Fehler
  *                      automatischer Fallback auf die Bridge. Tuya-URLs
  *                      laufen ab → bei fatalem HLS-Fehler wird eine frische
  *                      URL geholt.
@@ -284,7 +283,7 @@ export default function CameraStream({ camera, role, onState }: Props) {
       const video = videoRef.current;
       if (!video || disposedRef.current) return;
       try {
-        const res = await fetch(TUYA_STREAM_ENDPOINT, { cache: "no-store" });
+        const res = await fetch(camera.tuyaEndpoint, { cache: "no-store" });
         if (!res.ok) throw new Error(`Tuya HTTP ${res.status}`);
         const data = (await res.json()) as { url?: string };
         if (disposedRef.current) return;

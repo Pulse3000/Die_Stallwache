@@ -1,10 +1,12 @@
 /**
  * Zentrale Konfiguration von Stallblick.
  *
- * Beide Kameras liefern nur lokal RTSP-Streams. Im Stall-Netz laeuft eine
- * Bridge (go2rtc ODER MediaMTX, siehe /bridge), die via Cloudflare Tunnel
+ * Kameras liefern lokal RTSP-Streams. Im Stall-Netz laeuft eine Bridge
+ * (go2rtc ODER MediaMTX, siehe /bridge), die via Cloudflare Tunnel
  * oeffentlich per HTTPS erreichbar ist. Die App spricht ausschliesslich mit
  * der Bridge – niemals direkt mit den Kameras, ohne Zugangsdaten im Frontend.
+ * Tuya-faehige Kameras (siehe CameraConfig.tuyaFaehig) laufen stattdessen
+ * primaer ueber die Tuya-Cloud, mit der Bridge nur als Fallback.
  *
  * Bridge-Wahl (siehe /bridge/README.md fuer die Entscheidungshilfe):
  *   go2rtc   (Default) – eigene JSON-API fuer WebRTC, integriertes
@@ -19,6 +21,7 @@
  *   NEXT_PUBLIC_BRIDGE_TYPE    "go2rtc" (Default) | "mediamtx"
  *   NEXT_PUBLIC_STREAM_NAME    Stream/Pfad der Stallwache  (Default: "stallwache")
  *   NEXT_PUBLIC_STREAM_NAME_2  Stream/Pfad der Futterwache (Default: "futterwache")
+ *   NEXT_PUBLIC_STREAM_NAME_3  Stream/Pfad der Stallbox    (Default: "stallbox")
  */
 
 export type BridgeType = "go2rtc" | "mediamtx";
@@ -43,7 +46,7 @@ export const isConfigured = BRIDGE_URL.length > 0;
 /** MediaMTX hat kein eingebautes JPEG-Snapshot-Endpoint. */
 export const snapshotSupported = BRIDGE_TYPE === "go2rtc";
 
-export type CameraId = "stallwache" | "futterwache";
+export type CameraId = "stallwache" | "futterwache" | "stallbox";
 
 /** Kamera-State laut State-Modell: online | offline | laedt | instabil */
 export type CameraState = "online" | "offline" | "laedt" | "instabil";
@@ -58,29 +61,30 @@ export interface CameraConfig {
   ort: string;
   /**
    * Kann diese Kamera als Hauptbild ueber die Tuya-Cloud laufen?
-   * Wenn true, holt der Player zuerst eine HLS-URL von TUYA_STREAM_ENDPOINT
+   * Wenn true, holt der Player zuerst eine HLS-URL von `tuyaEndpoint`
    * und faellt bei 503/Fehler automatisch auf die Bridge zurueck.
    */
   tuyaFaehig: boolean;
+  /** API-Route, die serverseitig eine kurzlebige Tuya-HLS-URL fuer diese Kamera allokiert. */
+  tuyaEndpoint: string;
 }
 
-/** API-Route, die serverseitig eine kurzlebige Tuya-HLS-URL allokiert. */
-export const TUYA_STREAM_ENDPOINT = "/api/futterwache/stream";
-
 /**
- * Futterwache standardmaessig ueber Tuya-Cloud (mit Bridge-Fallback).
- * Zum Erzwingen der Bridge: NEXT_PUBLIC_FUTTERWACHE_TUYA=0.
+ * Futterwache & Stallbox standardmaessig ueber Tuya-Cloud (mit Bridge-Fallback).
+ * Zum Erzwingen der Bridge: NEXT_PUBLIC_FUTTERWACHE_TUYA=0 bzw. NEXT_PUBLIC_STALLBOX_TUYA=0.
  */
 const FUTTERWACHE_TUYA = process.env.NEXT_PUBLIC_FUTTERWACHE_TUYA?.trim() !== "0";
+const STALLBOX_TUYA = process.env.NEXT_PUBLIC_STALLBOX_TUYA?.trim() !== "0";
 
-/** Stallwache = Hauptkamera (Default), Futterwache = Zweitkamera. */
-export const CAMERAS: readonly [CameraConfig, CameraConfig] = [
+/** Stallwache = Hauptkamera (Default), weitere Kameras als Zweitkameras. */
+export const CAMERAS: readonly CameraConfig[] = [
   {
     id: "stallwache",
     name: "Stallwache",
     streamName: process.env.NEXT_PUBLIC_STREAM_NAME?.trim() || "stallwache",
     ort: "Abkalbebereich",
     tuyaFaehig: false,
+    tuyaEndpoint: "",
   },
   {
     id: "futterwache",
@@ -88,6 +92,15 @@ export const CAMERAS: readonly [CameraConfig, CameraConfig] = [
     streamName: process.env.NEXT_PUBLIC_STREAM_NAME_2?.trim() || "futterwache",
     ort: "Futtertisch",
     tuyaFaehig: FUTTERWACHE_TUYA,
+    tuyaEndpoint: "/api/futterwache/stream",
+  },
+  {
+    id: "stallbox",
+    name: "Stallbox",
+    streamName: process.env.NEXT_PUBLIC_STREAM_NAME_3?.trim() || "stallbox",
+    ort: "Stallbox",
+    tuyaFaehig: STALLBOX_TUYA,
+    tuyaEndpoint: "/api/stallbox/stream",
   },
 ];
 

@@ -1,15 +1,18 @@
 /**
- * Tuya-Cloud-Anbindung fuer die Futterwache (serverseitig!).
+ * Tuya-Cloud-Anbindung fuer Tuya-faehige Kameras (serverseitig!).
  *
- * Die Futterwache ist eine Tuya-/Smart-Life-Kamera. Die Tuya-OpenAPI liefert
- * auf Anfrage eine kurzlebige HLS-Stream-URL, die ans Frontend durchgereicht
- * werden kann. Alle Zugangsdaten bleiben in Server-Env-Vars – nie im Browser.
+ * Mehrere Kameras koennen ueber dasselbe Tuya-Cloud-Projekt laufen (ein
+ * Access ID/Secret-Paar), aber jede mit ihrer eigenen Geraete-ID. Die
+ * Tuya-OpenAPI liefert auf Anfrage eine kurzlebige HLS-Stream-URL, die ans
+ * Frontend durchgereicht werden kann. Alle Zugangsdaten bleiben in
+ * Server-Env-Vars – nie im Browser.
  *
  * Benoetigte Umgebungsvariablen (Vercel -> Settings -> Environment Variables):
- *   TUYA_ACCESS_ID      Access ID / Client ID  (iot.tuya.com -> Cloud -> Projekt)
- *   TUYA_ACCESS_SECRET  Access Secret          (ebenda)
- *   TUYA_DEVICE_ID      Device ID der Futterwache (Projekt -> Devices)
- *   TUYA_API_BASE       optional, Default EU: https://openapi.tuyaeu.com
+ *   TUYA_ACCESS_ID              Access ID / Client ID  (iot.tuya.com -> Cloud -> Projekt)
+ *   TUYA_ACCESS_SECRET          Access Secret          (ebenda)
+ *   TUYA_DEVICE_ID_FUTTERWACHE  Geraete-ID der Futterwache (Projekt -> Devices)
+ *   TUYA_DEVICE_ID_STALLBOX     Geraete-ID der Stallbox    (Projekt -> Devices)
+ *   TUYA_API_BASE               optional, Default EU: https://openapi.tuyaeu.com
  *
  * Signierung gemaess Tuya-Doku: HMAC-SHA256 ueber
  *   client_id [+ access_token] + t + stringToSign
@@ -22,10 +25,17 @@ const BASE = (process.env.TUYA_API_BASE?.trim() || "https://openapi.tuyaeu.com")
   .replace(/\/+$/, "");
 const ACCESS_ID = process.env.TUYA_ACCESS_ID?.trim() || "";
 const ACCESS_SECRET = process.env.TUYA_ACCESS_SECRET?.trim() || "";
-const DEVICE_ID = process.env.TUYA_DEVICE_ID?.trim() || "";
 
-export const tuyaKonfiguriert =
-  ACCESS_ID.length > 0 && ACCESS_SECRET.length > 0 && DEVICE_ID.length > 0;
+export type TuyaKameraId = "futterwache" | "stallbox";
+
+const DEVICE_IDS: Record<TuyaKameraId, string> = {
+  futterwache: process.env.TUYA_DEVICE_ID_FUTTERWACHE?.trim() || "",
+  stallbox: process.env.TUYA_DEVICE_ID_STALLBOX?.trim() || "",
+};
+
+export function tuyaKonfiguriert(kamera: TuyaKameraId): boolean {
+  return ACCESS_ID.length > 0 && ACCESS_SECRET.length > 0 && DEVICE_IDS[kamera].length > 0;
+}
 
 function sha256Hex(s: string): string {
   return createHash("sha256").update(s).digest("hex");
@@ -72,7 +82,8 @@ async function tuyaRequest<T>(
   return json.result;
 }
 
-// Token pro Serverless-Instanz cachen (Tuya-Tokens gelten ~2 h).
+// Token pro Serverless-Instanz cachen (Tuya-Tokens gelten ~2 h). Gilt
+// projektweit (nicht pro Geraet), daher ein gemeinsamer Cache.
 let tokenCache: { token: string; ablauf: number } | null = null;
 
 async function holeToken(): Promise<string> {
@@ -88,14 +99,15 @@ async function holeToken(): Promise<string> {
   return tokenCache.token;
 }
 
-/** Fordert bei Tuya eine kurzlebige Stream-URL der Futterwache an. */
-export async function holeFutterwacheStream(
+/** Fordert bei Tuya eine kurzlebige Stream-URL fuer die angegebene Kamera an. */
+export async function holeTuyaStream(
+  kamera: TuyaKameraId,
   typ: "hls" | "rtsp" = "hls",
 ): Promise<{ url: string; typ: string }> {
   const token = await holeToken();
   const r = await tuyaRequest<{ url: string }>(
     "POST",
-    `/v1.0/devices/${encodeURIComponent(DEVICE_ID)}/stream/actions/allocate`,
+    `/v1.0/devices/${encodeURIComponent(DEVICE_IDS[kamera])}/stream/actions/allocate`,
     JSON.stringify({ type: typ }),
     token,
   );

@@ -54,6 +54,7 @@ export default function StallblickApp() {
   const [camStates, setCamStates] = useState<Record<CameraId, CameraState>>({
     stallwache: isConfigured ? "laedt" : "offline",
     futterwache: isConfigured ? "laedt" : "offline",
+    stallbox: isConfigured ? "laedt" : "offline",
   });
 
   // Ereignisliste laedt nachgelagert – blockiert den ersten Bildaufbau nicht.
@@ -85,12 +86,22 @@ export default function StallblickApp() {
     [addEreignis],
   );
 
-  const zweitkamera: CameraId =
-    hauptkamera === "stallwache" ? "futterwache" : "stallwache";
+  /** Setzt eine bestimmte Kamera als Hauptbild (ohne Vollbild zu oeffnen). */
+  const setHaupt = useCallback(
+    (id: CameraId) => {
+      setHauptkamera((prev) => {
+        if (prev !== id) addEreignis(`${cameraById(id).name} ist jetzt Hauptbild`);
+        return id;
+      });
+    },
+    [addEreignis],
+  );
 
+  /** Wechselt reihum zur naechsten Kamera in der Liste (Rundlauf). */
   const tauschen = useCallback(() => {
     setHauptkamera((prev) => {
-      const next: CameraId = prev === "stallwache" ? "futterwache" : "stallwache";
+      const idx = CAMERAS.findIndex((c) => c.id === prev);
+      const next = CAMERAS[(idx + 1) % CAMERAS.length].id;
       addEreignis(`${cameraById(next).name} ist jetzt Hauptbild`);
       return next;
     });
@@ -156,8 +167,8 @@ export default function StallblickApp() {
           </h1>
           <p className="truncate text-xs text-white/50">
             {systemOk
-              ? "2 Kameras online"
-              : `${onlineCount} von 2 Kameras online`}
+              ? `${CAMERAS.length} Kameras online`
+              : `${onlineCount} von ${CAMERAS.length} Kameras online`}
           </p>
         </div>
         <div
@@ -258,7 +269,7 @@ export default function StallblickApp() {
                   <ActionButton small onClick={() => oeffnen(cam.id)}>
                     Öffnen
                   </ActionButton>
-                  <ActionButton small onClick={tauschen}>
+                  <ActionButton small onClick={() => setHaupt(cam.id)}>
                     Als Hauptbild
                   </ActionButton>
                 </div>
@@ -270,7 +281,7 @@ export default function StallblickApp() {
         {/* 4 · Statusblock – kompakt, unabhaengig vom Videostream */}
         <section
           aria-label="Status"
-          className="order-3 grid grid-cols-2 gap-2"
+          className="order-3 grid grid-cols-3 gap-2"
         >
           {CAMERAS.map((cam) => (
             <div
