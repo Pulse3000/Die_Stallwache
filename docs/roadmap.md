@@ -31,13 +31,17 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 | Prio | Entscheidung | Nächster Schritt |
 | --- | --- | --- |
 | ⏳ P1 | **Ereignis-Persistenz** (Vercel KV/Postgres statt In-Memory) | Betreiber legt Vercel-KV-Store an; `lib/events.ts` von In-Memory auf KV umstellen (API-Format bleibt) |
+| ⏳ P2 | **Stream-Totmann-Meldung** („Das dritte Auge ist blind" — genau 1 Telegram-Nachricht bei >5 min Stream-Ausfall) | `edge-agent/main.py`: Ausfall-Flanke im Reconnect-Pfad melden; modellunabhängig, läuft schon im Silent Mode — Alleinstellung, kein Wettbewerber meldet Ausfälle aktiv |
+| ⏳ P2 | **Ein-Tipp-Feedback-Schleife** (Telegram-Inline-Buttons Treffer/Fehlalarm → Hard Negatives sammeln) | `edge-agent/main.py`: `callback_query`-Handling + Ablage nach `aufnahmen/fehlalarme/`; Prozedur steht schon (Skill `fehlalarm-triage`) — Alleinstellung, niemand lässt den Landwirt das Modell verbessern |
 | ⏳ P3 | **Ein-Befehl-Setup** (geführtes Install-Skript + Telegram-Bot-Assistent) | `edge-agent/setup.sh`: venv, pip, config-Assistent, systemd-Unit — matcht CowCatcherAI-Onboarding |
 
 ## Blockiert (wartet auf Voraussetzung)
 
 | Prio | Entscheidung | Blocker |
 | --- | --- | --- |
+| 🔒 P1 | **Festliege-Wächter** (Downer-Cow-Alarm: Seitenlage bzw. zu lange liegend, bes. nach Kalbung/Milchfieber-Fenster) — Alleinstellung, kein Kamera-Produkt hat das | erstes trainiertes Modell (Pose-Keypoints nötig) |
 | 🔒 P2 | Zwei-Kamera-Brunst-Fusion | erstes trainiertes Modell + beide Kameras sehen dieselbe Bucht |
+| 🔒 P3 | **Automatische Kalbe-Akte** (eine Abschluss-Nachricht mit Phasen-Zeitstempeln + Belegbildern, „Kalb steht seit 04:32" als erste Entwarnungs-Nachricht der Branche) | setzt Ereignis-Persistenz (P1) voraus |
 | 🔒 P3 | 7-Tage-Aktivitäts-Trend je Bucht | setzt Ereignis-Persistenz (P1) voraus |
 | 🔒 P3 | Lahmheits-Frühwarnung (Rückenlinien-Winkel) | eigene Validierung nötig; erst nach stabilem Kalbe-/Brunst-Betrieb |
 
