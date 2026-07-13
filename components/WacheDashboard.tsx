@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { EreignisTyp, StallEreignis } from "@/lib/events";
 
 interface ApiAntwort {
@@ -42,29 +42,40 @@ function fmtZeit(iso: string): string {
  * kein Einfluss auf die Kamera-Streams der Startseite.
  */
 export default function WacheDashboard() {
-  const [daten, setDaten] = useState<ApiAntwort | null>(null);
+  // Datenstand inkl. Abruf-Zeitpunkt: die 24-h-Zaehlung rechnet gegen den
+  // Zeitpunkt des Abrufs statt gegen die Render-Uhr (haelt das Rendern pur).
+  const [stand, setStand] = useState<{
+    daten: ApiAntwort;
+    abgerufen: number;
+  } | null>(null);
   const [fehler, setFehler] = useState(false);
 
-  const laden = useCallback(async () => {
-    try {
-      const res = await fetch("/api/events", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setDaten((await res.json()) as ApiAntwort);
-      setFehler(false);
-    } catch {
-      setFehler(true);
-    }
-  }, []);
-
   useEffect(() => {
+    let beendet = false;
+    const laden = async () => {
+      try {
+        const res = await fetch("/api/events", { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = (await res.json()) as ApiAntwort;
+        if (beendet) return;
+        setStand({ daten: json, abgerufen: Date.now() });
+        setFehler(false);
+      } catch {
+        if (!beendet) setFehler(true);
+      }
+    };
     void laden();
     const t = setInterval(() => void laden(), POLL_INTERVALL);
-    return () => clearInterval(t);
-  }, [laden]);
+    return () => {
+      beendet = true;
+      clearInterval(t);
+    };
+  }, []);
 
+  const daten = stand?.daten ?? null;
   const ereignisse = daten?.ereignisse ?? [];
   const istDemo = daten?.quelle === "demo";
-  const h24 = Date.now() - 24 * 3600 * 1000;
+  const h24 = (stand?.abgerufen ?? 0) - 24 * 3600 * 1000;
   const zaehle = (typ: EreignisTyp) =>
     ereignisse.filter((e) => e.typ === typ && Date.parse(e.zeit) >= h24).length;
 
