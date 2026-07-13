@@ -68,6 +68,7 @@ wiederkehrende Aufgabe hat einen benannten Zuständigen:
 | Erkennungslogik hüten | Agent `ki-wache` | bei jeder Änderung an Schwellenwerten/Logik |
 | Modell trainieren | Skill `modell-training` | sobald die Bridge läuft; danach bei Fehlalarm-Häufung |
 | Fehlalarme in Trainingsdaten verwandeln | Skill `fehlalarm-triage` | im Analyse-Modus, wöchentlich |
+| Kuh-Identität stabil halten (Tracking) | Skill `bytetrack-tuning` | nach dem Scharfschalten; bei ID-Flackern oder ausbleibenden Alarmen |
 | Sicherheit härten | Skill `security-sweep` | vor Releases / nach neuen API-Routen |
 | Ausliefern | Skill `stallblick-deploy` | nach jedem Feature |
 | Futterwache-Cloud | Skill `tuya-futterwache` | sobald Tuya-Zugangsdaten vorliegen |

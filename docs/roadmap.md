@@ -25,6 +25,7 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 | 🔄 Infra | **Edge-Agent auf Android/Termux** (Silent Mode/Datensammlung ohne Zusatz-Hardware) | `edge-agent/termux/`; Analyse-Modus (YOLO-Inferenz) dort bewusst **nicht** gebaut – `ultralytics`/`torch` haben keine Android-Wheels, erst nach erstem Modell und ONNX/NCNN-Prüfung relevant |
 | ✅ Infra | **Passwortschutz (Login)** – ein gemeinsames Passwort schützt die ganze App, HMAC-signiertes Session-Cookie, keine Datenbank | `middleware.ts`, `lib/auth.ts`, `app/login/`; aktiv via `STALLBLICK_PASSWORT` |
 | ✅ P2 | **Stream-Totmann-Meldung** („Das dritte Auge ist blind" — genau 1 Telegram-Nachricht bei Stream-Ausfall > Schwelle, genau 1 Entwarnung bei Rückkehr; Alleinstellung, kein Wettbewerber meldet Ausfälle aktiv) | `edge-agent/main.py` (`TotmannWaechter`, `stream.totmann_minuten`, Default 5 min); modellunabhängig, läuft schon im Silent Mode |
+| ✅ Infra | **ByteTrack-Kuh-Tuning** (stabile Kuh-IDs = Fundament aller zeitbasierten Regeln; `track_buffer` 90 statt 30, weil Frames bei 1 FPS Sekunden sind) | `edge-agent/tracker-kuh.yaml` + `modell.tracker`-Option; Verifikations-/Tuning-Prozedur: Skill `bytetrack-tuning` |
 | 🔄 P3 | Öffentliche Erkennungs-Metriken | Methodik steht (`docs/metriken.md`); Werte nach 1. Training |
 
 ## Als Nächstes (kein Blocker)

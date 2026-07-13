@@ -204,12 +204,15 @@ class InferenceEngine:
         self.cfg = cfg["modell"]
         self.kp = self.cfg["keypoints"]
         self.klassen = {int(v): k for k, v in self.cfg["klassen"].items()}
+        # Eigene Tracker-Konfiguration (z. B. tracker-kuh.yaml mit grossem
+        # track_buffer fuer 1 FPS); leer -> Ultralytics-Default.
+        self.tracker = (self.cfg.get("tracker") or "").strip() or "bytetrack.yaml"
         self.modell = None
         pfad = (self.cfg.get("pfad") or "").strip()
         if pfad:
             from ultralytics import YOLO  # Import nur bei Bedarf (Silent Mode braucht es nicht)
 
-            log.info("Lade Modell %s …", pfad)
+            log.info("Lade Modell %s (Tracker: %s) …", pfad, self.tracker)
             self.modell = YOLO(pfad)
 
     @property
@@ -221,7 +224,7 @@ class InferenceEngine:
     ) -> tuple[list[KuhBeobachtung], list[ObjektErkennung]]:
         """Ein Frame -> getrackte Kuehe (mit Schwanzwinkel) + Spezialobjekte."""
         ergebnis = self.modell.track(
-            frame, persist=True, tracker="bytetrack.yaml", verbose=False
+            frame, persist=True, tracker=self.tracker, verbose=False
         )[0]
 
         kuehe: list[KuhBeobachtung] = []

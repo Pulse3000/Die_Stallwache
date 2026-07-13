@@ -1,0 +1,39 @@
+# ByteTrack-Konfiguration fuer Kuehe im Stall (Ultralytics-Tracker-Format).
+# Aktivieren in config.yaml:  modell.tracker: tracker-kuh.yaml
+#
+# Warum eigene Werte statt bytetrack.yaml (Ultralytics-Default)?
+# Der Agent analysiert mit 1 FPS — die Defaults sind fuer 30-FPS-Video
+# ausgelegt. Entscheidend ist track_buffer: er zaehlt in FRAMES, bei 1 FPS
+# also in SEKUNDEN. Mit dem Default (30) bekaeme eine Kuh, die 30 s hinter
+# einer anderen verdeckt steht, danach eine NEUE ID — und jede neue ID
+# setzt das 30-Minuten-Fenster des Kalbeverdachts zurueck.
+#
+# Alle Werte sind Startwerte; Validierung: Skill `bytetrack-tuning`
+# (Ziel: < 1 ID-Wechsel pro Kuh in 10 Minuten Testclip).
+
+tracker_type: bytetrack
+
+# Erste Assoziationsstufe: Boxen ab dieser Konfidenz gelten als sicher.
+# Etwas unter dem Default (0.5), weil Konfidenzen bei IR-Nacht sinken.
+track_high_thresh: 0.4
+
+# Zweite Stufe (ByteTracks Kernidee): auch schwache Boxen zuordnen,
+# statt sie zu verwerfen. Default 0.1.
+track_low_thresh: 0.05
+
+# Neue Tracks erst ab dieser Konfidenz anlegen (verhindert Geister-IDs
+# durch Bildrauschen). Default 0.6.
+new_track_thresh: 0.5
+
+# WICHTIGSTER WERT: wie viele Frames eine verlorene Kuh "im Gedaechtnis"
+# bleibt, bevor ihre ID stirbt. 90 Frames = 90 s bei 1 FPS — ueberbrueckt
+# Verdeckungen an Futtertisch/Tränke. Default 30.
+track_buffer: 90
+
+# IoU-Matching-Schwelle: Kuehe bewegen sich langsam, aufeinanderfolgende
+# Boxen ueberlappen stark -> grosszuegiges Matching stabilisiert IDs.
+# Default 0.8.
+match_thresh: 0.9
+
+# Konfidenz in die Matching-Distanz einrechnen (Ultralytics-Empfehlung).
+fuse_score: True
