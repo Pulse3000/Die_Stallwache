@@ -69,8 +69,12 @@ export default function CameraStream({ camera, role, onState }: Props) {
   const [snapVisible, setSnapVisible] = useState(false);
 
   // Stabile Referenz auf den Callback, damit der Effekt nur auf `role` reagiert.
+  // Aktualisierung im Effekt (nicht im Render) haelt das Rendern pur; dieser
+  // Effekt steht vor dem Haupt-Effekt und laeuft daher pro Commit zuerst.
   const onStateRef = useRef(onState);
-  onStateRef.current = onState;
+  useEffect(() => {
+    onStateRef.current = onState;
+  });
   const stateRef = useRef<CameraState | null>(null);
 
   useEffect(() => {

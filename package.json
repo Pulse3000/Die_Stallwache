@@ -7,10 +7,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "eslint-config-next": "^16.2.9",
     "hls.js": "1.6.2",
     "next": "^16.2.9",
     "react": "19.1.0",
@@ -18,6 +18,9 @@
     "three": "^0.171.0"
   },
   "devDependencies": {
+    "eslint": "^9",
+    "eslint-config-next": "^16.2.9",
+    "playwright-core": "^1.49.0",
     "@types/node": "20.17.30",
     "@types/react": "19.1.2",
     "@types/react-dom": "19.1.2",
