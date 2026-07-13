@@ -24,6 +24,7 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 | ✅ Infra | **Ein-Befehl-Installation der Termux-Bridge** (Architektur-Erkennung, Binaries, interaktive Konfiguration, Autostart) | `bridge/termux/install.sh` — ein `curl \| bash` statt Einzelschritte |
 | 🔄 Infra | **Edge-Agent auf Android/Termux** (Silent Mode/Datensammlung ohne Zusatz-Hardware) | `edge-agent/termux/`; Analyse-Modus (YOLO-Inferenz) dort bewusst **nicht** gebaut – `ultralytics`/`torch` haben keine Android-Wheels, erst nach erstem Modell und ONNX/NCNN-Prüfung relevant |
 | ✅ Infra | **Passwortschutz (Login)** – ein gemeinsames Passwort schützt die ganze App, HMAC-signiertes Session-Cookie, keine Datenbank | `middleware.ts`, `lib/auth.ts`, `app/login/`; aktiv via `STALLBLICK_PASSWORT` |
+| ✅ P2 | **Stream-Totmann-Meldung** („Das dritte Auge ist blind" — genau 1 Telegram-Nachricht bei Stream-Ausfall > Schwelle, genau 1 Entwarnung bei Rückkehr; Alleinstellung, kein Wettbewerber meldet Ausfälle aktiv) | `edge-agent/main.py` (`TotmannWaechter`, `stream.totmann_minuten`, Default 5 min); modellunabhängig, läuft schon im Silent Mode |
 | 🔄 P3 | Öffentliche Erkennungs-Metriken | Methodik steht (`docs/metriken.md`); Werte nach 1. Training |
 
 ## Als Nächstes (kein Blocker)
@@ -31,7 +32,6 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 | Prio | Entscheidung | Nächster Schritt |
 | --- | --- | --- |
 | ⏳ P1 | **Ereignis-Persistenz** (Vercel KV/Postgres statt In-Memory) | Betreiber legt Vercel-KV-Store an; `lib/events.ts` von In-Memory auf KV umstellen (API-Format bleibt) |
-| ⏳ P2 | **Stream-Totmann-Meldung** („Das dritte Auge ist blind" — genau 1 Telegram-Nachricht bei >5 min Stream-Ausfall) | `edge-agent/main.py`: Ausfall-Flanke im Reconnect-Pfad melden; modellunabhängig, läuft schon im Silent Mode — Alleinstellung, kein Wettbewerber meldet Ausfälle aktiv |
 | ⏳ P2 | **Ein-Tipp-Feedback-Schleife** (Telegram-Inline-Buttons Treffer/Fehlalarm → Hard Negatives sammeln) | `edge-agent/main.py`: `callback_query`-Handling + Ablage nach `aufnahmen/fehlalarme/`; Prozedur steht schon (Skill `fehlalarm-triage`) — Alleinstellung, niemand lässt den Landwirt das Modell verbessern |
 | ⏳ P3 | **Ein-Befehl-Setup** (geführtes Install-Skript + Telegram-Bot-Assistent) | `edge-agent/setup.sh`: venv, pip, config-Assistent, systemd-Unit — matcht CowCatcherAI-Onboarding |
 
