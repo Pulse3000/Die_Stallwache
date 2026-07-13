@@ -112,6 +112,11 @@ Wehen von Alltag. Diesen Filter niemals durch Einzelbild-Trigger ersetzen.
 
 - RTSP-Reconnect mit Backoff; nach 5 Fehlversuchen automatisch auf
   Snapshot-Polling wechseln (überlebt zickiges Stall-WLAN).
+- **Stream-Totmann-Meldung** (`stream.totmann_minuten`, Default 5, 0 = aus):
+  liefert der Stream länger als die Schwelle kein Bild, geht genau EINE
+  Telegram-Nachricht raus („das dritte Auge ist blind"), plus genau eine
+  Entwarnung bei Rückkehr — Schweigen darf nie fälschlich „alles ruhig"
+  bedeuten. Läuft modellunabhängig, auch im Silent Mode.
 - Jede Iteration in Exception-Handling kapseln — der Prozess läuft weiter,
   systemd startet zur Not neu.
 - Telegram-/Dashboard-/MQTT-Ausfälle dürfen die Analyse NIE blockieren.

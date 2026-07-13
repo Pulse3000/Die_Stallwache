@@ -12,6 +12,10 @@ stream:
   # 1 Frame/Sekunde reicht voellig: Kalbeanzeichen entwickeln sich ueber
   # Minuten – so laeuft die Analyse auch auf einem alten Laptop ohne GPU.
   ziel_fps: 1.0
+  # Stream-Totmann-Meldung: liefert der Stream laenger als diese Zeit kein
+  # Bild, geht GENAU EINE Telegram-Nachricht raus („das dritte Auge ist
+  # blind") und eine Entwarnung, sobald er zurueck ist. 0 = deaktiviert.
+  totmann_minuten: 5
 
 modell:
   # Pfad zum trainierten YOLO-Pose-Modell (best.pt aus dem Colab-Training).

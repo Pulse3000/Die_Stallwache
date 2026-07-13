@@ -128,6 +128,56 @@ class StreamHandler:
         return frame
 
 
+class TotmannWaechter:
+    """Stream-Totmann-Meldung: „Das dritte Auge ist blind."
+
+    Meldet genau EINE Nachricht pro Ausfall-Episode, wenn der Stream laenger
+    als ``stream.totmann_minuten`` kein Bild liefert, und genau eine
+    Entwarnung, sobald er zurueck ist. Ohne diese Meldung wuerde Schweigen
+    faelschlich „alles ruhig" bedeuten — fuer eine Nachtwache inakzeptabel.
+    Laeuft modellunabhaengig, also auch im Silent Mode. 0 = deaktiviert.
+    """
+
+    def __init__(self, cfg: dict, jetzt: float | None = None):
+        st = cfg.get("stream") or {}
+        self.schwelle_s = float(st.get("totmann_minuten", 5)) * 60
+        self.letzter_frame = time.time() if jetzt is None else jetzt
+        self.ausfall_start: float | None = None
+        self.gemeldet = False
+
+    def tick(self, frame_ok: bool, jetzt: float | None = None) -> str | None:
+        """Pro Hauptschleifen-Iteration aufrufen; liefert die zu sendende
+        Nachricht oder None."""
+        if self.schwelle_s <= 0:
+            return None
+        t = time.time() if jetzt is None else jetzt
+
+        if frame_ok:
+            entwarnung = None
+            if self.gemeldet and self.ausfall_start is not None:
+                dauer_min = (t - self.ausfall_start) / 60
+                entwarnung = (
+                    f"Kamerastream wieder da (Ausfall {dauer_min:.0f} min) – "
+                    "das dritte Auge sieht wieder."
+                )
+            self.letzter_frame = t
+            self.ausfall_start = None
+            self.gemeldet = False
+            return entwarnung
+
+        if self.ausfall_start is None:
+            # Ausfall zaehlt ab dem letzten guten Frame, nicht ab jetzt.
+            self.ausfall_start = self.letzter_frame
+        if not self.gemeldet and t - self.ausfall_start >= self.schwelle_s:
+            self.gemeldet = True
+            dauer_min = (t - self.ausfall_start) / 60
+            return (
+                f"Kamerastream seit {dauer_min:.0f} min ausgefallen – das "
+                "dritte Auge ist blind! Bitte Bridge, WLAN und Kamera pruefen."
+            )
+        return None
+
+
 # --------------------------------------------------------------------------
 # KI-Inferenz (YOLO-Pose + ByteTrack) – optional, sonst Silent Mode
 # --------------------------------------------------------------------------
@@ -468,6 +518,16 @@ class Notifier:
         self._dashboard(meldung)
         self._mqtt(meldung)
 
+    def wichtig(self, nachricht: str) -> None:
+        """Systemmeldung, die den Landwirt aktiv erreichen soll (Telegram +
+        Dashboard + MQTT). Fuer Totmann-/Entwarnungsmeldungen — bewusst ohne
+        Cooldown: der TotmannWaechter stellt Einmaligkeit pro Episode sicher."""
+        log.warning(nachricht)
+        meldung = Alarm("info", None, nachricht, None, None)
+        self._telegram(meldung, None)
+        self._dashboard(meldung)
+        self._mqtt(meldung)
+
     def digest_tick(self, analyse_aktiv: bool) -> None:
         """Sendet einmal taeglich (digest_uhrzeit) einen kompakten Tagesbericht."""
         if not (self.digest_uhrzeit and self.tg_token and self.tg_chat):
@@ -619,6 +679,7 @@ def main() -> None:
     engine = InferenceEngine(cfg)
     logik = LogicEngine(cfg)
     notifier = Notifier(cfg)
+    totmann = TotmannWaechter(cfg)
 
     frame_puffer: deque[np.ndarray] = deque(maxlen=8)  # Verlauf fuer Bildserien
 
@@ -635,6 +696,9 @@ def main() -> None:
         try:
             frame = stream.naechster_frame()
             notifier.digest_tick(engine.aktiv)
+            totmann_meldung = totmann.tick(frame is not None)
+            if totmann_meldung:
+                notifier.wichtig(totmann_meldung)
             if frame is None:
                 continue
 
