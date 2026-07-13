@@ -67,6 +67,7 @@ wiederkehrende Aufgabe hat einen benannten Zuständigen:
 | Qualität sichern | Agent `qa-waechter` + Skill `ki-wache-smoketest` | vor jedem Merge |
 | Erkennungslogik hüten | Agent `ki-wache` | bei jeder Änderung an Schwellenwerten/Logik |
 | Modell trainieren | Skill `modell-training` | sobald die Bridge läuft; danach bei Fehlalarm-Häufung |
+| Fehlalarme in Trainingsdaten verwandeln | Skill `fehlalarm-triage` | im Analyse-Modus, wöchentlich |
 | Sicherheit härten | Skill `security-sweep` | vor Releases / nach neuen API-Routen |
 | Ausliefern | Skill `stallblick-deploy` | nach jedem Feature |
 | Futterwache-Cloud | Skill `tuya-futterwache` | sobald Tuya-Zugangsdaten vorliegen |

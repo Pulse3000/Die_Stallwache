@@ -8,18 +8,21 @@ Colab-Training, Telegram, Vercel-Dashboard).
 
 | System | Ansatz | Fokus | Kosten (Größenordnung) |
 | --- | --- | --- | --- |
-| **Lely Zeta** (AI Calving) | Deckenmodul: Kamera + LED + Mini-Computer | Kalbung: Wehen-Score, Phasen, Komplikations-Alarm | Gerät + Abo, Launch ~2026, Preis offen |
-| **GEA CattleEye** | Kamera über Treibgang, Cloud-SaaS | Lahmheit, Body Condition Score | SaaS-Abo; peer-reviewed validiert |
-| **Ever.Ag Maternity** | Kameras in Abkalbebucht | Kalbe-Alarme + zeitgestempelte Videoclips aufs Handy | SaaS; >100.000 Kühe im Einsatz |
-| **Cattle Care OmniCalf** | Kameras Abkalbe-/Kälberbereich | Kalbeverlust-Prävention, kritische Ereignisse | SaaS |
-| **smaXtec** | Pansen-Bolus (invasiv) | Brunst, Gesundheit, Kalbung (Körpertemperatur) | ~1.200–2.000 € einmalig + ~43 €/Kuh/Jahr |
+| **Lely Zeta** (AI Calving) | Deckenmodul: Kamera + LED + Mini-Computer | Kalbung: Wehen-Score, Phasen, Komplikations-Alarm | Weiter Pilotphase (8 Testbetriebe NL); UK-Launch Kalbemodul für 2026 erwartet; Gerät + Abo, Preis weiter offen |
+| **GEA CattleEye** | Kamera über Treibgang, Cloud-SaaS (seit 2024 zu GEA) | Lahmheit, BCS; Liverpool-Studie 07/2026 belegt Reduktion schwerer Lahmheit; >250.000 Kühe | Einstieg ab ~300–400 $ Hardware + SaaS-Abo |
+| **Ever.Ag Maternity Warden** | Kameras + Edge-Nodes in Abkalbebucht; Alarm bei 3 Ereignissen in 20 min, 30-s-Clip | Kalbe-Alarme (Schwanzheben, Wehen, Fruchtteile), >95 % Genauigkeit, >100.000 Kühe | ~5.000 $ System + 0,50 $/Kuh/Monat |
+| **Cattle Care OmniCalf** | Kameras Abkalbe-/Kälberbereich, Echtzeit auch bei Iglus | Kalbeverlust-Prävention + Arbeitsprotokoll-Kontrolle (Tubing, Nabeldesinfektion, Handling) | SaaS |
+| **smaXtec** | Pansen-Bolus (invasiv) | Brunst, Gesundheit, Kalbung (Körpertemperatur) | ~2.450 € Infrastruktur + ~36 €/Kuh/Jahr Basis |
 | **SenseHub (Allflex)** | Ohrmarke/Halsband | Brunst, Gesundheit | 19–28 €/Kuh/Jahr |
-| **Moocall** | Schwanz-Sensor (angeklemmt) | Kalbung (Schwanzbewegung) | ~300 €/Sensor + Datentarif |
+| **Moocall** | Schwanz-Sensor (angeklemmt) | Kalbung (Schwanzbewegung), Alarm 1–2 h vorher | ~166 € inkl. 1 Jahr Daten, danach ~162 €/Jahr Abo; 1 Sensor für 40–50 Kühe/Jahr |
+| **Dilepix** (FR) | Feste Stall-Kameras (auch Thermal) + KI-Videoanalyse als Dienst | Brunst-Erkennung 24/7 mit Sofort-Alarm, separates Kalbe-Modul | SaaS, Preis auf Anfrage |
+| **Kuhtracking** (Mechatronik Austria + Cognify, AT) | Rein kamerabasiert, Einzeltier-Tracking per KI, App-Alarm | Kalbung, Brunst, Krankheit/Verletzung; Zielgruppe Nebenerwerbsbetriebe | FFG-Forschungsprojekt (1 Mio. € gefördert), 10 Pilotbetriebe Pinzgau, noch kein Marktprodukt |
+| **MyAnIML** (US) | Kamera aufs Flotzmaul (Muzzle-Analyse) | Krankheits-Vorhersage Tage vor Symptomen (Beef-Fokus) | Kommerziell, Preis auf Anfrage |
 | **dsp-Agrosoft COW-AI** | Kamera über Laufgang (4,5–6 m) + Ohrmarken-Kamera zur Tier-ID | Lahmheit (automatisch, im Laufbereich) | Abo-Modell, Preis auf Anfrage |
 | **DeLaval BCS-Kamera** | 3D-Kamera über Selektionstor/VMS-Ausgang | Body Condition Score (täglich, automatisch) | Gerätekauf + DelPro-Bindung, Preis über Händler |
 | **CowManager** | Ohrsensor (Temperatur, Wiederkauen, Aktivität) | Brunst, Gesundheit (1–2 Tage Vorlauf), Transition | ~30 €/Sensor + Abo pro Kuh/Monat je Modul |
 | **Nedap CowControl** | Hals-/Fußband-SmartTag + Ortungs-Infrastruktur | Brunst inkl. Besamungszeitpunkt, Gesundheit, Kuh-Ortung | ~118 €/Tier (Tag) + Infrastruktur |
-| **HerdVision** | Stereo-3D-Kamera am Melkstand-Ausgang, EID-Tag-ID | BCS + Mobility-/Lahmheits-Score, Trend-Reports | ~£5.900 + Abo (1. Jahr frei) |
+| **HerdVision** | Stereo-3D-Kamera am Melkstand-Ausgang, EID-Tag-ID | BCS + Mobility-Score; DairyComp-Integration angekündigt | ~£5.900 + Abo (1. Jahr frei) |
 | **VikingGenetics CowFIT** | 3D-Kamera + Deep Learning, berührungslose Waage | Tiergewicht täglich (Energiebilanz) | Kommerzielles System, Preis auf Anfrage |
 
 Kommerzielle Kamera-Komplettsysteme liegen laut Wissenspaket bei **45.000–75.000 €**
@@ -37,7 +40,7 @@ durch den Subagenten `markt-analyst`:
 | **Frigate NVR (+ Frigate+)** | Open-Source-NVR, lokale Objekterkennung (COCO inkl. „cow"), Zonen, MQTT/Home Assistant | „Kuh anwesend", nicht „Kuh kalbt" — keine Pose/Verhaltenslogik | Kostenlos; Fine-Tuning nur via Frigate+-Abo 50 $/Jahr (ohne Nutztier-Labels) |
 | **Viseron** | Self-hosted NVR (MIT), YOLOv3–v7/Coral, natives Telegram + MQTT | Generische Objekterkennung, kein Tierverhalten | Kostenlos |
 | **Home Assistant + Kamera** | Smart-Home-Plattform als Alarmweg, Eigenbau-Automatisierungen | Keine Stall-Blueprints — Status quo bleibt „Stream aufs Handy + selber gucken" | Kostenlos, hoher Pflegeaufwand |
-| **CowCatcherAI** | YOLO/ONNX-Tool (Exe/Docker) + RTSP + Telegram-Fotoalarm, Brunst-/Kalbe-Modelle | Direktester DIY-Konkurrent; Box- statt Pose-Erkennung, keine Phasen/Eskalation/Dashboard; Lizenz mit Kommerz-Restriktion | Kostenlos |
+| **CowCatcherAI (+ CalvingCatcher AI)** | YOLO/ONNX-Tool (Exe/Docker) + RTSP + Telegram-Fotoalarm; Modell V16 (01/2025), AGPL-3.0; NEU: CalvingCatcher erkennt Kalbe-Stadien (Wasserblase, Beine, Kopf, Kalb) | Direktester DIY-Konkurrent zieht bei Kalbung nach — jetzt mit Stadien-Erkennung, aber weiterhin ohne Eskalation, Wach-Modus, Dashboard, Persistenz | Kostenlos |
 | **Forschungs-Repos** (YOLO-TransT, IPCLab-NEAU, CattleSense, CalvingDetection) | Paper-Begleitcode: Brunst-Tracking, Mounting-Detektion, Pose-Verhalten | Methodik-Beleg für den Pose-Ansatz, aber kein Produkt (kein Alarmweg, keine Wartung) | Kostenlos (Research) |
 
 **Kernbefunde:**
@@ -51,6 +54,11 @@ durch den Subagenten `markt-analyst`:
 - Selbst im Open-Source-Lager wird Modellpflege zum Abo (Frigate+ 50 $/Jahr);
   die DIY-KI-Kette hat brüchige Glieder (CodeProject.AI verwaist) — Stallblicks
   schlanker, reproduzierbarer Eigen-Stack ist ein Robustheits-Argument.
+- **Update Juli 2026:** CalvingCatcher AI (CowCatcherAI-Familie) erkennt jetzt
+  ebenfalls Geburtsstadien — der Vorsprung „wir haben Phasen, die nur Boxen"
+  schrumpft. Stallblicks Differenzierung verlagert sich auf die
+  **Logik-Schicht** (Eskalation, Wach-Modus, Digest, Persistenz, Metriken) und
+  auf Features, die niemand hat (Abschnitt 4b).
 
 ## 2. Was die Konkurrenz besser macht (und was wir davon übernehmen)
 
@@ -116,6 +124,24 @@ durch den Subagenten `markt-analyst`:
 | **P3** | **Lahmheits-Frühwarnung** aus Rückenlinien-Winkel | CattleEye; Keypoints vorhanden, braucht aber eigene Validierung |
 | **P3** | **BCS-Schätzung** (Body Condition) | DeLaval/CattleEye; erst nach stabilem Kalbe-/Brunst-Betrieb |
 
+## 4b. Alleinstellungs-Features (Juli 2026): Was NIEMAND bietet
+
+Ergebnis der gezielten Lückensuche durch den `markt-analyst` — drei Features,
+die kein Wettbewerber (kommerziell oder DIY) hat und die mit unserer
+Architektur zum Nulltarif machbar sind:
+
+| Prio | Feature | Aufwand | Warum es niemand hat / Prinzipien-Fit |
+| --- | --- | --- | --- |
+| **P1** | **Festliege-Wächter (Downer-Cow-Alarm)**: Kuh in Seitenlage oder länger als konfigurierbare Zeit ohne Aufstehen (v. a. nach erkannter Kalbung → Milchfieber-Fenster) → dringlicher Alarm | M | Kein Kamera-Produkt adressiert Festliegen explizit; Sensorik (smaXtec/Nedap) erkennt es nur indirekt, Lely Zeta nur den Geburtsprozess. Unsere Pose-Keypoints unterscheiden Brust- von Seitenlage fast gratis — ein Alarm, der Kühe rettet |
+| **P2** | **Ein-Tipp-Feedback-Schleife**: Inline-Buttons „Treffer/Fehlalarm" unter jedem Telegram-Alarm; Fehlalarm-Frames landen automatisch als Hard Negatives im Trainingsordner fürs nächste Colab-Retraining | S | Kein Wettbewerber lässt den Landwirt das Modell verbessern — SaaS trainiert zentral (Blackbox), CowCatcherAI hat keinen Feedback-Kanal. Nur Stallblick besitzt die offene Kette Kamera→Modell→Training; zahlt direkt auf „<1 Fehlalarm/Nacht" ein (Prozedur: Skill `fehlalarm-triage`) |
+| **P2** | **Stream-Totmann-Meldung**: genau eine Telegram-Nachricht, wenn ein Kamerastream >5 min ausfällt („Das dritte Auge ist blind") | S | Kein Kalbe-Wettbewerber kommuniziert Ausfälle aktiv; für ein Nachtwach-Versprechen ist das ein Vertrauens-Feature — Schweigen darf nicht fälschlich „alles ruhig" bedeuten. Modellunabhängig, läuft schon im Silent Mode |
+| **P3** | **Automatische Kalbe-Akte**: nach Abschluss einer Kalbung EINE Telegram-Zusammenfassung mit Zeitstempeln aller Phasen (Unruhe → Austreibung → Kalb sichtbar → Kalb steht) + 3 Belegbildern, kopierbar fürs Stallbuch | S–M | Alle Wettbewerber alarmieren nur *live*; automatische Geburts-Dokumentation bietet niemand. „Kalb steht seit 04:32" ist die erste *Entwarnungs*-Nachricht der Branche. Setzt Ereignis-Persistenz voraus |
+
+**Termin-Hinweis:** EuroTier 10.–13.11.2026 (Leitthema „Intelligence in Animal
+Farming"); dort werden 3D-Kamera-Systeme zur Kalbe-Vorhersage erwartet —
+**Wettbewerbs-Check im November/Dezember 2026 wiederholen** (vermutlich
+Lely-Zeta-Marktstart und Kuhtracking-Kommerzialisierung).
+
 **Positionierung in einem Satz:** *Stallblick ist das kostenlose, offene
 „Dritte Auge" für kleine Betriebe — dieselben Kalbe- und Brunst-Alarme wie die
 45.000-€-Systeme, auf der Hardware, die schon im Stall liegt.*
@@ -144,3 +170,10 @@ durch den Subagenten `markt-analyst`:
 - [CowCatcherAI](https://github.com/CowCatcherAI/CowCatcherAI)
 - [CattleSense (YOLOv8-Pose-Verhaltensanalyse)](https://github.com/mohitksahu/CattleSense)
 - [Scientific Reports: Lightweight cow mounting recognition (YOLOv5s)](https://www.nature.com/articles/s41598-023-40757-7)
+- [Ever.Ag Maternity Warden](https://ever.ag/dairy/on-farm-dairy-operations/maternity-warden) · [Ag Proud: Computer vision tracks calvings](https://www.agproud.com/articles/59645-computer-vision-tracks-calvings-for-just-in-time-management)
+- [Dilepix: Heat/Calving detection](https://www.dilepix.com/en/heat-detection)
+- [FFG: Kuhtracking – KI im Kuhstall](https://www.ffg.at/success-stories/kuhtracking-die-ki-im-kuhstall) · [SN.at: Kuhtracking im Pinzgau](https://www.sn.at/panorama/wissen/kuhtracking-mit-ki-im-pinzgau-app-alarmiert-landwirt-bei-notfaellen-art-551766)
+- [MyAnIML: AI camera predicts cattle disease](https://americancattlemen.com/myaniml-launches-ai-camera-system-that-predicts-cattle-disease/)
+- [RealAgriculture 04/2026: CattleEye Lahmheit/BCS](https://www.realagriculture.com/2026/04/tracking-lameness-and-body-score-with-ai-powered-cattleeye)
+- [Moocall: Calving Aids in 2026](https://www.moocall.com/calving-aids-in-2026-what-works-on-real-farms/)
+- [EuroTier 2026](https://www.eurotier.com/de/) · [top agrar: EuroTier 2026 & KI](https://www.topagrar.com/rind/news/eurotier-2026-beschaftigt-sich-mit-ki-in-der-tierhaltungsbranche-20027042.html)
