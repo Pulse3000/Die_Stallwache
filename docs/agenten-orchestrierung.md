@@ -17,7 +17,7 @@ Skills kapseln wiederkehrende Abläufe.**
 Skills sind keine Agenten, sondern **Prozeduren**, die der Orchestrator (oder
 ein Agent) aufruft: `stallblick-deploy`, `ki-wache-smoketest`,
 `wettbewerbs-check`, `tuya-futterwache`, `security-sweep`, `modell-training`,
-`fehlalarm-triage`.
+`fehlalarm-triage`, `bytetrack-tuning`.
 
 ## Delegations-Entscheidung: Wann was?
 
@@ -32,7 +32,8 @@ Neue Aufgabe
 ├─ Ereignis-API/Dashboard geändert             → Skill ki-wache-smoketest
 ├─ Tuya-Zugangsdaten liegen vor                → Skill tuya-futterwache
 ├─ Bridge läuft, Modell fehlt                  → Skill modell-training
-└─ Analyse-Modus läuft, Fehlalarme kommen      → Skill fehlalarm-triage
+├─ Analyse-Modus läuft, Fehlalarme kommen      → Skill fehlalarm-triage
+└─ ID-Wechsel / Alarme bleiben aus             → Skill bytetrack-tuning
 ```
 
 ## Koordinationsmuster (bewährt in dieser Session)

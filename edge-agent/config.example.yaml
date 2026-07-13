@@ -31,6 +31,12 @@ modell:
     kuh: 0
     amniotic_sac: 1  # Fruchtblase
     calf_legs: 2     # Kaelberfuesse
+  # ByteTrack-Konfiguration. Empfohlen: die mitgelieferte, auf Kuehe bei
+  # 1 FPS abgestimmte tracker-kuh.yaml (grosser track_buffer gegen
+  # ID-Wechsel bei Verdeckung — jede neue ID setzt das 30-Minuten-Fenster
+  # zurueck!). Leer lassen -> Ultralytics-Default (bytetrack.yaml).
+  # Feineinstellung & Verifikation: Skill `bytetrack-tuning`.
+  tracker: tracker-kuh.yaml
 
 logik:
   winkel_schwelle_grad: 45     # Schwanzwinkel-Schwelle
