@@ -49,7 +49,8 @@ Zusatz-Hardware), keine Cloud-Videoanalyse, kein Abo, kein Hardware-Verkauf.
 
 ## Nächster natürlicher Meilenstein
 
-**Modell-Erstinbetriebnahme** (siehe `edge-agent/README.md`): Silent Mode →
+**Modell-Erstinbetriebnahme** (geführte Prozedur: Skill `modell-training`,
+Details `edge-agent/README.md`): Silent Mode →
 CVAT-Labeling → Colab-Training → `best.pt` → Analyse-Modus. Erst danach werden
 die Metriken (`metriken.md`) gefüllt und die modellabhängigen Features (Brunst-
 Fusion, Lahmheit) sinnvoll — deshalb ist alles Modellabhängige bewusst blockiert

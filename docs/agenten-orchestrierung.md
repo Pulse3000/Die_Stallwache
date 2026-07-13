@@ -12,10 +12,11 @@ Skills kapseln wiederkehrende Abläufe.**
 | **Orchestrator** | Hauptagent (diese Session) | delegieren, entscheiden, committen, mergen | Prüfergebnisse blind übernehmen |
 | **Rechercheur** | Agent `markt-analyst` | WebSearch, lesen, Bericht liefern | Dateien ändern |
 | **Prüfer** | Agent `qa-waechter` | Build/Tests/Smoke ausführen, Befund liefern | committen/pushen, Fixes anwenden |
+| **Fachexperte** | Agent `ki-wache` | Erkennungslogik prüfen/erklären, Logik-Simulationen, Alarm-Texte formulieren | Dateien ändern, Schwellenwerte lockern |
 
 Skills sind keine Agenten, sondern **Prozeduren**, die der Orchestrator (oder
 ein Agent) aufruft: `stallblick-deploy`, `ki-wache-smoketest`,
-`wettbewerbs-check`, `tuya-futterwache`, `security-sweep`.
+`wettbewerbs-check`, `tuya-futterwache`, `security-sweep`, `modell-training`.
 
 ## Delegations-Entscheidung: Wann was?
 
@@ -23,10 +24,13 @@ ein Agent) aufruft: `stallblick-deploy`, `ki-wache-smoketest`,
 Neue Aufgabe
 ├─ Marktfrage / "Konkurrenz" / Feature-Wahl   → Agent markt-analyst (+ Skill wettbewerbs-check)
 ├─ Vor Merge / Deploy / nach neuer Route       → Agent qa-waechter
+├─ Erkennungslogik/Schwellenwerte betroffen    → Agent ki-wache (Treue-Befund vor Merge)
+├─ Alarm-/Landwirt-Texte formulieren           → Agent ki-wache
 ├─ Sicherheitsrelevante Route geändert         → Skill security-sweep (ggf. via qa-waechter)
 ├─ Ausliefern                                  → Skill stallblick-deploy
 ├─ Ereignis-API/Dashboard geändert             → Skill ki-wache-smoketest
-└─ Tuya-Zugangsdaten liegen vor                → Skill tuya-futterwache
+├─ Tuya-Zugangsdaten liegen vor                → Skill tuya-futterwache
+└─ Bridge läuft, Modell fehlt/Fehlalarme       → Skill modell-training
 ```
 
 ## Koordinationsmuster (bewährt in dieser Session)
