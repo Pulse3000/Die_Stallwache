@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 /** Dashboard liest die Ereignisliste (neueste zuerst). */
 export async function GET() {
-  return NextResponse.json(getEreignisse(), {
+  return NextResponse.json(await getEreignisse(), {
     headers: { "Cache-Control": "no-store" },
   });
 }
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ fehler: "nachricht fehlt." }, { status: 400 });
   }
 
-  const ereignis = addEreignis({
+  const ereignis = await addEreignis({
     typ,
     nachricht,
     kuhId: typeof b.kuhId === "string" ? b.kuhId.slice(0, 50) : null,
