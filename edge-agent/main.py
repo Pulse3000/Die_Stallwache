@@ -443,6 +443,143 @@ class LogicEngine:
 # Alarmierung: Telegram + Stallblick-Dashboard (Vercel)
 # --------------------------------------------------------------------------
 
+class FeedbackSchleife:
+    """Ein-Tipp-Feedback: Inline-Buttons „Treffer/Fehlalarm" unter jedem Alarm.
+
+    Kein Wettbewerber laesst den Landwirt das Modell verbessern — Stallblick
+    besitzt als einziges System die offene Kette Kamera -> Modell -> Training.
+    Ein Tipp auf „Fehlalarm" legt die UNANNOTIERTE Bildserie des Alarms als
+    Hard Negatives in ``telegram.fehlalarm_ordner`` ab (fuers Nachtraining,
+    Skill fehlalarm-triage); die Urteile erscheinen im Tagesbericht.
+    Telegram-Ausfaelle duerfen die Analyse nie blockieren.
+    """
+
+    MAX_OFFEN = 20         # nur die juengsten Alarme bleiben abstimmbar (RAM)
+    POLL_INTERVALL_S = 10  # getUpdates-Kurz-Poll; blockiert die 1-FPS-Schleife nicht
+
+    def __init__(self, cfg: dict):
+        tg = cfg.get("telegram") or {}
+        self.token = (tg.get("token") or "").strip()
+        self.chat = str(tg.get("chat_id") or "").strip()
+        self.aktiv = bool(tg.get("feedback_buttons", True)) and bool(
+            self.token and self.chat
+        )
+        self.ordner = Path(tg.get("fehlalarm_ordner") or "./aufnahmen/fehlalarme")
+        self.zaehler: dict[str, int] = {"treffer": 0, "fehlalarm": 0}
+        self._offen: dict[str, tuple[str, list[bytes]]] = {}
+        self._reihenfolge: deque[str] = deque()
+        self._naechste_id = 0
+        self._offset = 0
+        self._letzter_poll = 0.0
+
+    def registriere(self, alarm: Alarm, bilder: list[bytes]) -> dict | None:
+        """Merkt die (unannotierten) Alarm-Bilder fuer spaeteres Feedback und
+        liefert das Telegram-reply_markup — oder None, wenn Feedback aus ist."""
+        if not self.aktiv or alarm.typ == "info":
+            return None
+        fid = str(self._naechste_id)
+        self._naechste_id += 1
+        self._offen[fid] = (alarm.typ, [b for b in bilder if b])
+        self._reihenfolge.append(fid)
+        while len(self._reihenfolge) > self.MAX_OFFEN:
+            self._offen.pop(self._reihenfolge.popleft(), None)
+        return {
+            "inline_keyboard": [[
+                {"text": "✅ Treffer", "callback_data": f"fb:{fid}:treffer"},
+                {"text": "❌ Fehlalarm", "callback_data": f"fb:{fid}:fehlalarm"},
+            ]]
+        }
+
+    def tick(self, jetzt: float | None = None) -> None:
+        """Pro Hauptschleifen-Iteration aufrufen: holt alle POLL_INTERVALL_S
+        die Button-Antworten ab (Kurz-Poll ohne Warten). Der Bot darf dafuer
+        keinen Telegram-Webhook nutzen (getUpdates und Webhook schliessen
+        sich aus)."""
+        if not self.aktiv:
+            return
+        t = time.time() if jetzt is None else jetzt
+        if t - self._letzter_poll < self.POLL_INTERVALL_S:
+            return
+        self._letzter_poll = t
+        try:
+            r = requests.get(
+                f"https://api.telegram.org/bot{self.token}/getUpdates",
+                params={
+                    "offset": self._offset,
+                    "timeout": 0,
+                    "allowed_updates": '["callback_query"]',
+                },
+                timeout=10,
+            )
+            r.raise_for_status()
+            self.verarbeite(r.json().get("result") or [])
+        except requests.RequestException as e:
+            log.warning("Feedback-Abruf fehlgeschlagen: %s", e)
+
+    def verarbeite(self, updates: list[dict]) -> None:
+        for u in updates:
+            self._offset = max(self._offset, int(u.get("update_id", 0)) + 1)
+            cq = u.get("callback_query")
+            if not cq:
+                continue
+            teile = str(cq.get("data") or "").split(":")
+            antwort = "Danke!"
+            if len(teile) == 3 and teile[0] == "fb" and teile[2] in self.zaehler:
+                fid, urteil = teile[1], teile[2]
+                self.zaehler[urteil] += 1
+                eintrag = self._offen.pop(fid, None)
+                if urteil == "fehlalarm":
+                    anzahl = self._speichere(fid, eintrag)
+                    antwort = (
+                        f"Danke – {anzahl} Bild(er) fürs Nachtraining gespeichert."
+                        if anzahl
+                        else "Danke – notiert (Bilder lagen nicht mehr vor)."
+                    )
+                self._entferne_buttons(cq)
+            self._antworte(cq, antwort)
+
+    def _speichere(self, fid: str, eintrag: tuple[str, list[bytes]] | None) -> int:
+        if not eintrag:
+            return 0
+        typ, bilder = eintrag
+        ordner = self.ordner / time.strftime("%Y-%m-%d")
+        ordner.mkdir(parents=True, exist_ok=True)
+        for i, b in enumerate(bilder):
+            (ordner / f"{typ}-{fid}-{i}.jpg").write_bytes(b)
+        log.info("Fehlalarm-Feedback: %d Bild(er) -> %s", len(bilder), ordner)
+        return len(bilder)
+
+    def _antworte(self, cq: dict, text: str) -> None:
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
+                data={"callback_query_id": cq.get("id"), "text": text},
+                timeout=10,
+            )
+        except requests.RequestException:
+            pass  # rein kosmetisch, naechster Poll laeuft trotzdem
+
+    def _entferne_buttons(self, cq: dict) -> None:
+        """Buttons nach dem Votum entfernen (verhindert Doppel-Votes)."""
+        msg = cq.get("message") or {}
+        if not msg.get("message_id"):
+            return
+        try:
+            import json
+
+            requests.post(
+                f"https://api.telegram.org/bot{self.token}/editMessageReplyMarkup",
+                data={
+                    "chat_id": (msg.get("chat") or {}).get("id", self.chat),
+                    "message_id": msg["message_id"],
+                    "reply_markup": json.dumps({"inline_keyboard": []}),
+                },
+                timeout=10,
+            )
+        except requests.RequestException:
+            pass  # Doppel-Votes waeren harmlos (zweites speichert nichts mehr)
+
+
 class Notifier:
     """Versendet Alarme; Cooldown pro (Kuh, Typ) verhindert Spam."""
 
@@ -463,6 +600,7 @@ class Notifier:
 
         self.kamera = cfg["stream"].get("kamera", "stallwache")
         self._zuletzt: dict[tuple[str | None, str], float] = {}
+        self.feedback = FeedbackSchleife(cfg)
 
         # Optionaler MQTT-Zusatzausgang (Home Assistant & Co.); Ausfall darf
         # den Alarmweg nie beeintraechtigen.
@@ -510,7 +648,18 @@ class Notifier:
                 ok, jpg = cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if ok:
                     serie.append(jpg.tobytes())
-        self._telegram(alarm, bild, serie)
+
+        # Fuers Feedback nur UNANNOTIERTE Bilder vormerken (die Serie plus das
+        # rohe Alarmbild) — eingezeichnete Boxen wuerden das Nachtraining
+        # vergiften.
+        roh = list(serie)
+        if frame is not None:
+            ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if ok:
+                roh.append(jpg.tobytes())
+        markup = self.feedback.registriere(alarm, roh)
+
+        self._telegram(alarm, bild, serie, markup)
         self._dashboard(alarm)
         self._mqtt(alarm)
 
@@ -548,6 +697,10 @@ class Notifier:
             f"Brunstverdacht: {z['brunstverdacht']}\n"
             f"Agent läuft seit {stunden:.1f} h · Kamera: {self.kamera}"
         )
+        fb = self.feedback.zaehler
+        if fb["treffer"] or fb["fehlalarm"]:
+            text += f"\nFeedback: ✅ {fb['treffer']} Treffer · ❌ {fb['fehlalarm']} Fehlalarm"
+            fb["treffer"] = fb["fehlalarm"] = 0
         self._zaehler.clear()
         try:
             requests.post(
@@ -577,10 +730,17 @@ class Notifier:
         return jpg.tobytes() if ok else b""
 
     def _telegram(
-        self, alarm: Alarm, bild: bytes | None, serie: list[bytes] | None = None
+        self,
+        alarm: Alarm,
+        bild: bytes | None,
+        serie: list[bytes] | None = None,
+        markup: dict | None = None,
     ) -> None:
         if not (self.tg_token and self.tg_chat):
             return
+        import json
+
+        markup_json = json.dumps(markup) if markup else None
         text = f"⚠️ {alarm.typ.upper()}"
         if alarm.kuh_id:
             text += f" – {alarm.kuh_id}"
@@ -588,8 +748,6 @@ class Notifier:
         try:
             if bild and serie:
                 # Album: Verlaufsbilder + annotiertes Alarmbild (Caption am ersten)
-                import json
-
                 fotos = serie + [bild]
                 media = [
                     {
@@ -599,7 +757,7 @@ class Notifier:
                     }
                     for i in range(len(fotos))
                 ]
-                requests.post(
+                r = requests.post(
                     f"https://api.telegram.org/bot{self.tg_token}/sendMediaGroup",
                     data={"chat_id": self.tg_chat, "media": json.dumps(media)},
                     files={
@@ -607,18 +765,42 @@ class Notifier:
                         for i, f in enumerate(fotos)
                     },
                     timeout=30,
-                ).raise_for_status()
+                )
+                r.raise_for_status()
+                if markup_json:
+                    # sendMediaGroup kann keine Buttons tragen -> stille
+                    # Folgenachricht (kein zweiter Weckton) als Antwort aufs Album.
+                    erste = (r.json().get("result") or [{}])[0].get("message_id")
+                    requests.post(
+                        f"https://api.telegram.org/bot{self.tg_token}/sendMessage",
+                        data={
+                            "chat_id": self.tg_chat,
+                            "text": "War dieser Alarm korrekt?",
+                            "reply_markup": markup_json,
+                            "disable_notification": True,
+                            **({"reply_to_message_id": erste} if erste else {}),
+                        },
+                        timeout=20,
+                    ).raise_for_status()
             elif bild:
                 requests.post(
                     f"https://api.telegram.org/bot{self.tg_token}/sendPhoto",
-                    data={"chat_id": self.tg_chat, "caption": text},
+                    data={
+                        "chat_id": self.tg_chat,
+                        "caption": text,
+                        **({"reply_markup": markup_json} if markup_json else {}),
+                    },
                     files={"photo": ("alarm.jpg", bild, "image/jpeg")},
                     timeout=20,
                 ).raise_for_status()
             else:
                 requests.post(
                     f"https://api.telegram.org/bot{self.tg_token}/sendMessage",
-                    data={"chat_id": self.tg_chat, "text": text},
+                    data={
+                        "chat_id": self.tg_chat,
+                        "text": text,
+                        **({"reply_markup": markup_json} if markup_json else {}),
+                    },
                     timeout=20,
                 ).raise_for_status()
         except requests.RequestException as e:
@@ -699,6 +881,7 @@ def main() -> None:
         try:
             frame = stream.naechster_frame()
             notifier.digest_tick(engine.aktiv)
+            notifier.feedback.tick()
             totmann_meldung = totmann.tick(frame is not None)
             if totmann_meldung:
                 notifier.wichtig(totmann_meldung)

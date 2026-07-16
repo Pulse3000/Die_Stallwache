@@ -20,11 +20,14 @@ Jeden Alarm anhand des Telegram-Albums einordnen:
 | Urteil | Kriterium | Aktion |
 | --- | --- | --- |
 | **Treffer** | Verhalten real (Wehen/Aufsprung/Fruchtblase sichtbar) | nichts — zählt als Erfolg |
-| **Fehlalarm** | Alltag fehlgedeutet (Koten, Fliegen, Spielverhalten, Lichtreflex) | Album-Bilder in `edge-agent/aufnahmen/fehlalarme/JJJJ-MM-TT/` sichern, kurz notieren was wirklich zu sehen war |
-| **Unklar** | Aus Bildern nicht entscheidbar | wie Fehlalarm behandeln, aber separat ablegen (`unklar/`) — nicht als Negativ trainieren |
+| **Fehlalarm** | Alltag fehlgedeutet (Koten, Fliegen, Spielverhalten, Lichtreflex) | **ein Tipp auf ❌ Fehlalarm** unter dem Alarm — die unannotierte Bildserie landet automatisch in `telegram.fehlalarm_ordner` (Default `aufnahmen/fehlalarme/JJJJ-MM-TT/`) |
+| **Unklar** | Aus Bildern nicht entscheidbar | keinen Button drücken; Bilder manuell nach `unklar/` sichern — nicht als Negativ trainieren |
 
-Sobald die Ein-Tipp-Feedback-Buttons im Edge-Agent gebaut sind
-(Roadmap P2), ersetzt ein Tipp auf „Fehlalarm" das manuelle Sichern.
+Die Buttons sind gebaut (`FeedbackSchleife` in `edge-agent/main.py`,
+`telegram.feedback_buttons`): ✅/❌ unter jedem Alarm, Urteile erscheinen im
+Tagesbericht. Manuelles Sichern ist nur noch der Fallback (z. B. wenn die
+Buttons älterer Alarme abgelaufen sind — nur die letzten 20 bleiben
+abstimmbar).
 
 ## 2. Buchführung (Orchestrator, wöchentlich)
 

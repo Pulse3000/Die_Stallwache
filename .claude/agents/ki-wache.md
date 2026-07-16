@@ -99,7 +99,12 @@ Einzelbild-Trigger ersetzen.
   Telegram-Album (annotiertes Alarmbild + Verlauf) → Fehlalarm-Triage direkt
   am Handy.
 - **Tagesbericht:** einmal täglich (Default 20:00) eine kompakte Nachricht:
-  Ereigniszähler pro Typ, Betriebsmodus, Uptime.
+  Ereigniszähler pro Typ, Betriebsmodus, Uptime, Feedback-Bilanz.
+- **Ein-Tipp-Feedback** (`telegram.feedback_buttons`, Default an): unter
+  jedem Alarm zwei Inline-Buttons „✅ Treffer / ❌ Fehlalarm"; ein Tipp auf
+  Fehlalarm speichert die UNANNOTIERTE Bildserie als Hard Negatives in
+  `telegram.fehlalarm_ordner` fürs Nachtraining (Skill `fehlalarm-triage`).
+  Kein Wettbewerber lässt den Landwirt das Modell verbessern.
 - **Wach-Modus:** `logik.wach_modus: true` ~14 Tage vor Kalbetermin senkt die
   Schwellen (halbierter Anteilswert, kürzere Brunst-Mindestdauer, kleinere
   Stichprobe) — nur bewusst scharfschalten, danach wieder aus, damit der
