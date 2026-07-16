@@ -33,6 +33,17 @@ Auch **Training kostet nichts**: Colab Free stellt eine GPU, die Datensätze
 
 ## Schnellstart
 
+**Ein Befehl genügt** — das Setup-Skript übernimmt venv, Pakete (Silent Mode
+sofort, die großen Analyse-Pakete optional), die geführte Konfiguration
+(Bridge-IP, Telegram-Bot, Dashboard-Token) und auf Wunsch den
+systemd-Dauerbetrieb:
+
+```bash
+bash edge-agent/setup.sh
+```
+
+Wer jeden Schritt selbst machen will:
+
 ```bash
 cd edge-agent
 python3 -m venv venv && source venv/bin/activate
