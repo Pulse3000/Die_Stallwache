@@ -60,6 +60,13 @@ telegram:
   # Taeglicher Statusbericht (1 Nachricht: Ereigniszaehler, Uptime, Modus).
   # Leer lassen zum Deaktivieren.
   digest_uhrzeit: "20:00"
+  # Ein-Tipp-Feedback: Inline-Buttons "Treffer/Fehlalarm" unter jedem Alarm.
+  # Ein Tipp auf Fehlalarm legt die unannotierte Bildserie als Hard Negatives
+  # fuers Nachtraining ab (Skill fehlalarm-triage). Nutzt getUpdates —
+  # der Bot darf daneben keinen Telegram-Webhook betreiben.
+  feedback_buttons: true
+  # Ablageort der Fehlalarm-Bilder (Unterordner pro Tag)
+  fehlalarm_ordner: ./aufnahmen/fehlalarme
 
 dashboard:
   # Stallblick-KI-Wache auf Vercel; leer lassen zum Deaktivieren.
