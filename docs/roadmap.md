@@ -40,7 +40,7 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 
 | Prio | Entscheidung | Blocker |
 | --- | --- | --- |
-| 🔒 P1 | **Festliege-Wächter** (Downer-Cow-Alarm: Seitenlage bzw. zu lange liegend, bes. nach Kalbung/Milchfieber-Fenster) — Alleinstellung, kein Kamera-Produkt hat das | erstes trainiertes Modell (Pose-Keypoints nötig) |
+| 🔒 P1 | **Festliege-Wächter** (Downer-Cow-Alarm) — Alleinstellung, kein Kamera-Produkt hat das; **implementierungsreif spezifiziert** in [`festliege-spezifikation.md`](./festliege-spezifikation.md) (Regeln, Config, Alarmtexte, Abnahmekriterien; Entwurf: Agent `ki-wache`) | erstes trainiertes Modell; Seitenlage-Alarm zusätzlich Klasse `kuh_seitenlage` im 2. Training |
 | 🔒 P2 | Zwei-Kamera-Brunst-Fusion | erstes trainiertes Modell + beide Kameras sehen dieselbe Bucht |
 | 🔒 P3 | **Automatische Kalbe-Akte** (eine Abschluss-Nachricht mit Phasen-Zeitstempeln + Belegbildern, „Kalb steht seit 04:32" als erste Entwarnungs-Nachricht der Branche) | setzt Ereignis-Persistenz (P1) voraus |
 | 🔒 P3 | 7-Tage-Aktivitäts-Trend je Bucht | setzt Ereignis-Persistenz (P1) voraus |
