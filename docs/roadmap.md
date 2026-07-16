@@ -34,7 +34,7 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 
 | Prio | Entscheidung | Nächster Schritt |
 | --- | --- | --- |
-| ⏳ P1 | **Ereignis-Persistenz** (Vercel KV/Postgres statt In-Memory) | Betreiber legt Vercel-KV-Store an; `lib/events.ts` von In-Memory auf KV umstellen (API-Format bleibt) |
+| 🔄 P1 | **Ereignis-Persistenz** — KV-Adapter fertig implementiert (Upstash-REST ohne Zusatzpaket, In-Memory-Fallback, Store-Ausfall blockiert Ingest nie); **aktiviert sich selbst**, sobald der Betreiber einen Vercel-KV-/Upstash-Store verknüpft (`KV_REST_API_URL`/`KV_REST_API_TOKEN` erscheinen dann automatisch) | `lib/events.ts`; letzter Schritt: Betreiber legt den Store im Vercel-Dashboard an (Storage → Create → Upstash Redis, Projekt verknüpfen) |
 
 ## Blockiert (wartet auf Voraussetzung)
 
