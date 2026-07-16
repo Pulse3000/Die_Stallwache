@@ -42,7 +42,7 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 | --- | --- | --- |
 | 🔒 P1 | **Festliege-Wächter** (Downer-Cow-Alarm) — Alleinstellung, kein Kamera-Produkt hat das; **implementierungsreif spezifiziert** in [`festliege-spezifikation.md`](./festliege-spezifikation.md) (Regeln, Config, Alarmtexte, Abnahmekriterien; Entwurf: Agent `ki-wache`) | erstes trainiertes Modell; Seitenlage-Alarm zusätzlich Klasse `kuh_seitenlage` im 2. Training |
 | 🔒 P2 | Zwei-Kamera-Brunst-Fusion — **implementierungsreif spezifiziert** in [`brunst-fusion-spezifikation.md`](./brunst-fusion-spezifikation.md) (MQTT-Peer-Topologie, Zeit-Koinzidenz 30 s, annotieren/plausibilisieren-Modi mit Recall-Ventil; Entwurf: Agent `ki-wache`) | erstes trainiertes Modell + beide Kameras sehen dieselbe Bucht + Mosquitto-Broker |
-| 🔒 P3 | **Automatische Kalbe-Akte** (eine Abschluss-Nachricht mit Phasen-Zeitstempeln + Belegbildern, „Kalb steht seit 04:32" als erste Entwarnungs-Nachricht der Branche) | setzt Ereignis-Persistenz (P1) voraus |
+| 🔒 P3 | **Automatische Kalbe-Akte** — **implementierungsreif spezifiziert** in [`kalbe-akte-spezifikation.md`](./kalbe-akte-spezifikation.md) (Teil-Akte ab erstem Modell, Voll-Akte „Kalb steht seit 04:32" mit Klassen `kalb_liegend`/`kalb_stehend` im 2. Training; stille Zustellung, Stallbuch-Format) | erstes trainiertes Modell (Teil-Akte); 2. Training (Voll-Akte) |
 | 🔒 P3 | 7-Tage-Aktivitäts-Trend je Bucht | setzt Ereignis-Persistenz (P1) voraus |
 | 🔒 P3 | Lahmheits-Frühwarnung (Rückenlinien-Winkel) | eigene Validierung nötig; erst nach stabilem Kalbe-/Brunst-Betrieb |
 

@@ -32,10 +32,13 @@ Pro Kuh: Bounding-Box + Keypoints `Spine_End`, `Tail_Base`, `Tail_Tip`.
 Zusätzliche Objektklassen als Boxen: `amniotic_sac` (Fruchtblase),
 `calf_legs` (Kälberfüße). Export im **YOLO-Format**.
 
-Ab dem 2. Trainingsdurchgang zusätzlich die Klasse `kuh_seitenlage`
-(flach auf der Seite liegend, Beine ausgestreckt) labeln — Grundlage für
-den Festliege-Wächter (`docs/festliege-spezifikation.md`); Material liegt
-dann in `aufnahmen/seitenlage-kandidaten/`. Brustlage bleibt Klasse `kuh`.
+Ab dem 2. Trainingsdurchgang zusätzlich labeln:
+- `kuh_seitenlage` (flach auf der Seite, Beine ausgestreckt) — Grundlage für
+  den Festliege-Wächter (`docs/festliege-spezifikation.md`); Material in
+  `aufnahmen/seitenlage-kandidaten/`. Brustlage bleibt Klasse `kuh`.
+- `kalb_liegend` und `kalb_stehend` — Grundlage für die Voll-Kalbe-Akte
+  („Kalb steht seit 04:32", `docs/kalbe-akte-spezifikation.md`); Material in
+  `aufnahmen/kalbungen/`.
 
 Qualitätsregeln: Keypoints auch bei teilverdeckten Kühen setzen (schätzen,
 nicht weglassen); `amniotic_sac`/`calf_legs` nur labeln, wenn eindeutig —
