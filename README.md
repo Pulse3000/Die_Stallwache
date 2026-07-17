@@ -1,13 +1,26 @@
-# 🐄 Stallblick
+# 🐄 Stallblick — das Dritte Auge im Stall
 
-**Schneller, ruhiger Überblick über zwei Stallkameras.**
+**Live-Überblick über die Stallkameras + KI-Wache für Brunst- und
+Kalbeerkennung.** Betrieb: Oberer Stollenhof. Leitsatz: *Jeder Betrieb, egal
+wie klein, verdient eine Nachtwache, die niemals blinzelt — ohne 45.000 €
+auszugeben und ohne einen Sensor im Pansen.* (Vision, Prinzipien und
+Zielbild: [`docs/vision.md`](docs/vision.md).)
 
-Eine schlanke, mobil-optimierte Kamera-Mini-App: **Stallwache** (Hauptkamera,
-standardmäßig groß, WebRTC/HLS-Livestream) und **Futterwache** (Zweitkamera,
-ressourcenschonende Snapshot-Vorschau). Rollenwechsel per „Tauschen" /
-„Als Hauptbild" bindet nur die Kamera-Container um – kein Seiten-Neuaufbau.
-Vollbild, Snapshot, kompakter Statusblock und nachgelagert geladene
-Ereignisliste inklusive.
+Die mobil-optimierte Webapp zeigt **Stallwache** (Hauptkamera, WebRTC/HLS),
+**Futterwache** (läuft bereits live über die Tuya-Cloud) und **Stallbox**;
+Rollenwechsel ohne Seiten-Neuaufbau, Vollbild, Snapshot, Ereignisliste.
+Ein gemeinsames Passwort schützt die ganze App (`STALLBLICK_PASSWORT`).
+Unter **`/wache`** läuft das KI-Alarm-Dashboard.
+
+**Was der Edge-Agent heute kann** (`edge-agent/`, lokal im Stall oder gegen
+die Tuya-Cloud): Silent-Mode-Datensammlung, Kalbeverdacht (45°/30 min/20 %),
+Austreibungs-Sofortalarm, Eskalation bei Geburtsstillstand, Brunst-Heuristik,
+Telegram-Bildserien, Tagesbericht, Wach-Modus — plus zwei Features, die kein
+Wettbewerber hat: **Stream-Totmann-Meldung** („das dritte Auge ist blind")
+und die **Ein-Tipp-Feedback-Schleife** (❌ Fehlalarm → Bildserie wird
+automatisch Trainingsmaterial). Vier weitere Features sind
+implementierungsreif spezifiziert (Festliege-Wächter, Brunst-Fusion,
+Kalbe-Akte, Lahmheit — siehe `docs/*-spezifikation.md`).
 
 ---
 
@@ -21,7 +34,22 @@ es für Aufzeichnung/Zonen und lässt den Stallblick-Edge-Agenten zusätzlich
 laufen; wer nichts davon hat, braucht nur diesen Stack. Details und
 DIY-Marktvergleich: [`docs/wettbewerbsanalyse.md`](docs/wettbewerbsanalyse.md).
 
-## Warum eine Bridge?
+## Ohne Bridge starten (empfohlener Einstieg)
+
+Kameras, die schon in der **Tuya-Cloud** hängen (Futterwache, Stallbox),
+brauchen keine Bridge — weder fürs Livebild (Webapp: `TUYA_*`-Env-Variablen)
+noch für die KI-Datensammlung:
+
+```bash
+bash edge-agent/setup.sh     # Quelle "1 = Cloud ohne Bridge" (Default)
+```
+
+Der Agent meldet sich an der Webapp an, holt die kurzlebige HLS-URL selbst
+und sammelt im Silent Mode Trainingsbilder — der erste Schritt zum eigenen
+Modell (`.claude/skills/modell-training`). Läuft auch auf einem
+Android-Handy per Termux ([`edge-agent/termux/`](edge-agent/termux/)).
+
+## Warum (später) eine Bridge?
 
 Die Tapo TCA72 liefert **nur lokal** einen RTSP-Stream
 (`rtsp://…@192.168.178.117:554/stream1`). Eine in der Cloud (Vercel) gehostete
@@ -101,10 +129,12 @@ Futterwache) setzen – fertig. Die App ist als PWA installierbar (Homescreen).
 | `components/StallblickApp.tsx` | Hauptscreen: Kamera-Karten, Rollenwechsel, Vollbild, Status, Ereignisse |
 | `components/CameraStream.tsx` | Kamera-Container: WebRTC/HLS (Hauptbild) bzw. Snapshot-Polling (Vorschau) |
 | `lib/config.ts` | Kamera- & Bridge-Konfiguration (go2rtc/MediaMTX) aus Umgebungsvariablen |
-| `app/wache/` + `app/api/events/` | **KI-Wache**: Alarm-Dashboard & Ingest-API für Brunst-/Kalbeerkennung |
-| `edge-agent/` | Python-Agent (YOLO-Pose + ByteTrack): Kalbe-/Brunsterkennung lokal im Stall, Telegram-Alarm |
-| `bridge/` | go2rtc (Default) + Cloudflare Tunnel für das Stall-Netz |
-| `bridge/mediamtx/` | MediaMTX-Alternative (WHEP-Standard) + Caddy + Cloudflare Tunnel |
+| `app/wache/` + `app/api/events/` | **KI-Wache**: Alarm-Dashboard & Ingest-API (persistiert automatisch, sobald ein Vercel-KV-Store verknüpft ist) |
+| `edge-agent/` | Python-Agent (YOLO-Pose + ByteTrack): Kalbe-/Brunsterkennung, Totmann, Feedback-Schleife; `setup.sh` = Ein-Befehl-Einrichtung |
+| `edge-agent/tests/` | Offline-Testsuite (52 Checks, pures Python ohne Installation) |
+| `bridge/` | go2rtc (Default) + Cloudflare Tunnel; `bridge/termux/` = Android-Weg, `bridge/mediamtx/` = WHEP-Alternative |
+| `docs/` | Vision, Roadmap (SSOT), Wettbewerbsanalyse, Metriken, 4 Feature-Spezifikationen, Orchestrierungs-Handbuch |
+| `.claude/` | 3 Projekt-Agenten + 12 Skills für die autonome Weiterentwicklung |
 
 ## Live
 
@@ -113,13 +143,16 @@ Deployt auf Vercel: **https://die-stallwache.vercel.app**
 
 ## Tech-Stack
 
-Next.js 16 (App Router) · React 19 · Tailwind CSS · hls.js · go2rtc/MediaMTX · Cloudflare Tunnel
+Next.js 16 (App Router) · React 19 · Tailwind CSS · hls.js · Tuya OpenAPI ·
+go2rtc/MediaMTX · Cloudflare Tunnel · Upstash Redis (optional) · Python
+(OpenCV, Ultralytics)
 
 ---
 
-## Roadmap
+## Status & Roadmap
 
-1. ✅ **Livestream 24/7 abrufbar** (Webapp live auf Vercel; Wiedergabe-Pipeline end-to-end mit Headless-Chromium verifiziert)
-2. ✅ **KI-Erkennung Brunst & Kalbung** – Edge-Agent in `/edge-agent` (YOLOv8-Pose + ByteTrack, Schwanzwinkel-Zeitfilter, Fruchtblasen-Override, Aufsprung-Heuristik) + KI-Wache-Dashboard unter `/wache`
-3. ✅ **Alarmierung** – Telegram-Bot (Foto + Warnung, 15-Min-Cooldown) und Dashboard-Ingest (`POST /api/events`, Token-gesichert)
-4. ⏳ Eigenes Modell trainieren (Silent Mode → CVAT-Labeling → Colab-Training, Anleitung in `edge-agent/README.md`)
+Software komplett: Sehen ✅ · Verstehen ✅ · Handeln ✅ · Verbessern ✅ —
+jedes Feature ist gebaut oder implementierungsreif spezifiziert. Der Weg zum
+scharfen System: Silent Mode starten (`bash edge-agent/setup.sh`) → 1–2
+Wochen Bilder → erstes Training. **Single Source of Truth für den
+Umsetzungsstand: [`docs/roadmap.md`](docs/roadmap.md).**
