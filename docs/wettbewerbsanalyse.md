@@ -140,7 +140,27 @@ Architektur zum Nulltarif machbar sind:
 **Termin-Hinweis:** EuroTier 10.–13.11.2026 (Leitthema „Intelligence in Animal
 Farming"); dort werden 3D-Kamera-Systeme zur Kalbe-Vorhersage erwartet —
 **Wettbewerbs-Check im November/Dezember 2026 wiederholen** (vermutlich
-Lely-Zeta-Marktstart und Kuhtracking-Kommerzialisierung).
+Lely-Zeta-Marktstart und Kuhtracking-Kommerzialisierung; zusätzlich
+Nachbarmarkt Pferd live verifizieren, s. u.).
+
+## 4c. Nachbarmarkt Abfohlen (Ausblick, Stand ~01/2026 — nicht live verifiziert)
+
+Analyse Juli 2026 (`markt-analyst`; Web-Tools am Limit, Zahlen aus der
+Wissensbasis — beim Nov-Check verifizieren). Der Pferde-Abfohlmarkt ist
+sensor-dominiert und teuer, ein offenes Edge-Kamera-KI-Produkt fehlt:
+
+| System | Ansatz | Fokus | Kosten (Größenordnung) |
+| --- | --- | --- | --- |
+| **Foalert** (US) | An Vulvalippen genähter Magnetkontakt (invasiv, Tierarzt) + Funk | Alarm exakt bei Geburtsbeginn | ~1.000–1.500 $ |
+| **Birth Alarm** (NL) | Obergurt-Lagesensor (Seitenlage = Wehen) + GSM | Vorzeichen-Alarm; Fehlalarme durch Wälzen | ~500–700 € |
+| **Magic AI** (UK) | KI-Stallkamera, Cloud + Abo | Verhalten/Kolik; Gegenmodell zu Edge-First | Abo |
+| **Abfohlkameras (Gattung)** | IP-Kamera + Mensch am Monitor | Status quo, keine KI | 100–300 € |
+
+**Produktentscheidung** (Details und Begründung: [`vision.md`](./vision.md)):
+Pferde-Abfohlen = dokumentierte **Zweitmarkt-Option nach Modell v1**
+(Logik-Schicht tierartagnostisch, Festliege-Seitenlage ≈ Birth-Alarm-Signal);
+Schaf/Ziege = **Nicht-Ziel**. Kein Code jetzt — „Ruhe vor Fülle" gilt auch
+für die Roadmap.
 
 **Positionierung in einem Satz:** *Stallblick ist das kostenlose, offene
 „Dritte Auge" für kleine Betriebe — dieselben Kalbe- und Brunst-Alarme wie die
