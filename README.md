@@ -141,6 +141,23 @@ Futterwache) setzen – fertig. Die App ist als PWA installierbar (Homescreen).
 Deployt auf Vercel: **https://die-stallwache.vercel.app**
 (zeigt „Warte auf Bridge", bis `NEXT_PUBLIC_BRIDGE_URL` gesetzt und die Bridge im Stall verbunden ist).
 
+## Android-App (Der Stallblick)
+
+Der komplette Stallblick-Funktionsumfang ist zusätzlich als **native
+Android-App** portiert: [Der-Stallblick](https://github.com/Pulse3000/Der-Stallblick).
+Die Kamera-Streams laufen dort ohne Browser-Umwege direkt in der APK
+(Media3/ExoPlayer statt hls.js):
+
+* **Stallwache** → Bridge-HLS (go2rtc `api/stream.m3u8` bzw. MediaMTX
+  `index.m3u8`), Vorschau per go2rtc-Snapshot-Polling.
+* **Futterwache/Stallbox** → Tuya-Cloud: wahlweise über die Webapp-Endpoints
+  (`/api/<kamera>/stream`, Session-Cookie wird von ExoPlayer mitgesendet)
+  oder direkt über die Tuya-OpenAPI (HMAC-SHA256 in Kotlin portiert);
+  Bridge als Fallback. Der CORS-Proxy der Webapp wird nativ nicht benötigt.
+* **KI-Wache** → die App meldet sich mit `STALLBLICK_PASSWORT` an
+  (`POST /api/login`) und spiegelt `GET /api/events` in ihre lokale
+  Datenbank; Alarme erscheinen als Overlay auf dem Handy.
+
 ## Tech-Stack
 
 Next.js 16 (App Router) · React 19 · Tailwind CSS · hls.js · Tuya OpenAPI ·
