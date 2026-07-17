@@ -10,13 +10,21 @@ nachts, das dritte nicht. Es schaut (Live-Kameras), es versteht (KI-Erkennung
 von Kalbung und Brunst) und es meldet sich genau dann — und nur dann — wenn
 Handeln nötig ist.
 
-## Die drei Ebenen
+## Die vier Ebenen
 
 | Ebene | Modul | Versprechen |
 | --- | --- | --- |
 | **Sehen** | Stallblick (Zwei-Kamera-Übersicht) | In 3 Sekunden wissen, was im Stall los ist |
 | **Verstehen** | Edge-Agent (YOLO-Pose, lokal) | Kalbung & Brunst erkennen, bevor es der Mensch könnte |
 | **Handeln** | Alarme (Telegram + KI-Wache) | Geweckt werden, wenn es zählt — mit Beweisbildern |
+| **Verbessern** | Ein-Tipp-Feedback + Nachtraining | Jeder Fehlalarm macht das System schlauer — der Landwirt trainiert sein eigenes Modell, keine Blackbox |
+
+Die vierte Ebene ist der strukturelle Unterschied zu jedem Wettbewerber:
+SaaS-Systeme trainieren zentral, DIY-Tools haben keinen Feedback-Kanal —
+nur Stallblick besitzt die offene Kette Kamera → Modell → Training beim
+Betrieb selbst. Dazu gehört auch die Ehrlichkeit der Wache über sich selbst:
+Fällt ein Stream aus, meldet sich das dritte Auge („blind"), statt dass
+Schweigen fälschlich „alles ruhig" bedeutet.
 
 ## Prinzipien (nicht verhandelbar)
 
@@ -49,6 +57,31 @@ Handeln nötig ist.
 3. **Q1+:** Lahmheits-Frühwarnung aus der Rückenlinie (Daten fallen ohnehin an),
    Anbindung an Herdenmanagement optional — als Export, nie als Lock-in.
 
+## Stand Juli 2026: gebaut oder baubar
+
+Die Software-Seite des Zielbilds ist fertig oder entscheidungsreif — jede
+Idee hat den Zustand „gebaut" oder „implementierungsreif spezifiziert",
+nichts ist halb:
+
+- **Gebaut:** Zwei-Kamera-App mit Login, KI-Wache-Dashboard, Edge-Agent
+  (Silent Mode, Erkennungslogik, Eskalation, Tagesbericht, Wach-Modus,
+  Stream-Totmann-Meldung, Ein-Tipp-Feedback), kuh-getuntes ByteTrack,
+  Termux-Bridge mit Ein-Befehl-Installer, Edge-Setup-Skript,
+  selbstaktivierende Ereignis-Persistenz (KV-Adapter).
+- **Spezifiziert** (je mit Schwellen, Config, Alarmtexten, Abnahmekriterien):
+  Festliege-Wächter, Zwei-Kamera-Brunst-Fusion, Kalbe-Akte,
+  Lahmheits-Frühwarnung — alle Anforderungen an das 2. Modelltraining
+  sind im Skill `modell-training` gebündelt.
+- **Arbeitsmodell dahinter — die Spezifikations-Pipeline:** Marktbefund
+  (`markt-analyst`) → Produktentscheidung (Orchestrator, dokumentiert in
+  `wettbewerbsanalyse.md`) → Fachspezifikation (`ki-wache`) → Code erst,
+  wenn die Voraussetzung real ist. Blockierte Ideen werden spezifiziert
+  statt halb gebaut.
+
+Der Weg zum scharfen System führt jetzt über drei Schritte des Betriebs:
+Bridge ans Netz (Skill `stallwache-live-schalten`), KV-Store verknüpfen,
+nach 1–2 Wochen Bildern das erste Training (Skill `modell-training`).
+
 ## Nicht-Ziele
 
 Keine Cloud-Videoanalyse, kein Hardware-Verkauf, kein Abo-Modell, keine
@@ -72,6 +105,7 @@ wiederkehrende Aufgabe hat einen benannten Zuständigen:
 | Sicherheit härten | Skill `security-sweep` | vor Releases / nach neuen API-Routen |
 | Ausliefern | Skill `stallblick-deploy` | nach jedem Feature |
 | Futterwache-Cloud | Skill `tuya-futterwache` | sobald Tuya-Zugangsdaten vorliegen |
+| Stallwache live schalten | Skill `stallwache-live-schalten` | sobald der Tunnel-Hostname gemeldet ist |
 
 Regel: Der Hauptagent orchestriert und entscheidet; Subagenten recherchieren
 und prüfen. Produktentscheidungen landen immer in
