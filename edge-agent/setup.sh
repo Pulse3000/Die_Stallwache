@@ -57,10 +57,24 @@ if [ -f config.yaml ]; then
   info "config.yaml existiert bereits – Werte werden beibehalten."
 else
   info "Jetzt die Konfiguration (Enter uebernimmt den [Vorschlag])."
-  read -r -p "  IP des Bridge-Rechners im Stall-LAN [192.168.178.50]: " BRIDGE_IP
-  BRIDGE_IP="${BRIDGE_IP:-192.168.178.50}"
-  read -r -p "  Kamera-Name (stallwache|futterwache) [stallwache]: " KAMERA
-  KAMERA="${KAMERA:-stallwache}"
+  warn "Videoquelle: 1 = Cloud ohne Bridge (Kamera haengt in der Tuya-Cloud,"
+  warn "z. B. Futterwache — sofort startklar) | 2 = Bridge im Stall-LAN (RTSP)"
+  read -r -p "  Quelle [1]: " QUELLE
+  QUELLE="${QUELLE:-1}"
+  if [ "$QUELLE" = "1" ]; then
+    read -r -p "  Webapp-Adresse [https://die-stallwache.vercel.app]: " APP_URL
+    APP_URL="${APP_URL:-https://die-stallwache.vercel.app}"
+    read -r -p "  Kamera-Name (futterwache|stallbox) [futterwache]: " KAMERA
+    KAMERA="${KAMERA:-futterwache}"
+    read -r -s -p "  Webapp-Passwort (STALLBLICK_PASSWORT): " APP_PASS; echo
+    BRIDGE_IP=""
+  else
+    read -r -p "  IP des Bridge-Rechners im Stall-LAN [192.168.178.50]: " BRIDGE_IP
+    BRIDGE_IP="${BRIDGE_IP:-192.168.178.50}"
+    read -r -p "  Kamera-Name (stallwache|futterwache) [stallwache]: " KAMERA
+    KAMERA="${KAMERA:-stallwache}"
+    APP_URL=""; APP_PASS=""
+  fi
   echo
   warn "Telegram-Bot: in Telegram @BotFather oeffnen -> /newbot -> Token kopieren;"
   warn "danach @userinfobot oeffnen -> Start -> numerische Chat-ID kopieren."
@@ -72,14 +86,24 @@ else
   read -r -p "  Dashboard-Token: " DB_TOKEN
 
   umask 077
-  BRIDGE_IP="$BRIDGE_IP" KAMERA="$KAMERA" TG_TOKEN="$TG_TOKEN" \
+  BRIDGE_IP="$BRIDGE_IP" KAMERA="$KAMERA" APP_URL="${APP_URL:-}" \
+  APP_PASS="${APP_PASS:-}" TG_TOKEN="$TG_TOKEN" \
   TG_CHAT="$TG_CHAT" DB_TOKEN="$DB_TOKEN" python3 - <<'EOF'
 import os, yaml
 with open("config.example.yaml", encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
 ip, kamera = os.environ["BRIDGE_IP"], os.environ["KAMERA"]
-cfg["stream"]["url"] = f"rtsp://{ip}:8554/{kamera}"
-cfg["stream"]["fallback_snapshot_url"] = f"http://{ip}:1984/api/frame.jpeg?src={kamera}"
+app_url = os.environ["APP_URL"]
+if app_url:
+    # Cloud-Quelle ohne Bridge: Agent holt die HLS-URL selbst.
+    cfg["stream"]["url"] = ""
+    cfg["stream"]["fallback_snapshot_url"] = ""
+    cfg["stream"]["app_url"] = app_url
+    cfg["stream"]["quelle_api"] = f"/api/{kamera}/stream"
+    cfg["stream"]["app_passwort"] = os.environ["APP_PASS"]
+else:
+    cfg["stream"]["url"] = f"rtsp://{ip}:8554/{kamera}"
+    cfg["stream"]["fallback_snapshot_url"] = f"http://{ip}:1984/api/frame.jpeg?src={kamera}"
 cfg["stream"]["kamera"] = kamera
 cfg["telegram"]["token"] = os.environ["TG_TOKEN"]
 cfg["telegram"]["chat_id"] = os.environ["TG_CHAT"]
