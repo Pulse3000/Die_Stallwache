@@ -39,6 +39,9 @@ Ab dem 2. Trainingsdurchgang zusätzlich labeln:
 - `kalb_liegend` und `kalb_stehend` — Grundlage für die Voll-Kalbe-Akte
   („Kalb steht seit 04:32", `docs/kalbe-akte-spezifikation.md`); Material in
   `aufnahmen/kalbungen/`.
+- Keypoint `spine_mid` (Widerrist/Rückenmitte, Index 3 **anhängen**, Indizes
+  0–2 nicht umsortieren) — Grundlage für die Lahmheits-Frühwarnung
+  (`docs/lahmheit-spezifikation.md`); Bestand nachlabeln.
 
 Qualitätsregeln: Keypoints auch bei teilverdeckten Kühen setzen (schätzen,
 nicht weglassen); `amniotic_sac`/`calf_legs` nur labeln, wenn eindeutig —
