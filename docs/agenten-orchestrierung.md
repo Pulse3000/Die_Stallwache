@@ -55,6 +55,15 @@ Neue Aufgabe
 5. **Nicht-destruktiv bleiben:** Nach einem Squash-Merge trägt der Feature-
    Branch veraltete Historie — statt Force-Push einen **neuen Branch** vom
    frischen `main` aufmachen (so geschehen bei PR #9/#10).
+6. **Spezifikations-Pipeline (für blockierte Ideen):** Marktbefund
+   (`markt-analyst`) → Produktentscheidung (Orchestrator, dokumentiert in
+   `wettbewerbsanalyse.md`/`roadmap.md`) → Fachspezifikation (`ki-wache`,
+   Struktur: Grundsatz → ehrliche Grenzen → Regeln mit Zahlen → Config →
+   fertige Texte → Abnahmekriterien → Risiken) → Code erst, wenn die
+   Voraussetzung real ist. Blockierte Ideen werden spezifiziert statt halb
+   gebaut (so entstanden Festliege #26, Brunst-Fusion #27, Kalbe-Akte #31,
+   Lahmheit #32). Fällt der Fachagent aus (z. B. API-Überlastung), entwirft
+   der Orchestrator nach dessen Mandat und vermerkt die Provenienz.
 
 ## Leitplanken für jede Delegation
 
