@@ -125,6 +125,7 @@ wiederkehrende Aufgabe hat einen benannten Zuständigen:
 | Ausliefern | Skill `stallblick-deploy` | nach jedem Feature |
 | Futterwache-Cloud | Skill `tuya-futterwache` | sobald Tuya-Zugangsdaten vorliegen |
 | Stallwache live schalten | Skill `stallwache-live-schalten` | sobald der Tunnel-Hostname gemeldet ist |
+| Persistenz live schalten | Skill `persistenz-live-schalten` | sobald der KV-Store verknüpft ist |
 
 Regel: Der Hauptagent orchestriert und entscheidet; Subagenten recherchieren
 und prüfen. Produktentscheidungen landen immer in
