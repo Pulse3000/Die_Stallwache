@@ -136,6 +136,16 @@ sudo systemctl enable --now stallblick-agent
 Tracking über **ByteTrack** (in Ultralytics integriert) hält die Kuh-Identität
 („Kuh #42") über die Zeit stabil – Grundlage des Zeitfilters.
 
+## Logiktests
+
+Die zeitkritischen Bausteine (Totmann-Meldung, Feedback-Schleife,
+Tracker-Konfiguration, Referenz-Schwellenwerte) haben eine Offline-Testsuite,
+die ohne jede Installation läuft (cv2/numpy/requests werden gestubbt):
+
+```bash
+python3 edge-agent/tests/alle_tests.py
+```
+
 ## Robustheit
 
 * RTSP-Reconnect mit Wartezeit; nach 5 Fehlversuchen automatischer Wechsel auf
