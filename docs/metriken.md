@@ -24,14 +24,23 @@ nachvollziehbarer Methodik. Blackbox-Abos können das nicht.
 
 ## Ergebnisse
 
-| Datum | Modell | Ereignis | Testclips | Precision | Recall | Fehlalarme/Nacht | Bemerkung |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| _tbd_ | best-v1 | Kalbeverdacht (Schwanzwinkel) | – | – | – | – | nach 1. Training |
-| _tbd_ | best-v1 | Austreibung (Fruchtblase/Füße) | – | – | – | – | |
-| _tbd_ | best-v1 | Brunstverdacht (Aufsprung) | – | – | – | – | |
+| Datum | Modell | Ereignis | Fusion | Testclips | Precision | Recall | Fehlalarme/Nacht | Bemerkung |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| _tbd_ | best-v1 | Kalbeverdacht (Schwanzwinkel) | – | – | – | – | – | nach 1. Training |
+| _tbd_ | best-v1 | Austreibung (Fruchtblase/Füße) | – | – | – | – | – | |
+| _tbd_ | best-v1 | Brunstverdacht (Aufsprung) | aus | – | – | – | – | Baseline solo |
+| _tbd_ | best-v1 | Brunstverdacht (Aufsprung) | plausibilisieren | – | – | – | – | Abnahme Brunst-Fusion: ≥ 50 % weniger Fehlalarme bei gehaltenem Recall ([Spez](./brunst-fusion-spezifikation.md) § 6) |
+
+Die Spalte **Fusion** gilt nur für Brunstverdacht
+(`aus | annotieren | plausibilisieren`, siehe
+[`brunst-fusion-spezifikation.md`](./brunst-fusion-spezifikation.md));
+für alle anderen Ereignisse steht dort „–". Der `plausibilisieren`-Modus
+darf erst scharfgeschaltet werden, wenn seine Zeile die Halbierung belegt.
 
 **Zielwerte** (aus `docs/vision.md`): Recall Austreibung → 100 % („keine
 verpasste Kalbung"), Fehlalarme < 1/Nacht im eingeschwungenen Zustand.
+Feature-spezifische Zielwerte: Lahmheit-Nullprobe und Festliege-Nacht-
+Nullprobe stehen in den jeweiligen Spezifikationen.
 
 ## Definitionen
 
