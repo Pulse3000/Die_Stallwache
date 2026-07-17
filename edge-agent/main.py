@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import math
 import time
+import urllib.parse
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,6 +58,65 @@ def lade_konfig(pfad: str = "config.yaml") -> dict:
 # Videoquelle: RTSP bevorzugt, Snapshot-Polling als Fallback
 # --------------------------------------------------------------------------
 
+class CloudQuelle:
+    """Kamerastream ohne Bridge: kurzlebige Tuya-HLS-URLs ueber die Webapp.
+
+    Fuer Kameras, die bereits in der Tuya-Cloud haengen (Futterwache,
+    Stallbox), braucht der Silent Mode keine Bridge: Der Agent meldet sich
+    an der Webapp an (STALLBLICK_PASSWORT), holt von /api/<kamera>/stream
+    die kurzlebige HLS-URL und extrahiert daraus die originale CDN-URL —
+    die Proxy-Umleitung der Webapp ist nur fuer Browser-CORS noetig, der
+    Agent liest direkt vom CDN (kein Cookie, kein Umweg ueber Vercel).
+    Laeuft die URL ab, holt der Reconnect-Pfad automatisch eine frische.
+    """
+
+    def __init__(self, cfg: dict):
+        st = cfg.get("stream") or {}
+        self.basis = (st.get("app_url") or "").strip().rstrip("/")
+        self.pfad = (st.get("quelle_api") or "").strip()
+        self.passwort = (st.get("app_passwort") or "").strip()
+        self.aktiv = bool(self.basis and self.pfad)
+        self._session = None
+
+    def hole_url(self) -> str | None:
+        """Liefert eine frische Stream-URL oder None (Fehler sind gekapselt)."""
+        if not self.aktiv:
+            return None
+        for versuch in (1, 2):  # 2. Versuch nach abgelaufener Session
+            try:
+                if self._session is None:
+                    self._session = requests.Session()
+                    if self.passwort:
+                        self._session.post(
+                            f"{self.basis}/api/login",
+                            json={"passwort": self.passwort},
+                            timeout=15,
+                        ).raise_for_status()
+                r = self._session.get(f"{self.basis}{self.pfad}", timeout=20)
+                if r.status_code == 401 and versuch == 1:
+                    self._session = None  # Session abgelaufen -> neu anmelden
+                    continue
+                r.raise_for_status()
+                url = str(r.json().get("url") or "")
+                return self._entpacke(url) if url else None
+            except requests.RequestException as e:
+                log.warning("Cloud-Quelle nicht erreichbar: %s", e)
+                self._session = None
+                return None
+        return None
+
+    def _entpacke(self, url: str) -> str | None:
+        """Extrahiert die Original-CDN-URL aus der Proxy-URL der Webapp."""
+        anfrage = urllib.parse.urlparse(url).query
+        original = (urllib.parse.parse_qs(anfrage).get("url") or [""])[0]
+        if original.startswith("https://"):
+            return original
+        if url.startswith("https://"):
+            return url  # API lieferte bereits eine absolute Quelle
+        log.warning("Cloud-Quelle lieferte unerwartete URL: %s", url[:80])
+        return None
+
+
 class StreamHandler:
     """Liefert Frames mit Ziel-FPS; uebersteht Verbindungsabbrueche."""
 
@@ -64,7 +124,13 @@ class StreamHandler:
     FEHLER_BIS_FALLBACK = 5
 
     def __init__(self, cfg: dict):
-        self.url: str = cfg["stream"]["url"]
+        self.url: str = (cfg["stream"].get("url") or "").strip()
+        self.quelle = CloudQuelle(cfg)
+        if not self.url and not self.quelle.aktiv:
+            raise SystemExit(
+                "stream.url fehlt – entweder Bridge-URL eintragen oder "
+                "Cloud-Quelle konfigurieren (stream.app_url + stream.quelle_api)."
+            )
         self.fallback_url: str = cfg["stream"].get("fallback_snapshot_url") or ""
         self.frame_intervall = 1.0 / float(cfg["stream"].get("ziel_fps", 1.0))
         self.cap: cv2.VideoCapture | None = None
@@ -75,7 +141,15 @@ class StreamHandler:
     def _verbinde(self) -> None:
         if self.cap is not None:
             self.cap.release()
-        log.info("Verbinde mit Stream: %s", self.url)
+            self.cap = None
+        if self.quelle.aktiv:
+            # Kurzlebige Cloud-URL bei jedem (Re-)Connect frisch holen.
+            neue = self.quelle.hole_url()
+            if neue:
+                self.url = neue
+            elif not self.url:
+                return  # noch keine URL bekannt -> naechste Iteration versucht es erneut
+        log.info("Verbinde mit Stream: %s", self.url.split("?")[0])
         self.cap = cv2.VideoCapture(self.url)
         # Kleiner Puffer -> immer moeglichst aktuelles Bild.
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)

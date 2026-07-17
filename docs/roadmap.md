@@ -28,6 +28,7 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 | ✅ Infra | **ByteTrack-Kuh-Tuning** (stabile Kuh-IDs = Fundament aller zeitbasierten Regeln; `track_buffer` 90 statt 30, weil Frames bei 1 FPS Sekunden sind) | `edge-agent/tracker-kuh.yaml` + `modell.tracker`-Option; Verifikations-/Tuning-Prozedur: Skill `bytetrack-tuning` |
 | ✅ P2 | **Ein-Tipp-Feedback-Schleife** (Inline-Buttons ✅ Treffer / ❌ Fehlalarm unter jedem Alarm → unannotierte Bildserie automatisch als Hard Negatives; Alleinstellung, niemand lässt den Landwirt das Modell verbessern) | `edge-agent/main.py` (`FeedbackSchleife`, `telegram.feedback_buttons` + `fehlalarm_ordner`); Triage-Prozedur: Skill `fehlalarm-triage`; Bilanz im Tagesbericht |
 | ✅ P3 | **Ein-Befehl-Setup** (geführtes Install-Skript: venv, Pakete gestuft nach Silent/Analyse, Telegram-Bot-Assistent, Config-Erzeugung mit 600er-Rechten, optional systemd) — matcht CowCatcherAI-Onboarding | `edge-agent/setup.sh`; README-Schnellstart |
+| ✅ Infra | **Cloud-Quelle ohne Bridge**: Edge-Agent liest Tuya-Kameras (Futterwache/Stallbox) direkt über die Webapp-API — Login, kurzlebige HLS-URL, CDN-Direktzugriff, automatische URL-Erneuerung beim Reconnect. **Silent Mode startet damit ohne Bridge-Hardware** | `edge-agent/main.py` (`CloudQuelle`, `stream.app_url`/`quelle_api`/`app_passwort`); Bridge bleibt der Weg für die Stallwache (RTSP, latenzarm) |
 | 🔄 P3 | Öffentliche Erkennungs-Metriken | Methodik steht (`docs/metriken.md`); Werte nach 1. Training |
 
 ## Als Nächstes (kein Blocker)

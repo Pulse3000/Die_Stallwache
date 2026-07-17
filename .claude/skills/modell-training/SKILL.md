@@ -12,8 +12,14 @@ CVAT kostenlos, offene Datensätze).
 
 ## Voraussetzungen prüfen
 
-1. Bridge liefert den Stream: `NEXT_PUBLIC_BRIDGE_URL` gesetzt, RTSP-Restream
-   erreichbar (go2rtc Port 8554 bzw. MediaMTX).
+1. Der Agent hat eine Videoquelle — **einer** der beiden Wege genügt:
+   - **Bridge:** `NEXT_PUBLIC_BRIDGE_URL` gesetzt, RTSP-Restream erreichbar
+     (go2rtc Port 8554 bzw. MediaMTX), ODER
+   - **Cloud-Quelle ohne Bridge** (Kameras in der Tuya-Cloud: Futterwache,
+     Stallbox): in `config.yaml` `stream.app_url` +
+     `stream.quelle_api` (z. B. `/api/futterwache/stream`) +
+     `stream.app_passwort` setzen, `stream.url` leer lassen — der Agent
+     holt und erneuert die kurzlebige HLS-URL selbst.
 2. Edge-Agent läuft im Silent Mode (`modell.pfad` leer in `config.yaml`) —
    sammelt alle 120 s ein Bild nach `./aufnahmen`.
 3. Zielumfang: **1–2 Wochen** Bilder, zwingend alle Lichtverhältnisse
