@@ -7,6 +7,15 @@ stream:
   url: rtsp://192.168.178.50:8554/stallwache
   # Fallback, falls RTSP nicht klappt: Snapshot-Polling ueber die go2rtc-API.
   fallback_snapshot_url: http://192.168.178.50:1984/api/frame.jpeg?src=stallwache
+  # --- Cloud-Quelle OHNE Bridge (Kameras, die schon in der Tuya-Cloud
+  # haengen: Futterwache, Stallbox). Alle drei Werte setzen, url oben leer
+  # lassen -> der Agent holt sich die kurzlebige HLS-URL selbst und erneuert
+  # sie bei jedem Reconnect. Damit laeuft der Silent Mode ohne Bridge.
+  # app_passwort = STALLBLICK_PASSWORT der Webapp (config.yaml ist
+  # gitignoriert und wird von setup.sh mit 600er-Rechten angelegt).
+  app_url: ""            # z. B. https://die-stallwache.vercel.app
+  quelle_api: ""         # z. B. /api/futterwache/stream  oder  /api/stallbox/stream
+  app_passwort: ""
   # Kamera-Name fuer Meldungen (stallwache | futterwache)
   kamera: stallwache
   # 1 Frame/Sekunde reicht voellig: Kalbeanzeichen entwickeln sich ueber
