@@ -41,6 +41,11 @@ blinzelt — ohne 45.000 € auszugeben und ohne einen Sensor im Pansen.*
 - **Kameras** liefern lokal RTSP. Eine **Bridge** (go2rtc oder MediaMTX) im
   Stall-LAN macht daraus WebRTC/HLS und stellt einen RTSP-Restream (Port 8554)
   + Snapshot-API (go2rtc Port 1984) bereit.
+- **Alternativ ohne Bridge** (`CloudQuelle`): Kameras, die bereits in der
+  Tuya-Cloud hängen (Futterwache, Stallbox), liest der Agent direkt — Login
+  an der Webapp, kurzlebige HLS-URL von `/api/<kamera>/stream`, CDN-
+  Direktzugriff, automatische URL-Erneuerung beim Reconnect
+  (`stream.app_url`/`quelle_api`/`app_passwort`).
 - **Du (der Agent)** läufst als Python-Prozess auf einem beliebigen Rechner im
   Stall-Netz (alter Laptop/Raspberry Pi genügt — 1 FPS reicht, weil sich
   Kalbeanzeichen über Minuten entwickeln). GPU ist optional.
