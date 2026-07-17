@@ -86,6 +86,25 @@ nach 1–2 Wochen Bildern das erste Training (Skill `modell-training`).
 
 Keine Cloud-Videoanalyse, kein Hardware-Verkauf, kein Abo-Modell, keine
 Galerie mit 16 Kamerakacheln, keine Statistik-Dashboards ohne Handlungswert.
+**Kein Ablamm-Monitoring (Schaf/Ziege):** Wolle verdeckt die Rückenlinie,
+kupierte Schwänze nehmen das Leitsignal, Gruppen-Lammzeiten entwerten den
+buchtbasierten Alarm — technisch wie ökonomisch kein Stallblick-Terrain.
+
+## Zweitmarkt-Option: Abfohl-Überwachung (nach Modell v1)
+
+Nachbarmarkt-Analyse Juli 2026 (Marktzahlen Stand ~01/2026, Live-Verifikation
+im Nov-Check): Der Pferdemarkt hat exakt unsere Zielkunden-DNA — kleiner
+Züchter, Boxenkamera vorhanden, nächtliches Selber-Gucken — und akzeptiert
+500–1.500 € für **invasive** Sensorik (Foalert: an die Vulva genähter
+Kontakt; Birth Alarm: Obergurt-Lagesensor), während ein offenes
+Edge-Kamera-KI-Produkt fehlt. Unsere **Logik-Schicht ist tierartagnostisch**
+(Zeitfilter, Eskalation, Totmann, Feedback — alles Konfiguration, nichts
+weiß von Kühen), und der spezifizierte Festliege-Wächter (Seitenlage) ist
+funktional bereits die Birth-Alarm-Logik. **Entscheidung:** dokumentierte
+Option, frühestens nach stabilem Rinder-Betrieb (neues Modell + dichteres
+Sampling nötig — Austreibung dauert beim Pferd Minuten, nicht Stunden, und
+„Red Bag" ist ein Minuten-Notfall). Bis dahin gilt als Leitplanke: keine
+Rind-Hardcodierung im Edge-Agenten neu einführen.
 
 ---
 

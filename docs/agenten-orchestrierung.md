@@ -75,6 +75,9 @@ Neue Aufgabe
 - Der Orchestrator hält die **Produktprinzipien** (`docs/vision.md`) hoch:
   kamerabasiert, Edge-First, 0 €/Kuh/Jahr, „Ruhe vor Fülle". Kein Agent
   erweitert den Scope eigenmächtig.
+- **Tierart-Neutralität wahren:** Im Edge-Agenten keine Rind-Hardcodierung
+  neu einführen (Klassen, Keypoints, Schwellen bleiben Konfiguration) —
+  hält die dokumentierte Zweitmarkt-Option Abfohlen offen, kostet nichts.
 
 ## Reifegrad-Regel
 
