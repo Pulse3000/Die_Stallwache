@@ -15,10 +15,12 @@ Prüfprogramm (in dieser Reihenfolge, Abbruch bei Rot):
 2. **Ingest-Auth-Kette:** Server ohne `EDGE_INGEST_TOKEN` → POST /api/events
    muss 503 liefern; mit Token: falscher Header 401, gültig 201, unbekannter
    `typ` 400. Gültige Typen stehen in `lib/events.ts` (`EREIGNIS_TYPEN`).
-3. **Logiktests Edge-Agent:** LogicEngine mit simulierten Erkennungen —
-   Override-Alarm, Eskalation genau einmal nach Fristablauf, Episoden-Reset,
-   Zeitfilter feuert genau einmal, Schwanzwinkel 90°-Fall. (Vorlage:
-   Scratchpad-Test aus der Projekthistorie; opencv-python-headless genügt.)
+3. **Logiktests Edge-Agent:** feste Suite im Repo —
+   `python3 edge-agent/tests/alle_tests.py` (pures Python, cv2/numpy/requests
+   werden gestubbt; deckt TotmannWaechter, FeedbackSchleife, Tracker-Wiring
+   und die Referenz-Schwellenwerte ab). Zusätzliche Ad-hoc-Simulationen der
+   LogicEngine (Override, Eskalation, Zeitfilter, Schwanzwinkel) nach Bedarf
+   über `edge-agent/tests/hilfe.py` bauen.
 4. **UI-Smoke:** Headless-Chromium (`/opt/pw-browsers/chromium`, Viewport
    390×844) auf `/` und `/wache`: Modulreihenfolge, Demo-Hinweis bei leerem
    Store, Alarm-Anzeige bei gefülltem Store.
