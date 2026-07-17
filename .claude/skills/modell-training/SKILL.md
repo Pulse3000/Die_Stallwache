@@ -1,6 +1,6 @@
 ---
 name: modell-training
-description: Geführte Prozedur für die Modell-Erstinbetriebnahme der KI-Wache — Silent Mode (Datensammlung) → CVAT-Labeling → Colab-Training → best.pt → Analyse-Modus → Fehlalarm-Nachtraining. Nutzen, sobald die Stallwache-Bridge läuft und Trainingsbilder gesammelt werden können, sowie bei jedem Nachtraining.
+description: Geführte Prozedur für die Modell-Erstinbetriebnahme der KI-Wache — Silent Mode (Datensammlung) → CVAT-Labeling → Colab-Training → best.pt → Analyse-Modus → Fehlalarm-Nachtraining. Nutzen, sobald der Agent eine Videoquelle hat (Cloud-Quelle ohne Bridge über die Tuya-Kameras ODER Bridge-RTSP) und Trainingsbilder gesammelt werden können, sowie bei jedem Nachtraining.
 ---
 
 # KI-Wache: Modell-Erstinbetriebnahme & Nachtraining
