@@ -138,7 +138,7 @@ Futterwache) setzen – fertig. Die App ist als PWA installierbar (Homescreen).
 
 ## Live
 
-Deployt auf Vercel: **https://die-stallwache.vercel.app**
+Deployt auf Vercel: **https://stallwache.vercel.app**
 (zeigt „Warte auf Bridge", bis `NEXT_PUBLIC_BRIDGE_URL` gesetzt und die Bridge im Stall verbunden ist).
 
 ## Android-App (Der Stallblick)
