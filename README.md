@@ -151,12 +151,12 @@ Die Kamera-Streams laufen dort ohne Browser-Umwege direkt in der APK
 * **Stallwache** → Bridge-HLS (go2rtc `api/stream.m3u8` bzw. MediaMTX
   `index.m3u8`), Vorschau per go2rtc-Snapshot-Polling.
 * **Futterwache/Stallbox** → Tuya-Cloud: wahlweise über die Webapp-Endpoints
-  (`/api/<kamera>/stream`, Session-Cookie wird von ExoPlayer mitgesendet)
-  oder direkt über die Tuya-OpenAPI (HMAC-SHA256 in Kotlin portiert);
-  Bridge als Fallback. Der CORS-Proxy der Webapp wird nativ nicht benötigt.
-* **KI-Wache** → die App meldet sich mit `STALLBLICK_PASSWORT` an
-  (`POST /api/login`) und spiegelt `GET /api/events` in ihre lokale
-  Datenbank; Alarme erscheinen als Overlay auf dem Handy.
+  (`/api/<kamera>/stream`) oder direkt über die Tuya-OpenAPI (HMAC-SHA256 in
+  Kotlin portiert); Bridge als Fallback. Der CORS-Proxy der Webapp wird nativ
+  nicht benötigt.
+* **KI-Wache** → die App spiegelt `GET /api/events` in ihre lokale Datenbank;
+  Alarme erscheinen als Overlay auf dem Handy. Die App nutzt keinen
+  Passwort-Login — die Webapp läuft ohne `STALLBLICK_PASSWORT`.
 
 ## Tech-Stack
 
