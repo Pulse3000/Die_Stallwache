@@ -21,7 +21,12 @@
  *   NEXT_PUBLIC_BRIDGE_TYPE    "go2rtc" (Default) | "mediamtx"
  *   NEXT_PUBLIC_STREAM_NAME    Stream/Pfad der Stallwache  (Default: "stallwache")
  *   NEXT_PUBLIC_STREAM_NAME_2  Stream/Pfad der Futterwache (Default: "futterwache")
- *   NEXT_PUBLIC_STREAM_NAME_3  Stream/Pfad der Stallbox    (Default: "stallbox")
+ *   NEXT_PUBLIC_STREAM_NAME_3  Stream/Pfad der Abkalbebox  (Default: "abkalbebox")
+ *   NEXT_PUBLIC_STREAM_NAME_4  Stream/Pfad der Weidewache  (Default: "weidewache")
+ *
+ * Die Abkalbebox hiess frueher "Stallbox"; die alten Variablennamen
+ * (NEXT_PUBLIC_STALLBOX_TUYA, TUYA_DEVICE_ID_STALLBOX) gelten weiter als
+ * Alias, damit bestehende Deployments nicht beim Umbenennen ausfallen.
  */
 
 export type BridgeType = "go2rtc" | "mediamtx";
@@ -46,7 +51,11 @@ export const isConfigured = BRIDGE_URL.length > 0;
 /** MediaMTX hat kein eingebautes JPEG-Snapshot-Endpoint. */
 export const snapshotSupported = BRIDGE_TYPE === "go2rtc";
 
-export type CameraId = "stallwache" | "futterwache" | "stallbox";
+export type CameraId =
+  | "stallwache"
+  | "futterwache"
+  | "abkalbebox"
+  | "weidewache";
 
 /** Kamera-State laut State-Modell: online | offline | laedt | instabil */
 export type CameraState = "online" | "offline" | "laedt" | "instabil";
@@ -70,11 +79,15 @@ export interface CameraConfig {
 }
 
 /**
- * Futterwache & Stallbox standardmaessig ueber Tuya-Cloud (mit Bridge-Fallback).
- * Zum Erzwingen der Bridge: NEXT_PUBLIC_FUTTERWACHE_TUYA=0 bzw. NEXT_PUBLIC_STALLBOX_TUYA=0.
+ * Die drei LSC-Kameras haengen in der Tuya-Cloud und laufen standardmaessig
+ * darueber (mit Bridge-Fallback). Zum Erzwingen der Bridge die jeweilige
+ * Variable auf 0 setzen.
  */
 const FUTTERWACHE_TUYA = process.env.NEXT_PUBLIC_FUTTERWACHE_TUYA?.trim() !== "0";
-const STALLBOX_TUYA = process.env.NEXT_PUBLIC_STALLBOX_TUYA?.trim() !== "0";
+const ABKALBEBOX_TUYA =
+  (process.env.NEXT_PUBLIC_ABKALBEBOX_TUYA ?? process.env.NEXT_PUBLIC_STALLBOX_TUYA)
+    ?.trim() !== "0";
+const WEIDEWACHE_TUYA = process.env.NEXT_PUBLIC_WEIDEWACHE_TUYA?.trim() !== "0";
 
 /** Stallwache = Hauptkamera (Default), weitere Kameras als Zweitkameras. */
 export const CAMERAS: readonly CameraConfig[] = [
@@ -95,12 +108,20 @@ export const CAMERAS: readonly CameraConfig[] = [
     tuyaEndpoint: "/api/futterwache/stream",
   },
   {
-    id: "stallbox",
-    name: "Stallbox",
-    streamName: process.env.NEXT_PUBLIC_STREAM_NAME_3?.trim() || "stallbox",
-    ort: "Stallbox",
-    tuyaFaehig: STALLBOX_TUYA,
-    tuyaEndpoint: "/api/stallbox/stream",
+    id: "abkalbebox",
+    name: "Abkalbebox",
+    streamName: process.env.NEXT_PUBLIC_STREAM_NAME_3?.trim() || "abkalbebox",
+    ort: "Abkalbebucht",
+    tuyaFaehig: ABKALBEBOX_TUYA,
+    tuyaEndpoint: "/api/abkalbebox/stream",
+  },
+  {
+    id: "weidewache",
+    name: "Weidewache",
+    streamName: process.env.NEXT_PUBLIC_STREAM_NAME_4?.trim() || "weidewache",
+    ort: "Weide",
+    tuyaFaehig: WEIDEWACHE_TUYA,
+    tuyaEndpoint: "/api/weidewache/stream",
   },
 ];
 

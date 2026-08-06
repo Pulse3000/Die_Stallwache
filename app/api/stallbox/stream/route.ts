@@ -1,41 +1,17 @@
-import { NextResponse } from "next/server";
-import { holeTuyaStream, tuyaKonfiguriert } from "@/lib/tuya";
+import { kameraStreamAntwort } from "@/lib/kamera-stream";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
- * Liefert dem Frontend eine kurzlebige HLS-URL der Stallbox aus der
- * Tuya-Cloud. Zugangsdaten bleiben serverseitig; ohne TUYA_*-Env-Vars
- * bleibt der Endpoint geschlossen (503) und die Stallbox laeuft weiter
- * ueber die Bridge.
+ * Alt-Pfad der Abkalbebox (hiess frueher "Stallbox").
  *
- * Nutzt denselben CORS-Proxy wie die Futterwache (/api/futterwache/proxy
- * ist generisch: er validiert nur, dass die Ziel-URL zu einem Tuya-Host
- * gehoert, unabhaengig davon, welche Kamera sie angefordert hat).
+ * Bleibt bestehen, weil die Android-App (Der-Stallblick) und moeglicherweise
+ * laufende Edge-Agenten diesen Pfad in ihrer Konfiguration stehen haben
+ * (`stream.quelle_api`). Ein 404 nach der Umbenennung haette dort still das
+ * Livebild abgeschaltet — die Kamera, die genau dann zaehlt, wenn eine Kuh
+ * kalbt. Neue Konfigurationen nutzen /api/abkalbebox/stream.
  */
 export async function GET() {
-  if (!tuyaKonfiguriert("stallbox")) {
-    return NextResponse.json(
-      {
-        fehler:
-          "Tuya nicht konfiguriert – TUYA_ACCESS_ID, TUYA_ACCESS_SECRET und TUYA_DEVICE_ID_STALLBOX setzen.",
-      },
-      { status: 503 },
-    );
-  }
-  try {
-    const stream = await holeTuyaStream("stallbox", "hls");
-    const proxied = {
-      ...stream,
-      url: `/api/futterwache/proxy?url=${encodeURIComponent(stream.url)}`,
-    };
-    return NextResponse.json(proxied, {
-      headers: { "Cache-Control": "no-store" },
-    });
-  } catch (e) {
-    return NextResponse.json(
-      { fehler: e instanceof Error ? e.message : "Tuya-Anfrage fehlgeschlagen" },
-      { status: 502 },
-    );
-  }
+  return kameraStreamAntwort("abkalbebox");
 }

@@ -64,11 +64,13 @@ export default function StallblickApp() {
   const [liveGestartet, setLiveGestartet] = useState(false);
   const liveAn = !einstellungen.datensparen || liveGestartet || vollbild;
 
-  const [camStates, setCamStates] = useState<Record<CameraId, CameraState>>({
-    stallwache: isConfigured ? "laedt" : "offline",
-    futterwache: isConfigured ? "laedt" : "offline",
-    stallbox: isConfigured ? "laedt" : "offline",
-  });
+  // Aus CAMERAS ableiten statt auflisten: eine neue Kamera in lib/config.ts
+  // soll nicht daran scheitern, dass hier ein Eintrag fehlt.
+  const [camStates, setCamStates] = useState<Record<CameraId, CameraState>>(() =>
+    Object.fromEntries(
+      CAMERAS.map((c) => [c.id, isConfigured || c.tuyaFaehig ? "laedt" : "offline"]),
+    ) as Record<CameraId, CameraState>,
+  );
 
   // Ereignisliste laedt nachgelagert – blockiert den ersten Bildaufbau nicht.
   const [ereignisse, setEreignisse] = useState<Ereignis[]>([]);
@@ -330,7 +332,9 @@ export default function StallblickApp() {
         {/* 4 · Statusblock – kompakt, unabhaengig vom Videostream */}
         <section
           aria-label="Status"
-          className="order-3 grid grid-cols-3 gap-2"
+          // Zwei Spalten: bei vier Kameras ein sauberes 2x2 auf dem Handy,
+          // statt vier gequetschter Namen nebeneinander.
+          className="order-3 grid grid-cols-2 gap-2"
         >
           {CAMERAS.map((cam) => (
             <div
