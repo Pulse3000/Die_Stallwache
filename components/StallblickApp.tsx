@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import CameraStream from "@/components/CameraStream";
+import LetzteAlarme from "@/components/LetzteAlarme";
+import { useEinstellungen } from "@/lib/einstellungen";
 import {
   CAMERAS,
   type CameraId,
@@ -47,9 +49,20 @@ function jetzt(): string {
  * Videocontainer. Status und Ereignisse rendern unabhaengig vom Stream.
  */
 export default function StallblickApp() {
+  const [einstellungen] = useEinstellungen();
+
   // View-State: hauptkamera = Stallwache (Default) | Futterwache
   const [hauptkamera, setHauptkamera] = useState<CameraId>("stallwache");
   const [vollbild, setVollbild] = useState(false);
+
+  /**
+   * Datensparen: Das Hauptbild laeuft zunaechst als Vorschau (Einzelbilder)
+   * statt als Videostream. Erst „Live starten" – oder das Vollbild – bindet
+   * WebRTC/HLS an. Ein Livestream kostet im Mobilfunk ein Vielfaches, und der
+   * Blick aufs Dashboard beantwortet meist schon ein Standbild.
+   */
+  const [liveGestartet, setLiveGestartet] = useState(false);
+  const liveAn = !einstellungen.datensparen || liveGestartet || vollbild;
 
   const [camStates, setCamStates] = useState<Record<CameraId, CameraState>>({
     stallwache: isConfigured ? "laedt" : "offline",
@@ -73,6 +86,13 @@ export default function StallblickApp() {
     return () => clearTimeout(t);
   }, []);
 
+  // Startkamera aus den Einstellungen uebernehmen – aber nur, solange der
+  // Landwirt in dieser Sitzung nicht selbst umgeschaltet hat.
+  const manuellGewaehltRef = useRef(false);
+  useEffect(() => {
+    if (!manuellGewaehltRef.current) setHauptkamera(einstellungen.startKamera);
+  }, [einstellungen.startKamera]);
+
   const onCamState = useCallback(
     (id: CameraId, state: CameraState) => {
       setCamStates((prev) => {
@@ -89,6 +109,7 @@ export default function StallblickApp() {
   /** Setzt eine bestimmte Kamera als Hauptbild (ohne Vollbild zu oeffnen). */
   const setHaupt = useCallback(
     (id: CameraId) => {
+      manuellGewaehltRef.current = true;
       setHauptkamera((prev) => {
         if (prev !== id) addEreignis(`${cameraById(id).name} ist jetzt Hauptbild`);
         return id;
@@ -99,6 +120,7 @@ export default function StallblickApp() {
 
   /** Wechselt reihum zur naechsten Kamera in der Liste (Rundlauf). */
   const tauschen = useCallback(() => {
+    manuellGewaehltRef.current = true;
     setHauptkamera((prev) => {
       const idx = CAMERAS.findIndex((c) => c.id === prev);
       const next = CAMERAS[(idx + 1) % CAMERAS.length].id;
@@ -109,6 +131,7 @@ export default function StallblickApp() {
 
   const oeffnen = useCallback(
     (id: CameraId) => {
+      manuellGewaehltRef.current = true;
       setHauptkamera((prev) => {
         if (prev !== id) addEreignis(`${cameraById(id).name} ist jetzt Hauptbild`);
         return id;
@@ -197,7 +220,7 @@ export default function StallblickApp() {
         {CAMERAS.map((cam) => {
           const istHaupt = cam.id === hauptkamera;
           const state = camStates[cam.id];
-          const rolle = istHaupt ? "haupt" : "vorschau";
+          const rolle = istHaupt && liveAn ? "haupt" : "vorschau";
 
           return (
             <article
@@ -235,7 +258,7 @@ export default function StallblickApp() {
 
                 {/* Statuszeile ueber dem Bild */}
                 <div className="pointer-events-none absolute left-2.5 top-2.5 flex items-center gap-2">
-                  {istHaupt && state === "online" && (
+                  {istHaupt && liveAn && state === "online" && (
                     <span className="rounded bg-red-600 px-2 py-0.5 text-[11px] font-bold tracking-wide text-white">
                       LIVE
                     </span>
@@ -250,6 +273,24 @@ export default function StallblickApp() {
                     </span>
                   )}
                 </div>
+
+                {/* Datensparen: Video erst auf ausdrueckliches Tippen. Ohne
+                    erreichbare Kamera waere der Knopf ein leeres Versprechen. */}
+                {istHaupt && !liveAn && state !== "offline" && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation(); // nicht zugleich das Vollbild oeffnen
+                      setLiveGestartet(true);
+                    }}
+                    className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2 bg-gradient-to-t from-black/80 to-transparent pb-2.5 pt-8 text-xs font-bold text-white"
+                  >
+                    <span className="h-2 w-2 rounded-full bg-red-500" />
+                    Live starten
+                    <span className="font-normal text-white/50">
+                      · spart Daten
+                    </span>
+                  </button>
+                )}
               </div>
 
               {vollbild && istHaupt ? (
@@ -321,10 +362,13 @@ export default function StallblickApp() {
           </div>
         </section>
 
-        {/* KI-Wache: Brunst- & Kalbeerkennung (eigene Seite, laedt nichts vor) */}
+        {/* Letzte Alarme der KI-Wache – die eigentliche Kernfrage des Dashboards */}
+        <LetzteAlarme />
+
+        {/* KI-Wache: Erkennungslogik und Systemmeldungen (eigene Seite) */}
         <a
           href="/wache"
-          className="order-5 flex items-center justify-between rounded-xl bg-stall-card px-3 py-3 text-sm font-semibold ring-1 ring-white/10 transition-colors active:bg-white/10"
+          className="order-6 flex items-center justify-between rounded-xl bg-stall-card px-3 py-3 text-sm font-semibold ring-1 ring-white/10 transition-colors active:bg-white/10"
         >
           <span>
             KI-Wache
@@ -336,7 +380,7 @@ export default function StallblickApp() {
         </a>
 
         {/* 6 · Letzte Ereignisse – nachgelagert geladen */}
-        <section aria-label="Letzte Ereignisse" className="order-6">
+        <section aria-label="Letzte Ereignisse" className="order-7">
           <p className="mb-1.5 text-[10px] uppercase tracking-wider text-white/40">
             Letzte Ereignisse
           </p>

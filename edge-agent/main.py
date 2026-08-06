@@ -24,6 +24,9 @@ Start:  cp config.example.yaml config.yaml && python3 main.py
 
 from __future__ import annotations
 
+import base64
+import datetime as dt
+import json
 import logging
 import math
 import time
@@ -639,8 +642,6 @@ class FeedbackSchleife:
         if not msg.get("message_id"):
             return
         try:
-            import json
-
             requests.post(
                 f"https://api.telegram.org/bot{self.token}/editMessageReplyMarkup",
                 data={
@@ -671,6 +672,15 @@ class Notifier:
         db = cfg.get("dashboard") or {}
         self.db_url = (db.get("url") or "").strip()
         self.db_token = (db.get("token") or "").strip()
+        # Alarmbilder ans Dashboard mitschicken (die App zeigt sie als Serie).
+        # Auf 0 setzen, wenn die Uplink-Leitung zu schmal ist.
+        self.db_bilder = max(0, int(db.get("bilder", 3)))
+        self._puffer_datei = Path(db.get("puffer_datei") or "alarm-puffer.jsonl")
+        # Offline-Puffer: was nicht rausging, wird beim naechsten Kontakt
+        # nachgeliefert. Begrenzt, damit eine lange Stoerung den Speicher
+        # nicht sprengt.
+        self._puffer: deque[dict] = deque(maxlen=int(db.get("puffer_max", 200)))
+        self._puffer_laden()
 
         self.kamera = cfg["stream"].get("kamera", "stallwache")
         self._zuletzt: dict[tuple[str | None, str], float] = {}
@@ -734,7 +744,7 @@ class Notifier:
         markup = self.feedback.registriere(alarm, roh)
 
         self._telegram(alarm, bild, serie, markup)
-        self._dashboard(alarm)
+        self._dashboard(alarm, self._dashboard_bilder(serie, bild))
         self._mqtt(alarm)
 
     def status(self, nachricht: str) -> None:
@@ -812,8 +822,6 @@ class Notifier:
     ) -> None:
         if not (self.tg_token and self.tg_chat):
             return
-        import json
-
         markup_json = json.dumps(markup) if markup else None
         text = f"⚠️ {alarm.typ.upper()}"
         if alarm.kuh_id:
@@ -884,8 +892,6 @@ class Notifier:
         if self._mqtt_client is None:
             return
         try:
-            import json
-
             self._mqtt_client.publish(
                 f"{self._mqtt_topic}/{self.kamera}/{alarm.typ}",
                 json.dumps(
@@ -903,24 +909,113 @@ class Notifier:
         except Exception as e:  # noqa: BLE001
             log.error("MQTT-Publish fehlgeschlagen: %s", e)
 
-    def _dashboard(self, alarm: Alarm) -> None:
+    def _dashboard_bilder(
+        self,
+        serie: list[bytes],
+        alarmbild: bytes | None,
+    ) -> list[bytes]:
+        """Waehlt die Bilder fuer die App aus: erst die Frames vor dem Alarm,
+        zuletzt das annotierte Alarmbild.
+
+        Bewusst die annotierte Fassung — anders als beim Fehlalarm-Feedback,
+        wo eingezeichnete Boxen das Nachtraining vergiften wuerden. Hier
+        schaut ein Mensch drauf, und der will nachts um drei sofort sehen,
+        worauf das Modell reagiert hat.
+        """
+        if not self.db_bilder:
+            return []
+        bilder = [*serie, alarmbild] if alarmbild else list(serie)
+        # Die juengsten Bilder sind die aussagekraeftigsten.
+        return bilder[-self.db_bilder :]
+
+    # ------------------------------------------------------------------
+    # Dashboard-Meldung mit Offline-Puffer
+    #
+    # Der Stall ist der Ort mit dem schlechtesten Empfang des Betriebs. Faellt
+    # die Leitung aus, darf ein Kalbealarm nicht einfach verschwinden: er
+    # wandert in einen Puffer auf der Platte und geht beim naechsten Kontakt
+    # als Stapel raus (POST /api/events mit {"ereignisse": [...]}).
+    # ------------------------------------------------------------------
+
+    def _puffer_laden(self) -> None:
+        """Liest den Puffer eines vorherigen Laufs (Stromausfall, Neustart)."""
+        if not self._puffer_datei.exists():
+            return
+        try:
+            for zeile in self._puffer_datei.read_text("utf-8").splitlines():
+                zeile = zeile.strip()
+                if zeile:
+                    self._puffer.append(json.loads(zeile))
+            log.info("Offline-Puffer geladen: %d Ereignis(se)", len(self._puffer))
+        except (OSError, ValueError) as e:
+            log.error("Offline-Puffer nicht lesbar (wird verworfen): %s", e)
+            self._puffer.clear()
+
+    def _puffer_sichern(self) -> None:
+        """Schreibt den Puffer atomar zurueck (erst temporaer, dann ersetzen)."""
+        try:
+            if not self._puffer:
+                self._puffer_datei.unlink(missing_ok=True)
+                return
+            tmp = self._puffer_datei.with_suffix(".tmp")
+            tmp.write_text(
+                "\n".join(json.dumps(e, ensure_ascii=False) for e in self._puffer),
+                "utf-8",
+            )
+            tmp.replace(self._puffer_datei)
+        except OSError as e:
+            log.error("Offline-Puffer nicht schreibbar: %s", e)
+
+    def _dashboard(
+        self,
+        alarm: Alarm,
+        bilder: list[bytes] | None = None,
+    ) -> None:
         if not (self.db_url and self.db_token):
             return
+
+        ereignis: dict = {
+            "typ": alarm.typ,
+            "kuhId": alarm.kuh_id,
+            "kamera": self.kamera,
+            "nachricht": alarm.nachricht,
+            "konfidenz": alarm.konfidenz,
+            # Eigener Zeitstempel: bei Nachlieferung waere die Eingangszeit
+            # des Servers falsch — die Kalbung war um 03:12, nicht um 07:40.
+            "zeit": dt.datetime.now(dt.timezone.utc)
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z"),
+        }
+        if bilder and self.db_bilder:
+            # Von hinten schneiden: das letzte Bild ist das annotierte
+            # Alarmbild und damit das wichtigste der Serie.
+            ereignis["bilder"] = [
+                base64.b64encode(b).decode("ascii") for b in bilder[-self.db_bilder :]
+            ]
+
+        # Alles, was noch aussteht, geht in derselben Verbindung mit raus.
+        stapel = list(self._puffer) + [ereignis]
         try:
             requests.post(
                 self.db_url,
-                json={
-                    "typ": alarm.typ,
-                    "kuhId": alarm.kuh_id,
-                    "kamera": self.kamera,
-                    "nachricht": alarm.nachricht,
-                    "konfidenz": alarm.konfidenz,
-                },
+                json={"ereignisse": stapel},
                 headers={"x-ingest-token": self.db_token},
-                timeout=15,
+                timeout=30,
             ).raise_for_status()
         except requests.RequestException as e:
-            log.error("Dashboard-Meldung fehlgeschlagen: %s", e)
+            self._puffer.append(ereignis)
+            self._puffer_sichern()
+            log.error(
+                "Dashboard-Meldung fehlgeschlagen (%d im Puffer): %s",
+                len(self._puffer),
+                e,
+            )
+            return
+
+        if self._puffer:
+            log.info("Offline-Puffer nachgeliefert: %d Ereignis(se)", len(self._puffer))
+            self._puffer.clear()
+            self._puffer_sichern()
 
 
 # --------------------------------------------------------------------------

@@ -1,17 +1,55 @@
 {
-  "name": "Die Stallwache",
+  "name": "Die Stallwache – Brunst- & Kalbeüberwachung",
   "short_name": "Stallwache",
-  "description": "Livestream der Stall-Kamera (Tapo TCA72)",
+  "description": "KI-gestützte Brunst- und Kalbeüberwachung im Stall: Livebild, Alarme mit Bild, Gerätesteuerung – offlinefähig.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#0b1120",
   "theme_color": "#0b1120",
+  "lang": "de",
+  "categories": ["productivity", "utilities"],
   "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
     {
       "src": "/logo-mark.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Alarme",
+      "short_name": "Alarme",
+      "description": "Ereignisse der letzten 24 Stunden",
+      "url": "/alarme",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Steuerung",
+      "short_name": "Steuerung",
+      "description": "Tränken, Licht und Sensoren schalten",
+      "url": "/steuerung",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

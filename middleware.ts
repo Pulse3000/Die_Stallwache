@@ -42,7 +42,12 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   // Alles ausser Next-internen und statischen Dateien.
+  //
+  // sw.js muss ausgenommen bleiben: Ein Redirect auf /login liefert HTML
+  // statt JavaScript, und der Browser verweigert die Registrierung des
+  // Service Workers – die PWA waere damit weder offlinefaehig noch
+  // push-faehig. Das Skript enthaelt keine Daten, nur Ablauflogik.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|webp|gif|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|.*\\.(?:svg|png|jpg|jpeg|webp|gif|ico)$).*)",
   ],
 };

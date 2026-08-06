@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { EreignisTyp, StallEreignis } from "@/lib/events";
+import type { EreignisTyp, StallEreignis } from "@/lib/ereignis-modell";
+import { fmtZeit, TYP_BADGE, TYP_LABEL } from "@/lib/darstellung";
 
 interface ApiAntwort {
   ereignisse: StallEreignis[];
@@ -9,30 +10,7 @@ interface ApiAntwort {
   quelle: "edge-agent" | "demo";
 }
 
-const TYP_LABEL: Record<EreignisTyp, string> = {
-  kalbeverdacht: "Kalbeverdacht",
-  austreibung: "Austreibung",
-  brunstverdacht: "Brunstverdacht",
-  info: "Info",
-};
-
-const TYP_BADGE: Record<EreignisTyp, string> = {
-  kalbeverdacht: "bg-amber-500/20 text-amber-300 ring-amber-400/30",
-  austreibung: "bg-red-500/25 text-red-300 ring-red-400/40",
-  brunstverdacht: "bg-sky-500/20 text-sky-300 ring-sky-400/30",
-  info: "bg-white/10 text-white/60 ring-white/15",
-};
-
 const POLL_INTERVALL = 15_000;
-
-function fmtZeit(iso: string): string {
-  const d = new Date(iso);
-  const heute = new Date().toDateString() === d.toDateString();
-  const uhr = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-  return heute
-    ? uhr
-    : `${d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })} ${uhr}`;
-}
 
 /**
  * KI-Wache: Alarm-Dashboard fuer Brunst- & Kalbeerkennung.
