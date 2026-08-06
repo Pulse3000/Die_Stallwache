@@ -6,11 +6,15 @@ wie klein, verdient eine Nachtwache, die niemals blinzelt — ohne 45.000 €
 auszugeben und ohne einen Sensor im Pansen.* (Vision, Prinzipien und
 Zielbild: [`docs/vision.md`](docs/vision.md).)
 
-Die mobil-optimierte Webapp zeigt **Stallwache** (Hauptkamera, WebRTC/HLS),
-**Futterwache** (läuft bereits live über die Tuya-Cloud) und **Stallbox**;
-Rollenwechsel ohne Seiten-Neuaufbau, Vollbild, Snapshot, Ereignisliste.
-Ein gemeinsames Passwort schützt die ganze App (`STALLBLICK_PASSWORT`).
-Unter **`/wache`** läuft das KI-Alarm-Dashboard.
+Die App ist eine **installierbare PWA** (Android & iOS, „Zum Home-Bildschirm
+hinzufügen") mit vier Bereichen: **Dashboard** (Livebild + letzte Alarme),
+**Alarme** (Aktivitätsprotokoll mit Bild-Replay), **Steuerung** (Tuya-Geräte
++ Freitext-/Sprachanfragen) und **Einstellungen** (Push, Datensparen,
+Kameras). Kameras: **Stallwache** (Hauptkamera, WebRTC/HLS), **Futterwache**
+(läuft bereits live über die Tuya-Cloud) und **Stallbox** — Rollenwechsel
+ohne Seiten-Neuaufbau, Vollbild, Snapshot. Ein gemeinsames Passwort schützt
+die ganze App (`STALLBLICK_PASSWORT`). Unter **`/wache`** liegt weiterhin die
+Detailsicht auf Erkennungslogik und Systemmeldungen.
 
 **Was der Edge-Agent heute kann** (`edge-agent/`, lokal im Stall oder gegen
 die Tuya-Cloud): Silent-Mode-Datensammlung, Kalbeverdacht (45°/30 min/20 %),
@@ -23,6 +27,46 @@ implementierungsreif spezifiziert (Festliege-Wächter, Brunst-Fusion,
 Kalbe-Akte, Lahmheit — siehe `docs/*-spezifikation.md`).
 
 ---
+
+## Die App am Handy
+
+Gebaut für die Hand, die gerade noch am Melkzeug war — und für ein Netz, das
+im Stall regelmäßig wegbricht.
+
+| Bereich | Was er beantwortet |
+| --- | --- |
+| **Dashboard** | „Muss ich raus?" — Livebild der gewählten Kamera, Zähler der letzten 24 h, die drei jüngsten Alarme. Eine laufende Austreibung färbt die Kachel rot. |
+| **Alarme** | Aktivitätsprotokoll, filterbar nach Art (Kalbung/Brunst/System) und Zeitraum (24 h / 3 / 7 Tage). Jeder Alarm bringt seine **Bildserie** mit: abspielbar wie ein kurzer Film, damit man sieht, worauf das Modell reagiert hat. „Gesehen" quittiert ihn. |
+| **Steuerung** | Tränken, Licht und Sensoren über die Tuya-Cloud schalten; die Bedienelemente entstehen aus dem, was das Gerät selbst meldet. Dazu Freitext- und **Sprachanfragen**: „Zeig mir alle Aktivitäten von Kuh #42". |
+| **Einstellungen** | Push-Benachrichtigungen an/aus und pro Alarmart, Datensparen, Startkamera, Diagnose. |
+
+**Push (Firebase Cloud Messaging).** Kalbeverdacht und Brunstverdacht kommen
+als normale Meldung, die **Austreibung** als dringender Alarm, der sich nicht
+von selbst schließt und stärker vibriert — nachts um drei ist das der
+Unterschied. Direkt aus der Benachrichtigung lässt sich der Alarm öffnen oder
+quittieren. Der Probealarm in den Einstellungen prüft die ganze Kette
+einmal bewusst durch, statt sie im Ernstfall zu testen.
+*iOS: Web-Push gibt es nur in der installierten PWA, nicht im Safari-Tab.*
+
+**Datensparend.** Ein Livestream kostet im Mobilfunk ein Vielfaches einer
+Ereignisliste. Deshalb zeigt das Dashboard zunächst ein Standbild und startet
+Video erst auf Tippen; Alarmbilder wandern erst über die Leitung, wenn ein
+Alarm geöffnet wird. Beides ist abschaltbar.
+
+**Offline.** Fällt das Netz aus, bleibt die App bedienbar: Die Oberfläche
+kommt aus dem Cache, der letzte Ereignisstand und alle per Push empfangenen
+Alarme liegen lokal (IndexedDB), Alarmbilder bleiben abspielbar.
+Quittierungen und Geräteschaltungen wandern in eine Warteschlange und gehen
+beim nächsten Kontakt raus. Auf der anderen Seite puffert der Edge-Agent
+seine Ereignisse auf der Platte — auch über einen Neustart hinweg — und
+liefert sie als Stapel mit dem **ursprünglichen** Zeitstempel nach: Die
+Kalbung war um 03:12, nicht um 07:40.
+
+**Anbindung an die GCP-Architektur.** Jedes eingehende Ereignis wird optional
+in ein Pub/Sub-Topic gespiegelt (`PUBSUB_TOPIC`), an dem die vorhandenen
+Cloud Functions und die YOLO-Nachanalyse auf der Compute Engine hängen. Der
+Alarmweg zum Landwirt bleibt davon unabhängig: Ein Ausfall von Pub/Sub oder
+FCM blockiert den Ingest nie.
 
 ## Verhaltens-Schicht, kein NVR
 
@@ -125,13 +169,18 @@ Futterwache) setzen – fertig. Die App ist als PWA installierbar (Homescreen).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `app/` | Next.js App Router – Stallblick-Startseite (mobil optimiert) |
-| `components/StallblickApp.tsx` | Hauptscreen: Kamera-Karten, Rollenwechsel, Vollbild, Status, Ereignisse |
+| `app/` | Next.js App Router – die vier PWA-Bereiche (`/`, `/alarme`, `/steuerung`, `/einstellungen`) |
+| `components/StallblickApp.tsx` | Dashboard-Hauptscreen: Kamera-Karten, Rollenwechsel, Vollbild, Datensparen |
 | `components/CameraStream.tsx` | Kamera-Container: WebRTC/HLS (Hauptbild) bzw. Snapshot-Polling (Vorschau) |
+| `components/AlarmListe.tsx` + `AlarmBilder.tsx` | Aktivitätsprotokoll mit Filtern, Bild-Replay und Quittierung |
+| `components/GeraeteSteuerung.tsx` + `Assistent.tsx` | Tuya-Schaltflächen aus dem Gerätemodell; Freitext-/Sprachanfragen |
+| `public/sw.js` + `lib/offline.ts` | Service Worker (Offline-Shell, Push, Background Sync) und der lokale Puffer dazu |
+| `lib/push.ts` + `lib/gcp.ts` | FCM-Versand (HTTP v1) und Service-Account-Auth ohne Zusatzpaket |
+| `lib/pubsub.ts` | Spiegelung jedes Ereignisses in die bestehende GCP-Architektur |
 | `lib/config.ts` | Kamera- & Bridge-Konfiguration (go2rtc/MediaMTX) aus Umgebungsvariablen |
-| `app/wache/` + `app/api/events/` | **KI-Wache**: Alarm-Dashboard & Ingest-API (persistiert automatisch, sobald ein Vercel-KV-Store verknüpft ist) |
+| `app/wache/` + `app/api/events/` | **KI-Wache**: Detailsicht & Ingest-API (persistiert automatisch, sobald ein Vercel-KV-Store verknüpft ist) |
 | `edge-agent/` | Python-Agent (YOLO-Pose + ByteTrack): Kalbe-/Brunsterkennung, Totmann, Feedback-Schleife; `setup.sh` = Ein-Befehl-Einrichtung |
-| `edge-agent/tests/` | Offline-Testsuite (52 Checks, pures Python ohne Installation) |
+| `edge-agent/tests/` | Offline-Testsuite (77 Checks, pures Python ohne Installation) |
 | `bridge/` | go2rtc (Default) + Cloudflare Tunnel; `bridge/termux/` = Android-Weg, `bridge/mediamtx/` = WHEP-Alternative |
 | `docs/` | Vision, Roadmap (SSOT), Wettbewerbsanalyse, Metriken, 4 Feature-Spezifikationen, Orchestrierungs-Handbuch |
 | `.claude/` | 3 Projekt-Agenten + 12 Skills für die autonome Weiterentwicklung |
@@ -160,9 +209,10 @@ Die Kamera-Streams laufen dort ohne Browser-Umwege direkt in der APK
 
 ## Tech-Stack
 
-Next.js 16 (App Router) · React 19 · Tailwind CSS · hls.js · Tuya OpenAPI ·
-go2rtc/MediaMTX · Cloudflare Tunnel · Upstash Redis (optional) · Python
-(OpenCV, Ultralytics)
+Next.js 16 (App Router) · React 19 · Tailwind CSS · hls.js · PWA (eigener
+Service Worker, IndexedDB, Background Sync) · Firebase Cloud Messaging ·
+Google Pub/Sub · Vertex AI / Gemini · Tuya OpenAPI · go2rtc/MediaMTX ·
+Cloudflare Tunnel · Upstash Redis (optional) · Python (OpenCV, Ultralytics)
 
 ---
 

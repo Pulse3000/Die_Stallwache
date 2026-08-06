@@ -82,6 +82,16 @@ dashboard:
   url: https://die-stallwache.vercel.app/api/events
   token: ""        # muss EDGE_INGEST_TOKEN in Vercel entsprechen
 
+  # Alarmbilder an die App mitschicken (Bild-Replay im Aktivitaetsprotokoll).
+  # 0 = nur Text senden, wenn die Uplink-Leitung zu schmal ist.
+  bilder: 3
+
+  # Offline-Puffer: was bei Netzausfall nicht rausging, wird beim naechsten
+  # Kontakt als Stapel nachgeliefert - mit dem urspruenglichen Zeitstempel.
+  # Ueberlebt auch einen Neustart des Agenten.
+  puffer_datei: alarm-puffer.jsonl
+  puffer_max: 200
+
 mqtt:
   # Optionaler stiller Zusatzausgang (z.B. Home Assistant / Node-RED).
   # host leer lassen zum Deaktivieren - Telegram bleibt der primaere Alarmweg.
