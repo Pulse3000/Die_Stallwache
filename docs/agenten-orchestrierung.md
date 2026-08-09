@@ -19,7 +19,7 @@ ein Agent) aufruft. Sie zerfallen in drei Gruppen:
 
 | Gruppe | Skills | Wofür |
 | --- | --- | --- |
-| **Scharfschalten** (einmalig je Baustein) | `stallwache-live-schalten`, `persistenz-live-schalten`, `push-live-schalten`, `tuya-futterwache`, `modell-training` | Einen fertig gebauten, aber schlafenden Baustein in Betrieb nehmen — und den Betrieb **beweisen**, nicht nur konfigurieren |
+| **Scharfschalten** (einmalig je Baustein) | `stallwache-live-schalten`, `persistenz-live-schalten`, `push-live-schalten`, `gcp-anbindung`, `tuya-futterwache`, `modell-training` | Einen fertig gebauten, aber schlafenden Baustein in Betrieb nehmen — und den Betrieb **beweisen**, nicht nur konfigurieren |
 | **Prüfen & Ausliefern** | `stallblick-deploy`, `ki-wache-smoketest`, `pwa-abnahme`, `security-sweep` | Vor und nach jeder Auslieferung |
 | **Betrieb & Störung** | `tuya-diagnose`, `fehlalarm-triage`, `bytetrack-tuning`, `wettbewerbs-check` | Wenn im laufenden Betrieb etwas klemmt oder nachgeschärft wird |
 
@@ -46,6 +46,7 @@ Neue Aufgabe
 ├─ Tunnel-Hostname gemeldet                    → Skill stallwache-live-schalten
 ├─ KV-Store verknüpft                          → Skill persistenz-live-schalten
 ├─ Firebase eingerichtet / Push fehlt          → Skill push-live-schalten
+├─ Pub/Sub, Vertex AI, Dienstkonto             → Skill gcp-anbindung
 ├─ sw.js, Offline-Puffer, Manifest, Tabs       → Skill pwa-abnahme
 ├─ Bridge läuft, Modell fehlt                  → Skill modell-training
 ├─ Analyse-Modus läuft, Fehlalarme kommen      → Skill fehlalarm-triage
