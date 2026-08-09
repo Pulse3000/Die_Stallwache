@@ -164,6 +164,7 @@ wiederkehrende Aufgabe hat einen benannten Zuständigen:
 | Push live schalten | Skill `push-live-schalten` | sobald Firebase eingerichtet ist; Nachtprobe einmalig |
 | GCP anbinden (Pub/Sub, Vertex) | Skill `gcp-anbindung` | sobald das Dienstkonto steht |
 | PWA abnehmen | Skill `pwa-abnahme` | nach Änderungen am Service Worker, Offline-Puffer, Manifest oder den vier Bereichen |
+| Kamera aufnehmen | Skill `neue-kamera` | wenn der Betrieb um eine Kamera wächst |
 | Tuya-Störung eingrenzen | Skill `tuya-diagnose` | bei „sign invalid", „clientId is invalid", schwarzem Livebild |
 
 Regel: Der Hauptagent orchestriert und entscheidet; Subagenten recherchieren

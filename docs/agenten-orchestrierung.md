@@ -21,7 +21,7 @@ ein Agent) aufruft. Sie zerfallen in drei Gruppen:
 | --- | --- | --- |
 | **Scharfschalten** (einmalig je Baustein) | `stallwache-live-schalten`, `persistenz-live-schalten`, `push-live-schalten`, `gcp-anbindung`, `tuya-futterwache`, `modell-training` | Einen fertig gebauten, aber schlafenden Baustein in Betrieb nehmen — und den Betrieb **beweisen**, nicht nur konfigurieren |
 | **Prüfen & Ausliefern** | `betriebs-bereitschaft`, `stallblick-deploy`, `ki-wache-smoketest`, `pwa-abnahme`, `security-sweep` | Vor und nach jeder Auslieferung |
-| **Betrieb & Störung** | `tuya-diagnose`, `fehlalarm-triage`, `bytetrack-tuning`, `wettbewerbs-check` | Wenn im laufenden Betrieb etwas klemmt oder nachgeschärft wird |
+| **Betrieb & Störung** | `tuya-diagnose`, `neue-kamera`, `fehlalarm-triage`, `bytetrack-tuning`, `wettbewerbs-check` | Wenn im laufenden Betrieb etwas klemmt oder nachgeschärft wird |
 
 Die Scharfschalt-Skills teilen ein Muster, das sich bewährt hat: Die App
 **degradiert still**, wenn ein Baustein fehlt (kein Push, keine Persistenz,
@@ -44,6 +44,7 @@ Neue Aufgabe
 ├─ Ereignis-API/Dashboard geändert             → Skill ki-wache-smoketest
 ├─ Tuya-Zugangsdaten liegen vor                → Skill tuya-futterwache
 ├─ Tuya meldet "sign invalid"/"clientId"       → Skill tuya-diagnose
+├─ Kamera dazu / Kamera umbenennen             → Skill neue-kamera
 ├─ Tunnel-Hostname gemeldet                    → Skill stallwache-live-schalten
 ├─ KV-Store verknüpft                          → Skill persistenz-live-schalten
 ├─ Firebase eingerichtet / Push fehlt          → Skill push-live-schalten
