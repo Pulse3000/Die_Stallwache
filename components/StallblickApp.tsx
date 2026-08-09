@@ -231,7 +231,7 @@ export default function StallblickApp() {
                 vollbild && istHaupt
                   ? "fixed inset-0 z-50 flex flex-col bg-black"
                   : `rounded-2xl bg-stall-card ring-1 ring-white/10 ${
-                      istHaupt ? "order-1" : "order-2"
+                      istHaupt ? "order-1" : "order-3"
                     }`
               }
             >
@@ -334,7 +334,7 @@ export default function StallblickApp() {
           aria-label="Status"
           // Zwei Spalten: bei vier Kameras ein sauberes 2x2 auf dem Handy,
           // statt vier gequetschter Namen nebeneinander.
-          className="order-3 grid grid-cols-2 gap-2"
+          className="order-4 grid grid-cols-2 gap-2"
         >
           {CAMERAS.map((cam) => (
             <div
@@ -355,7 +355,7 @@ export default function StallblickApp() {
         </section>
 
         {/* 5 · Schnellaktionen – beziehen sich auf die aktuell grosse Kamera */}
-        <section aria-label="Schnellaktionen" className="order-4">
+        <section aria-label="Schnellaktionen" className="order-5">
           <p className="mb-1.5 text-[10px] uppercase tracking-wider text-white/40">
             Schnellaktionen · {cameraById(hauptkamera).name}
           </p>
@@ -366,7 +366,10 @@ export default function StallblickApp() {
           </div>
         </section>
 
-        {/* Letzte Alarme der KI-Wache – die eigentliche Kernfrage des Dashboards */}
+        {/* Letzte Alarme direkt unter dem Hauptbild: Das Dashboard
+            beantwortet die Frage „muss ich raus?" — die darf nicht erst
+            nach vier Kamerakacheln kommen. Vorschaubilder sind Neugier,
+            Alarme sind Handlungsbedarf. */}
         <LetzteAlarme />
 
         {/* KI-Wache: Erkennungslogik und Systemmeldungen (eigene Seite) */}

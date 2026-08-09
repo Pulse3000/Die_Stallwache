@@ -39,15 +39,25 @@ Prüfprogramm (in dieser Reihenfolge, Abbruch bei Rot):
    plus Alt-Pfad `stallbox`. Ohne Geräte-ID muss die 503-Meldung **die
    konkrete Env-Variable nennen** (`TUYA_DEVICE_ID_ABKALBEBOX` usw.). Der
    Alt-Pfad `/api/stallbox/stream` muss weiterhin antworten — Android-App und
-   Edge-Agenten haben ihn fest konfiguriert.
+   Edge-Agenten haben ihn fest konfiguriert. Er nennt dabei bewusst
+   `TUYA_DEVICE_ID_ABKALBEBOX`, also den **neuen** Namen; das ist keine
+   Abweichung, sondern die Absicht.
 
 5. **Tuya-Allowlist (sicherheitsrelevant):** Mit gesetztem `TUYA_GERAETE` ein
    Gerät ansprechen, das **nicht** darin steht →
    `POST /api/tuya/geraete/<fremde-id>/befehl` muss 404 „nicht freigegeben"
    liefern, niemals einen Tuya-Aufruf auslösen. Fehlender `code` → 400.
 
-6. **PWA-Auslieferung:** `/sw.js` muss 200 mit Content-Type
-   `application/javascript` liefern — **auch mit gesetztem
+   Erfundene Zugangsdaten allein genügen nicht: Mit dem Default-`TUYA_API_BASE`
+   ginge ein *nicht* geblockter Request tatsächlich zu `openapi.tuyaeu.com`
+   raus — langsam, unzuverlässig, und der Beweis wird unscharf. Zusätzlich
+   `TUYA_API_BASE=http://127.0.0.1:9` setzen; dann ist 404 (geblockt) gegen
+   502 (durchgelassen) eine saubere Negativ-/Positivkontrolle.
+
+6. **PWA-Auslieferung:** `/sw.js` muss 200 liefern und der Content-Type muss
+   **mit** `application/javascript` beginnen (ausgeliefert wird
+   `application/javascript; charset=UTF-8` — ein Gleichheitsvergleich meldet
+   hier fälschlich Rot) — **auch mit gesetztem
    `STALLBLICK_PASSWORT`**. Wird der Pfad vom Session-Schutz eingefangen,
    kommt HTML statt JavaScript, der Browser verweigert die Registrierung, und
    die App verliert Offline-Betrieb *und* Push, ohne dass irgendwo ein Fehler
@@ -77,6 +87,11 @@ Prüfprogramm (in dieser Reihenfolge, Abbruch bei Rot):
    - `/api/tuya/geraete` antwortet ohne Tuya-Konfiguration mit 503, was der
      Browser als Konsolenfehler protokolliert. Die Seite zeigt dafür den
      Hinweistext — korrektes Verhalten.
+   - Next-Prefetches (`…?_rsc=… net::ERR_ABORTED`) tauchen auf jeder Seite
+     mit Tab-Leiste als `requestfailed` auf. Das sind abgebrochene
+     Prefetches, kein Fehler.
+   - `/login` hat wie `/offline` bewusst keine Tab-Leiste (`OHNE_LEISTE` in
+     `components/TabLeiste.tsx`).
 
 9. Danach alle gestarteten `next start`-Prozesse beenden. **Nicht** per
    `pkill -f "next start"` — das Muster trifft die eigene Kommandozeile und
