@@ -10,21 +10,31 @@ nachts, das dritte nicht. Es schaut (Live-Kameras), es versteht (KI-Erkennung
 von Kalbung und Brunst) und es meldet sich genau dann — und nur dann — wenn
 Handeln nötig ist.
 
-## Die vier Ebenen
+## Die fünf Ebenen
 
 | Ebene | Modul | Versprechen |
 | --- | --- | --- |
-| **Sehen** | Stallblick (Zwei-Kamera-Übersicht) | In 3 Sekunden wissen, was im Stall los ist |
+| **Sehen** | Stallblick (Vier-Kamera-Übersicht) | In 3 Sekunden wissen, was im Stall los ist |
 | **Verstehen** | Edge-Agent (YOLO-Pose, lokal) | Kalbung & Brunst erkennen, bevor es der Mensch könnte |
-| **Handeln** | Alarme (Telegram + KI-Wache) | Geweckt werden, wenn es zählt — mit Beweisbildern |
+| **Handeln** | Alarme (Telegram + Push + KI-Wache) | Geweckt werden, wenn es zählt — mit Beweisbildern |
+| **Durchhalten** | PWA-Cache, Aktions-Warteschlange, Agent-Puffer | Der Alarm kommt an, **auch wenn das Netz zusammenbricht** |
 | **Verbessern** | Ein-Tipp-Feedback + Nachtraining | Jeder Fehlalarm macht das System schlauer — der Landwirt trainiert sein eigenes Modell, keine Blackbox |
 
-Die vierte Ebene ist der strukturelle Unterschied zu jedem Wettbewerber:
+Die letzte Ebene ist der strukturelle Unterschied zu jedem Wettbewerber:
 SaaS-Systeme trainieren zentral, DIY-Tools haben keinen Feedback-Kanal —
 nur Stallblick besitzt die offene Kette Kamera → Modell → Training beim
-Betrieb selbst. Dazu gehört auch die Ehrlichkeit der Wache über sich selbst:
-Fällt ein Stream aus, meldet sich das dritte Auge („blind"), statt dass
-Schweigen fälschlich „alles ruhig" bedeutet.
+Betrieb selbst.
+
+**Warum „Durchhalten" eine eigene Ebene ist.** Die ersten drei Ebenen
+unterstellen stillschweigend, dass die Kette hält. Sie hält aber am
+schlechtesten genau dann, wenn sie gebraucht wird: nachts, im Stall, wo der
+Empfang des Betriebs am schwächsten ist. Ein System, das nur bei gutem Netz
+warnt, warnt nicht — es warnt *manchmal*, und das ist schlimmer, weil man
+sich darauf verlässt. Deshalb puffert der Agent auf der Platte und liefert
+mit dem **ursprünglichen** Zeitstempel nach (die Kalbung war um 03:12, nicht
+um 07:40), deshalb bleibt die App im Funkloch lesbar und bedienbar, und
+deshalb meldet sich das dritte Auge bei Stream-Ausfall selbst als „blind",
+statt dass Schweigen fälschlich „alles ruhig" bedeutet.
 
 ## Prinzipien (nicht verhandelbar)
 
@@ -38,6 +48,19 @@ Schweigen fälschlich „alles ruhig" bedeutet.
    alten Laptop und eine Kamera hat, kann morgen anfangen.
 5. **Tierwohl ohne Eingriff.** Keine Boli, keine Ohrmarken-Pflicht, keine
    angeklemmten Sensoren — die Kamera sieht, das Tier bleibt unberührt.
+6. **Stille Ausfälle sind der eigentliche Gegner.** Ein System, das nicht
+   funktioniert, aber so aussieht, ist gefährlicher als eines, das sichtbar
+   ausfällt — es ersetzt echte Wachsamkeit durch falsches Vertrauen. Jeder
+   Baustein muss deshalb entweder laut ausfallen oder seinen Zustand zeigen:
+   „offline, letzter Stand von 21:40", „Push nicht eingerichtet", „das dritte
+   Auge ist blind". Und jede Inbetriebnahme endet mit einem **Beweis am
+   echten Gerät**, nicht mit einer gesetzten Variablen — dafür gibt es den
+   Probealarm und die Scharfschalt-Skills.
+7. **Der Alarm gehört dem Landwirt.** Er entscheidet, was ihn nachts weckt:
+   Dringlichkeit nur für die Austreibung, Alarmarten pro Gerät abwählbar,
+   jeder Alarm quittierbar. Nachgelieferte Ereignisse aus einem Funkloch
+   wandern still ins Protokoll statt vierzigmal zu klingeln — Alarmmüdigkeit
+   kostet mehr als eine spät gelesene Meldung.
 
 ## Nordstern-Metriken
 
@@ -47,6 +70,9 @@ Schweigen fälschlich „alles ruhig" bedeutet.
   (Bildserie + Klartext-Nachricht machen den Stallgang oft unnötig).
 - **< 1 Fehlalarm pro Nacht** im eingeschwungenen Zustand (Zeitfilter,
   Eskalationslogik, Negativ-Training).
+- **Die Kette ist jederzeit beweisbar**: Ein Probealarm erreicht den
+  gesperrten Bildschirm — auf Zuruf, nicht erst im Ernstfall. Was sich nicht
+  vorführen lässt, gilt als nicht scharf.
 
 ## Zielbild 12 Monate
 
@@ -63,10 +89,14 @@ Die Software-Seite des Zielbilds ist fertig oder entscheidungsreif — jede
 Idee hat den Zustand „gebaut" oder „implementierungsreif spezifiziert",
 nichts ist halb:
 
-- **Gebaut:** Zwei-Kamera-App mit Login, KI-Wache-Dashboard, Edge-Agent
-  (Silent Mode, Erkennungslogik, Eskalation, Tagesbericht, Wach-Modus,
-  Stream-Totmann-Meldung, Ein-Tipp-Feedback), kuh-getuntes ByteTrack,
-  Termux-Bridge mit Ein-Befehl-Installer, Edge-Setup-Skript,
+- **Gebaut:** installierbare PWA mit vier Bereichen (Dashboard, Alarme,
+  Steuerung, Einstellungen) über vier Kameras, Push-Alarme via FCM mit
+  Bild-Replay und Quittierung, Offline-Betrieb auf beiden Seiten
+  (App-Cache + Aktions-Warteschlange, Agent-Plattenpuffer mit Nachlieferung),
+  Tuya-Gerätesteuerung, Freitext-/Sprachanfragen, KI-Wache-Dashboard,
+  Edge-Agent (Silent Mode, Erkennungslogik, Eskalation, Tagesbericht,
+  Wach-Modus, Stream-Totmann-Meldung, Ein-Tipp-Feedback), kuh-getuntes
+  ByteTrack, Termux-Bridge mit Ein-Befehl-Installer, Edge-Setup-Skript,
   selbstaktivierende Ereignis-Persistenz (KV-Adapter).
 - **Spezifiziert** (je mit Schwellen, Config, Alarmtexten, Abnahmekriterien):
   Festliege-Wächter, Zwei-Kamera-Brunst-Fusion, Kalbe-Akte,
@@ -78,9 +108,13 @@ nichts ist halb:
   wenn die Voraussetzung real ist. Blockierte Ideen werden spezifiziert
   statt halb gebaut.
 
-Der Weg zum scharfen System führt jetzt über drei Schritte des Betriebs:
-Bridge ans Netz (Skill `stallwache-live-schalten`), KV-Store verknüpfen,
-nach 1–2 Wochen Bildern das erste Training (Skill `modell-training`).
+Der Weg zum scharfen System führt über vier Schritte des Betriebs — alle
+vier sind reine Konfiguration, kein Code mehr: Bridge ans Netz (Skill
+`stallwache-live-schalten`), KV-Store verknüpfen (Skill
+`persistenz-live-schalten`), Firebase eintragen und Probealarm bestehen
+(Skill `push-live-schalten`), nach 1–2 Wochen Bildern das erste Training
+(Skill `modell-training`). Solange Schritt 3 fehlt, ist die Nachtwache
+gebaut, aber stumm — sie zeigt Alarme nur dem, der von selbst nachsieht.
 
 ## Nicht-Ziele
 
@@ -126,6 +160,9 @@ wiederkehrende Aufgabe hat einen benannten Zuständigen:
 | Futterwache-Cloud | Skill `tuya-futterwache` | sobald Tuya-Zugangsdaten vorliegen |
 | Stallwache live schalten | Skill `stallwache-live-schalten` | sobald der Tunnel-Hostname gemeldet ist |
 | Persistenz live schalten | Skill `persistenz-live-schalten` | sobald der KV-Store verknüpft ist |
+| Push live schalten | Skill `push-live-schalten` | sobald Firebase eingerichtet ist; Nachtprobe einmalig |
+| PWA abnehmen | Skill `pwa-abnahme` | nach Änderungen am Service Worker, Offline-Puffer, Manifest oder den vier Bereichen |
+| Tuya-Störung eingrenzen | Skill `tuya-diagnose` | bei „sign invalid", „clientId is invalid", schwarzem Livebild |
 
 Regel: Der Hauptagent orchestriert und entscheidet; Subagenten recherchieren
 und prüfen. Produktentscheidungen landen immer in
