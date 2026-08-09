@@ -20,7 +20,7 @@ ein Agent) aufruft. Sie zerfallen in drei Gruppen:
 | Gruppe | Skills | Wofür |
 | --- | --- | --- |
 | **Scharfschalten** (einmalig je Baustein) | `stallwache-live-schalten`, `persistenz-live-schalten`, `push-live-schalten`, `gcp-anbindung`, `tuya-futterwache`, `modell-training` | Einen fertig gebauten, aber schlafenden Baustein in Betrieb nehmen — und den Betrieb **beweisen**, nicht nur konfigurieren |
-| **Prüfen & Ausliefern** | `stallblick-deploy`, `ki-wache-smoketest`, `pwa-abnahme`, `security-sweep` | Vor und nach jeder Auslieferung |
+| **Prüfen & Ausliefern** | `betriebs-bereitschaft`, `stallblick-deploy`, `ki-wache-smoketest`, `pwa-abnahme`, `security-sweep` | Vor und nach jeder Auslieferung |
 | **Betrieb & Störung** | `tuya-diagnose`, `fehlalarm-triage`, `bytetrack-tuning`, `wettbewerbs-check` | Wenn im laufenden Betrieb etwas klemmt oder nachgeschärft wird |
 
 Die Scharfschalt-Skills teilen ein Muster, das sich bewährt hat: Die App
@@ -34,6 +34,7 @@ einer gesetzten Variablen.
 
 ```
 Neue Aufgabe
+├─ "Läuft das System?" / "Was fehlt noch?"      → Skill betriebs-bereitschaft (zuerst!)
 ├─ Marktfrage / "Konkurrenz" / Feature-Wahl   → Agent markt-analyst (+ Skill wettbewerbs-check)
 ├─ Vor Merge / Deploy / nach neuer Route       → Agent qa-waechter
 ├─ Erkennungslogik/Schwellenwerte betroffen    → Agent ki-wache (Treue-Befund vor Merge)
