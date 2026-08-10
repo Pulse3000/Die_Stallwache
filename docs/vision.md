@@ -66,7 +66,7 @@ nichts ist halb:
 - **Gebaut:** Zwei-Kamera-App mit Login, KI-Wache-Dashboard, Edge-Agent
   (Silent Mode, Erkennungslogik, Eskalation, Tagesbericht, Wach-Modus,
   Stream-Totmann-Meldung, Ein-Tipp-Feedback), kuh-getuntes ByteTrack,
-  Termux-Bridge mit Ein-Befehl-Installer, Edge-Setup-Skript,
+  Tuya-Cloud-Anbindung aller Kameras (ohne Gerät im Stall), Edge-Setup-Skript,
   selbstaktivierende Ereignis-Persistenz (KV-Adapter).
 - **Spezifiziert** (je mit Schwellen, Config, Alarmtexten, Abnahmekriterien):
   Festliege-Wächter, Zwei-Kamera-Brunst-Fusion, Kalbe-Akte,
@@ -79,8 +79,9 @@ nichts ist halb:
   statt halb gebaut.
 
 Der Weg zum scharfen System führt jetzt über drei Schritte des Betriebs:
-Bridge ans Netz (Skill `stallwache-live-schalten`), KV-Store verknüpfen,
-nach 1–2 Wochen Bildern das erste Training (Skill `modell-training`).
+Kameras in der Tuya-Cloud verknüpfen und die `TUYA_*`-Variablen setzen (Skill
+`tuya-futterwache`), KV-Store verknüpfen, nach 1–2 Wochen Bildern das erste
+Training (Skill `modell-training`).
 
 ## Nicht-Ziele
 
@@ -118,7 +119,7 @@ wiederkehrende Aufgabe hat einen benannten Zuständigen:
 | Markt beobachten | Agent `markt-analyst` + Skill `wettbewerbs-check` | quartalsweise / auf Zuruf |
 | Qualität sichern | Agent `qa-waechter` + Skill `ki-wache-smoketest` | vor jedem Merge |
 | Erkennungslogik hüten | Agent `ki-wache` | bei jeder Änderung an Schwellenwerten/Logik |
-| Modell trainieren | Skill `modell-training` | sobald die Bridge läuft; danach bei Fehlalarm-Häufung |
+| Modell trainieren | Skill `modell-training` | sobald die Kameras live sind; danach bei Fehlalarm-Häufung |
 | Fehlalarme in Trainingsdaten verwandeln | Skill `fehlalarm-triage` | im Analyse-Modus, wöchentlich |
 | Kuh-Identität stabil halten (Tracking) | Skill `bytetrack-tuning` | nach dem Scharfschalten; bei ID-Flackern oder ausbleibenden Alarmen |
 | Sicherheit härten | Skill `security-sweep` | vor Releases / nach neuen API-Routen |

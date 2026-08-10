@@ -7,11 +7,11 @@ description: Schließt die Tuya-Cloud-Anbindung einer Kamera (Futterwache, Stall
 
 Server- UND Frontend-Seite sind fertig gebaut: `lib/tuya.ts` (signierte
 OpenAPI-Calls, Token-Cache, mehrere Geräte über dasselbe Projekt),
-`GET /api/futterwache/stream` bzw. `GET /api/stallbox/stream` (kurzlebige
-HLS-URL, 503 solange unkonfiguriert) und `components/CameraStream.tsx`
-(Tuya-Pfad mit go2rtc-Fallback, Ablauf-Neuabruf). **Es fehlen nur noch die
-Zugangsdaten** — sobald die `TUYA_*`-Env-Vars in Vercel gesetzt sind, läuft
-die jeweilige Kamera als Hauptbild automatisch über Tuya.
+`GET /api/stallwache/stream`, `/api/futterwache/stream` bzw.
+`/api/stallbox/stream` (kurzlebige HLS-URL, 503 solange unkonfiguriert) und
+`components/CameraStream.tsx` (Tuya-HLS mit Ablauf-Neuabruf). **Es fehlen nur
+noch die Zugangsdaten** — sobald die `TUYA_*`-Env-Vars in Vercel gesetzt sind,
+läuft die jeweilige Kamera als Hauptbild automatisch über Tuya.
 
 ## Voraussetzungen (vom Nutzer)
 
@@ -20,7 +20,8 @@ Aus [iot.tuya.com](https://iot.tuya.com) → Cloud → Projekt:
 2. **TUYA_ACCESS_SECRET** (Access Secret — der `sk-EU…`-Key des Nutzers ist
    vermutlich dieser Wert) — ebenfalls projektweit
 3. Pro Kamera eine eigene Geräte-ID (Projekt → Devices):
-   **TUYA_DEVICE_ID_FUTTERWACHE**, **TUYA_DEVICE_ID_STALLBOX**
+   **TUYA_DEVICE_ID_STALLWACHE**, **TUYA_DEVICE_ID_FUTTERWACHE**,
+   **TUYA_DEVICE_ID_STALLBOX**
 4. Region prüfen: EU-Default `https://openapi.tuyaeu.com` (`TUYA_API_BASE`
    nur bei anderer Region setzen)
 
@@ -40,12 +41,13 @@ Wichtig: In der Tuya-Projekt-Konsole muss die API **"IoT Video Live Stream"**
    liefert die Route die Tuya-Fehlermeldung im Feld `fehler` (Codes oben
    beachten).
 3. Frontend ist **bereits umgesetzt** (`components/CameraStream.tsx`,
-   `camera.tuyaFaehig`/`camera.tuyaEndpoint`): Jede Tuya-fähige Kamera holt als
-   Hauptbild ihre HLS-URL vom eigenen Endpoint, bei fatalem HLS-Fehler eine
-   frische (Tuya-URLs laufen ab), und fällt bei 503 automatisch auf go2rtc
-   zurück. Vorschau bleibt leichtgewichtig (go2rtc-Snapshot oder ruhiger
-   Platzhalter — kein zweiter Dauerstream). Reines go2rtc erzwingen:
-   `NEXT_PUBLIC_FUTTERWACHE_TUYA=0` bzw. `NEXT_PUBLIC_STALLBOX_TUYA=0`.
+   `camera.tuyaEndpoint`): Jede Kamera holt als Hauptbild ihre HLS-URL vom
+   eigenen Endpoint und bei fatalem HLS-Fehler eine frische (Tuya-URLs laufen
+   ab). Einen Bridge-Fallback gibt es seit der Tuya-Umstellung nicht mehr —
+   bei 503 bleibt die Kachel beim Wartehinweis. Die Vorschau zeigt bewusst
+   einen ruhigen Platzhalter (kein zweiter Dauerstream, keine zusätzliche
+   Allokation). Dieselbe Logik in der Android-App: `Der-Stallblick`
+   (`KameraStreamView.kt`).
 4. `stallblick-deploy`-Skill ausführen (Build → Smoke → Deploy → Live-Check).
 
 ## Sicherheitsregeln

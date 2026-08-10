@@ -1,48 +1,56 @@
 ---
 name: stallwache-live-schalten
-description: Go-Live der Stallwache-Hauptkamera, sobald der Betreiber den Cloudflare-Tunnel-Hostnamen der Bridge meldet — Bridge prüfen, NEXT_PUBLIC_BRIDGE_URL in Vercel setzen, Redeploy, Livebild und KI-Wache-Kette end-to-end verifizieren. Nutzen bei "Tunnel läuft", "Hostname ist ...", "Bridge ist online" oder wenn die Stallwache-Kachel dauerhaft den Platzhalter zeigt.
+description: Go-Live der Stallwache-Hauptkamera über die Tuya-Cloud — Gerät prüfen, TUYA_DEVICE_ID_STALLWACHE in Vercel setzen, Redeploy, Livebild und KI-Wache-Kette end-to-end verifizieren. Nutzen bei "Stallwache live schalten", "Device ID ist ...", "Kamera ist verknüpft" oder wenn die Stallwache-Kachel dauerhaft den Platzhalter zeigt.
 ---
 
-# Stallwache live schalten (Bridge → Webapp)
+# Stallwache live schalten (Tuya-Cloud → Webapp)
 
-Der wartende Meilenstein des Projekts: Die Termux-Bridge auf dem Stall-Handy
-(`bridge/termux/install.sh`) liefert go2rtc + Cloudflare-Tunnel; sobald der
-Betreiber den öffentlichen Hostnamen meldet, schaltet diese Prozedur die
-Hauptkamera in der Webapp live — und damit die gesamte Modell-Kette frei
+Der wartende Meilenstein des Projekts: Sobald die Stallwache-Kamera im
+Tuya-Projekt verknüpft ist und der Betreiber ihre Device ID meldet, schaltet
+diese Prozedur die Hauptkamera live — und damit die gesamte Modell-Kette frei
 (Silent Mode → Skill `modell-training`).
+
+> Seit der Tuya-Umstellung gibt es **keine Bridge** mehr (kein go2rtc/MediaMTX,
+> kein Cloudflare-Tunnel, kein Gerät im Stall). Die Legacy-Konfiguration liegt
+> unter `_archiv/` und ist für diesen Ablauf irrelevant.
 
 ## Voraussetzung (vom Betreiber)
 
-Ein Hostname wie `https://stallwache.example.com` (Cloudflare Zero Trust →
-Tunnel → Public Hostname auf `http://localhost:1984`). Nur der Hostname wird
-gebraucht — keine Tokens, keine Passwörter.
+1. Die Kamera hängt im selben Tuya-Cloud-Projekt wie Futterwache/Stallbox
+   (`iot.tuya.com` → Cloud → Projekt → *Link Tuya App Account*).
+2. Die API **„IoT Video Live Stream"** ist im Projekt abonniert.
+3. Die **Device ID** der Stallwache (Projekt → Devices).
 
-## Schritt 1 — Bridge von außen prüfen (vor jeder Änderung)
+Access ID und Secret gelten projektweit und sind bereits gesetzt, wenn
+Futterwache/Stallbox laufen — dann fehlt nur noch die Device ID.
 
-```bash
-# go2rtc-API erreichbar? Stream 'stallwache' registriert?
-curl -s https://HOSTNAME/api/streams | head -c 400
-# Snapshot liefert ein JPEG? (go2rtc-Snapshot-API)
-curl -s -o /dev/null -w "%{http_code} %{content_type}\n" \
-  "https://HOSTNAME/api/frame.jpeg?src=stallwache"
-```
+## Schritt 1 — Gerät prüfen (vor jeder Änderung)
 
-Erwartet: JSON mit `stallwache`-Eintrag bzw. `200 image/jpeg`. Wenn nicht →
-Fehlersuche in `bridge/termux/README.md` (Logs: `logs/go2rtc.log`,
-`logs/cloudflared.log`), NICHT weitermachen.
+Läuft eine der anderen Kameras bereits, ist die Kette grundsätzlich intakt.
+Für die neue Kamera zählt nur: Ist sie im Projekt sichtbar und `online`?
+Serverseitig prüfbar über die Tuya-Konsole (Projekt → Devices) oder nach
+Schritt 2 direkt am Endpoint.
+
+Typische Fehlercodes, falls die Allokation scheitert:
+
+| Code | Bedeutung |
+| --- | --- |
+| `1106` | permission deny — App-Konto nicht mit dem Projekt verknüpft |
+| `28841105` | API „IoT Video Live Stream" nicht abonniert |
 
 ## Schritt 2 — Env-Variable in Vercel setzen
 
-Genau EINE Variable, vom Betreiber benannt bzw. geliefert:
+Genau EINE Variable, vom Betreiber geliefert:
 
 ```bash
-vercel env add NEXT_PUBLIC_BRIDGE_URL production   # Wert: https://HOSTNAME
+vercel env add TUYA_DEVICE_ID_STALLWACHE production   # Wert: die Device ID
 ```
 
-- `NEXT_PUBLIC_BRIDGE_TYPE` NICHT setzen (Default go2rtc stimmt für die
-  Termux-Bridge; nur bei MediaMTX-Setup auf `mediamtx`).
-- Alias `NEXT_PUBLIC_GO2RTC_URL` ist Alt-Name — nicht zusätzlich setzen.
-- `NEXT_PUBLIC_*` wird beim **Build** eingebacken → Schritt 3 ist Pflicht.
+- **Nie** als `NEXT_PUBLIC_*` — die Tuya-Werte bleiben serverseitig.
+- Secret-Store-Schreibzugriff aus der Session ist gesperrt: Der **Betreiber**
+  trägt den Wert ein (Vercel → Settings → Environment Variables → Production).
+- Fehlt die Variable, antwortet `/api/stallwache/stream` bewusst mit **503**
+  und die Kachel bleibt beim Wartehinweis — die anderen Kameras laufen weiter.
 
 ## Schritt 3 — Redeploy auslösen
 
@@ -52,33 +60,35 @@ Leerer Commit auf `main` (Git-Integration deployt automatisch) oder
 ## Schritt 4 — End-to-End verifizieren
 
 1. **Login-Gate:** `/` antwortet 307 → `/login` (Schutz weiter aktiv).
-2. **Livebild:** eingeloggt auf `/` — Stallwache-Kachel zeigt Video statt
-   Platzhalter (WebRTC; HLS-Fallback greift automatisch). Headless-Prüfung:
-   Playwright, `video`-Element mit `readyState >= 2` auf der Hauptkachel.
-3. **Vorschau-Snapshot:** Futterwache/Stallwache-Rollentausch (Kachel-Klick)
-   funktioniert ohne Remount-Ruckler.
-4. **Kette komplett:** Betreiber startet den Edge-Agent
-   (`bash edge-agent/setup.sh`) → Startmeldung „Silent Mode" erscheint unter
-   `/wache` („Edge-Agent … zuletzt HH:MM").
+2. **Endpoint:** eingeloggt `GET /api/stallwache/stream` → `{"url":"/api/futterwache/proxy?url=…","typ":"hls"}`.
+   Bei Fehler steht die Tuya-Meldung im Feld `fehler` (Codes siehe Schritt 1).
+3. **Livebild:** eingeloggt auf `/` — Stallwache-Kachel zeigt Video statt
+   Platzhalter. Headless-Prüfung: Playwright, `video`-Element mit
+   `readyState >= 2` auf der Hauptkachel.
+4. **Rollentausch:** Kachel-Klick tauscht Haupt-/Vorschaurolle ohne
+   Remount-Ruckler. Die Vorschau zeigt bewusst einen ruhigen Platzhalter
+   (kein zweiter Dauerstream, keine zusätzliche Tuya-Allokation).
+5. **Kette komplett:** Betreiber startet den Edge-Agent
+   (`bash edge-agent/setup.sh`, Quelle „1 = Cloud ohne Bridge") → Startmeldung
+   „Silent Mode" erscheint unter `/wache` („Edge-Agent … zuletzt HH:MM").
 
 ## Schritt 5 — Anschlussarbeiten
 
-- `docs/roadmap.md`: Bridge-bezogene Zeilen auf ✅, Meilenstein-Abschnitt
-  aktualisieren.
+- `docs/roadmap.md`: Meilenstein-Abschnitt aktualisieren.
 - Betreiber informieren: Ab jetzt sammelt der Silent Mode Trainingsbilder —
   in 1–2 Wochen weiter mit Skill `modell-training`.
 - Skill `bytetrack-tuning` vormerken (nach dem ersten `best.pt`).
 
 ## Rollback
 
-Kachel schwarz/Fehler nach Go-Live: `NEXT_PUBLIC_BRIDGE_URL` in Vercel
-entfernen + Redeploy → Webapp zeigt wieder den sauberen Platzhalter
+Kachel schwarz/Fehler nach Go-Live: `TUYA_DEVICE_ID_STALLWACHE` in Vercel
+entfernen + Redeploy → Webapp zeigt wieder den sauberen Wartehinweis
 (Fehlerzustand ist schlimmer als Wartezustand). Dann Schritt 1 wiederholen.
 
 ## Rollenverteilung
 
 | Schritt | Wer |
 | --- | --- |
-| Tunnel/Hostname bereitstellen, Handy pflegen | Betreiber |
-| Schritte 1–5 ausführen | Orchestrator (dieser Skill) |
+| Kamera im Tuya-Projekt verknüpfen, Device ID liefern, Env-Var eintragen | Betreiber |
+| Schritte 1, 3–5 ausführen | Orchestrator (dieser Skill) |
 | Smoke der Ereignis-Kette | Skill `ki-wache-smoketest` |

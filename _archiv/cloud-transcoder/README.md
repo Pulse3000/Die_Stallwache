@@ -1,5 +1,9 @@
 # Cloud-Transcoder (kein Gerät im Stall)
 
+> **Legacy – nicht mehr im Einsatz.** Stallblick läuft seit der Umstellung
+> vollständig über die Tuya-Cloud; dieses Verzeichnis liegt nur noch im Archiv.
+> Siehe [`_archiv/README.md`](../README.md).
+
 Bringt den **Tapo TCA72**-Stream ins Web, **ohne einen Rechner vor Ort** zu betreiben –
 der Stream kommt direkt von der Kamera, ein kleiner Cloud-VPS packt ihn nur
 browser-fertig um.
