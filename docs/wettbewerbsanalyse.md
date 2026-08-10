@@ -214,7 +214,7 @@ Branche verkauft Erkennung, niemand verkauft Zustellung.
 
 | Prio | Entscheidung | Begründung / Wettbewerbsbezug |
 | --- | --- | --- |
-| **P1** | **Quittierungs-getriebene Nacht-Eskalation mit lokalem Weckkanal**: Bleibt ein dringender Alarm (Austreibung, Komplikation, Festliegen) N Minuten unquittiert → Push wiederholen, dann zweiter Empfänger, dann **lokaler Weckton per MQTT** (Sirene/Steckdose am Broker im Stall-LAN) | Lely eskaliert inhaltlich, Moocall nach Stadium — **niemand eskaliert, weil niemand reagiert hat**. Die Autodialer-Nachbarkategorie beweist mit ihrem Funk-Summer, dass Landwirte genau für den Kanal zahlen, der bei totem Netz noch funktioniert. Quittierung und MQTT sind gebaut; es fehlt die Kette dazwischen |
+| **P1** | **Quittierungs-getriebene Nacht-Eskalation mit lokalem Weckkanal**: Bleibt ein dringender Alarm (Austreibung, Komplikation, Festliegen) N Minuten unquittiert → Push wiederholen, dann zweiter Empfänger, dann **lokaler Weckton per MQTT** (Funkgong/Summer **im Wohnhaus**, geschaltet über den Broker im Stall-LAN — nicht im Stall, siehe Architektur-Entscheidung) | Lely eskaliert inhaltlich, Moocall nach Stadium — **niemand eskaliert, weil niemand reagiert hat**. Die Autodialer-Nachbarkategorie beweist mit ihrem Funk-Summer, dass Landwirte genau für den Kanal zahlen, der bei totem Netz noch funktioniert. Quittierung und MQTT sind gebaut; es fehlt die Kette dazwischen |
 | **P2** | **Alarmweg-TÜV**: pro Alarm sichtbarer Zustand *gesendet → zugestellt → quittiert*, dazu ein automatischer Probealarm pro Woche zur festen Uhrzeit, der die ganze Kette Agent → Push → Gerät durchläuft | SenseHub ist der Einzige, der Zustellprobleme überhaupt thematisiert (Konnektivitätsbericht). Wer Nachtwache verspricht, muss beweisen, dass Stille „alles ruhig" heißt und nicht „Kette tot". Setzt Vision-Nordstern „die Kette ist jederzeit beweisbar" um; der manuelle Probealarm existiert bereits |
 | **P3** | **Nacht-Ruhefenster + veröffentlichte Alarmqualität**: „weckt" gegen „kann warten" als explizite Klassen, stille Sammlung außerhalb der Dringlichkeit, und die aus der Feedback-Schleife ohnehin anfallende Kennzahl *Fehlalarme pro Nacht* sichtbar in App und `metriken.md` | **Kein Hersteller veröffentlicht Fehlalarme pro Nacht**; CowManagers Snooze ist der einzige Anti-Müdigkeits-Mechanismus am Markt. Die Literatur (2,7 Alarme/Kuh, Falsch-Positiv-Raten bis 50 %, PPV teils 3–4 %) macht „Ruhe vor Fülle" vom Designprinzip zum messbaren Verkaufsargument |
 
@@ -233,10 +233,23 @@ im Stall auslösen. Deshalb:
 - Der lokale Weckkanal läuft über **MQTT im Stall-LAN**, nicht über Tuya:
   Tuya ist cloudgebunden und fällt mit derselben Leitung aus wie alles andere.
   Die Tuya-Steckdose bleibt der Komfortweg für den Normalfall.
+- **Das Weckgerät hängt im Wohnhaus, nicht im Stall.** Diese Korrektur kam aus
+  der Fachprüfung durch den Agenten `ki-wache` und war nicht offensichtlich:
+  Stress im Stadium II hemmt die Oxytocin-Ausschüttung — eine Sirene über der
+  kalbenden Kuh kann die Austreibung verzögern und damit genau das Kalb
+  gefährden, das der Alarm retten soll. Dazu Vision-Prinzip 4 („Tierwohl ohne
+  Eingriff"). Der Autodialer als Vergleichsmaßstab macht es genauso: Sein
+  Funk-Summer hängt in der Wohnung. Steht ausnahmsweise nur ein Gerät im Stall
+  zur Verfügung: **Lampe statt Ton.**
 
 Damit ist die Eskalation der erste Baustein, der **vollständig ohne Internet**
-funktioniert — Kamera, Erkennung, Entscheidung und Weckruf liegen alle im
-Stall. Das ist die konsequente Fortsetzung von Vision-Ebene „Durchhalten".
+funktioniert — Kamera, Erkennung, Entscheidung und Weckruf liegen alle auf dem
+Hof. Das ist die konsequente Fortsetzung von Vision-Ebene „Durchhalten".
+
+Implementierungsreife Ausarbeitung (Stufenzeiten aus dem geburtshilflichen
+Zeitbudget, MQTT-Vertrag mit vier Ausschaltwegen, Neustart-Sicherheit,
+21 Abnahmekriterien, 12 Risiken):
+[`eskalationskette-spezifikation.md`](./eskalationskette-spezifikation.md).
 
 ## 4b. Alleinstellungs-Features (Juli 2026): Was NIEMAND bietet
 
