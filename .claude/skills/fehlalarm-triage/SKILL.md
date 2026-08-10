@@ -20,7 +20,7 @@ Jeden Alarm anhand des Telegram-Albums einordnen:
 | Urteil | Kriterium | Aktion |
 | --- | --- | --- |
 | **Treffer** | Verhalten real (Wehen/Aufsprung/Fruchtblase sichtbar) | nichts — zählt als Erfolg |
-| **Fehlalarm** | Alltag fehlgedeutet (Koten, Fliegen, Spielverhalten, Lichtreflex) | **ein Tipp auf ❌ Fehlalarm** unter dem Alarm — die unannotierte Bildserie landet automatisch in `telegram.fehlalarm_ordner` (Default `aufnahmen/fehlalarme/JJJJ-MM-TT/`) |
+| **Fehlalarm** | Alltag fehlgedeutet (Koten, Fliegen, Spielverhalten, Lichtreflex) | **ein Tipp auf ❌ Fehlalarm** unter dem Alarm — die unannotierte Bildserie landet automatisch in `telegram.fehlalarm_ordner` (Default `aufnahmen/fehlalarme/JJJJ-MM-TT/`), bei `dashboard.archiv: true` zusätzlich als Zweitkopie in Google Cloud Storage (`fehlalarm/JJJJ-MM-TT/`) |
 | **Unklar** | Aus Bildern nicht entscheidbar | keinen Button drücken; Bilder manuell nach `unklar/` sichern — nicht als Negativ trainieren |
 
 Die Buttons sind gebaut (`FeedbackSchleife` in `edge-agent/main.py`,

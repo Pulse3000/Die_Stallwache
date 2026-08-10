@@ -99,6 +99,19 @@ dashboard:
   puffer_datei: alarm-puffer.jsonl
   puffer_max: 200
 
+  # Zweitkopie der Trainingsbilder in Google Cloud Storage.
+  # Silent-Mode-Aufnahmen und per Feedback markierte Fehlalarm-Bilder liegen
+  # sonst NUR auf der Platte des Stallrechners - meist ein ausgemusterter
+  # Laptop ohne Backup. Geht sie kaputt, ist die Sammelarbeit mehrerer Wochen
+  # weg. Mit archiv: true gehen sie zusaetzlich ueber die Webapp nach GCS
+  # (dort GCS_BUCKET + GCP_SERVICE_ACCOUNT_JSON setzen).
+  # Der Upload laeuft in einem Hintergrund-Thread und blockiert die
+  # Analyseschleife nie; die lokale Kopie bleibt immer die massgebliche.
+  archiv: false
+  # Default: url mit /api/events -> /api/datensatz. Nur setzen, wenn das
+  # Archiv woanders liegt als der Ereignis-Ingest.
+  archiv_url: ""
+
 mqtt:
   # Optionaler stiller Zusatzausgang (z.B. Home Assistant / Node-RED).
   # host leer lassen zum Deaktivieren - Telegram bleibt der primaere Alarmweg.

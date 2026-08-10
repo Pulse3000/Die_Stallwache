@@ -69,6 +69,18 @@ Cloud Functions und die YOLO-Nachanalyse auf der Compute Engine hängen. Der
 Alarmweg zum Landwirt bleibt davon unabhängig: Ein Ausfall von Pub/Sub oder
 FCM blockiert den Ingest nie.
 
+**Datensatz-Archiv (Cloud Storage).** Trainingsbilder aus dem Silent Mode und
+die per Feedback markierten Fehlalarm-Bilder liegen sonst ausschließlich auf
+der Platte des Stallrechners — meist ein ausgemusterter Laptop ohne Backup.
+Mit `dashboard.archiv: true` im Agenten und `GCS_BUCKET` in Vercel wandert
+eine Zweitkopie über `POST /api/datensatz` nach Google Cloud Storage. Der
+Agent braucht dafür **keine** GCP-Zugangsdaten — er nutzt seinen ohnehin
+vorhandenen `EDGE_INGEST_TOKEN`, die Schlüssel bleiben in Vercel. Der Upload
+läuft in einem Hintergrund-Thread mit begrenzter Warteschlange: Läuft sie
+voll, werden Bilder verworfen statt gestaut — die 1-FPS-Analyseschleife
+wartet nie auf das Netz. Es verlässt weiterhin **kein Videostream** den Hof,
+nur einzelne komprimierte JPEGs.
+
 ## Verhaltens-Schicht, kein NVR
 
 Frigate, Viseron & Co. erkennen *Objekte* („Kuh im Bild"); Stallblick erkennt
@@ -232,8 +244,9 @@ Die Kamera-Streams laufen dort ohne Browser-Umwege direkt in der APK
 
 Next.js 16 (App Router) · React 19 · Tailwind CSS · hls.js · PWA (eigener
 Service Worker, IndexedDB, Background Sync) · Firebase Cloud Messaging ·
-Google Pub/Sub · Vertex AI / Gemini · Tuya OpenAPI · go2rtc/MediaMTX ·
-Cloudflare Tunnel · Upstash Redis (optional) · Python (OpenCV, Ultralytics)
+Google Pub/Sub · Google Cloud Storage (optional) · Vertex AI / Gemini ·
+Tuya OpenAPI · go2rtc/MediaMTX · Cloudflare Tunnel · Upstash Redis (optional) ·
+Python (OpenCV, Ultralytics)
 
 ---
 
