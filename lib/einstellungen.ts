@@ -11,7 +11,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 import { ALARM_TYPEN, type EreignisTyp } from "@/lib/ereignis-modell";
-import type { CameraId } from "@/lib/config";
+import { CAMERAS, type CameraId } from "@/lib/config";
 
 export interface Einstellungen {
   /** Livebild erst auf Tippen starten statt beim Oeffnen der App. */
@@ -49,9 +49,7 @@ export function ladeEinstellungen(): Einstellungen {
         typeof g.bilderNurAufTippen === "boolean"
           ? g.bilderNurAufTippen
           : STANDARD.bilderNurAufTippen,
-      startKamera: (["stallwache", "futterwache", "stallbox"] as CameraId[]).includes(
-        g.startKamera as CameraId,
-      )
+      startKamera: CAMERAS.some((c) => c.id === g.startKamera)
         ? (g.startKamera as CameraId)
         : STANDARD.startKamera,
       pushTypen: Array.isArray(g.pushTypen)

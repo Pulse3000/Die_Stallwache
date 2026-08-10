@@ -10,12 +10,13 @@ Die App ist eine **installierbare PWA** (Android & iOS, „Zum Home-Bildschirm
 hinzufügen") mit vier Bereichen: **Dashboard** (Livebild + letzte Alarme),
 **Alarme** (Aktivitätsprotokoll mit Bild-Replay), **Steuerung** (Tuya-Geräte
 + Freitext-/Sprachanfragen) und **Einstellungen** (Push, Datensparen,
-Kameras). Kameras: **Stallwache** (Hauptkamera, WebRTC/HLS — wahlweise auch
-über die Tuya-Cloud), **Futterwache**
-(läuft bereits live über die Tuya-Cloud) und **Stallbox** — Rollenwechsel
-ohne Seiten-Neuaufbau, Vollbild, Snapshot. Ein gemeinsames Passwort schützt
-die ganze App (`STALLBLICK_PASSWORT`). Unter **`/wache`** liegt weiterhin die
-Detailsicht auf Erkennungslogik und Systemmeldungen.
+Kameras). Vier Kameras: **Stallwache** (Hauptkamera, WebRTC/HLS — wahlweise
+auch über die Tuya-Cloud) sowie **Futterwache**, **Abkalbebox** und
+**Weidewache** über die Tuya-Cloud — Rollenwechsel ohne Seiten-Neuaufbau,
+Vollbild, Snapshot. Dazu die **Powerwache**, eine Steckdose mit Stromzähler,
+in der Steuerung. Ein gemeinsames Passwort schützt die ganze App
+(`STALLBLICK_PASSWORT`). Unter **`/wache`** liegt weiterhin die Detailsicht
+auf Erkennungslogik und Systemmeldungen.
 
 **Was der Edge-Agent heute kann** (`edge-agent/`, lokal im Stall oder gegen
 die Tuya-Cloud): Silent-Mode-Datensammlung, Kalbeverdacht (45°/30 min/20 %),
@@ -94,7 +95,7 @@ DIY-Marktvergleich: [`docs/wettbewerbsanalyse.md`](docs/wettbewerbsanalyse.md).
 ## Ohne Bridge starten (empfohlener Einstieg)
 
 Kameras, die schon in der **Tuya-Cloud** hängen (Stallwache, Futterwache,
-Stallbox), brauchen keine Bridge — weder fürs Livebild (Webapp:
+Abkalbebox, Weidewache), brauchen keine Bridge — weder fürs Livebild (Webapp:
 `TUYA_*`-Env-Variablen) noch für die KI-Datensammlung:
 
 ```bash
@@ -232,7 +233,7 @@ Die Kamera-Streams laufen dort ohne Browser-Umwege direkt in der APK
   `index.m3u8`), Vorschau per go2rtc-Snapshot-Polling. In der Webapp
   alternativ über die Tuya-Cloud (`/api/stallwache/stream`, siehe „Ohne
   Bridge starten"); die Android-App nutzt bislang nur den Bridge-Weg.
-* **Futterwache/Stallbox** → Tuya-Cloud: wahlweise über die Webapp-Endpoints
+* **Futterwache/Abkalbebox/Weidewache** → Tuya-Cloud: wahlweise über die Webapp-Endpoints
   (`/api/<kamera>/stream`) oder direkt über die Tuya-OpenAPI (HMAC-SHA256 in
   Kotlin portiert); Bridge als Fallback. Der CORS-Proxy der Webapp wird nativ
   nicht benötigt.

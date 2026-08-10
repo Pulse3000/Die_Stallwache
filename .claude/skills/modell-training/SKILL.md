@@ -16,7 +16,7 @@ CVAT kostenlos, offene Datensätze).
    - **Bridge:** `NEXT_PUBLIC_BRIDGE_URL` gesetzt, RTSP-Restream erreichbar
      (go2rtc Port 8554 bzw. MediaMTX), ODER
    - **Cloud-Quelle ohne Bridge** (Kameras in der Tuya-Cloud: Futterwache,
-     Stallbox): in `config.yaml` `stream.app_url` +
+     Abkalbebox): in `config.yaml` `stream.app_url` +
      `stream.quelle_api` (z. B. `/api/futterwache/stream`) +
      `stream.app_passwort` setzen, `stream.url` leer lassen — der Agent
      holt und erneuert die kurzlebige HLS-URL selbst.

@@ -12,7 +12,9 @@
  *   TUYA_ACCESS_SECRET          Access Secret          (ebenda)
  *   TUYA_DEVICE_ID_STALLWACHE   Geraete-ID der Stallwache  (Projekt -> Devices)
  *   TUYA_DEVICE_ID_FUTTERWACHE  Geraete-ID der Futterwache (Projekt -> Devices)
- *   TUYA_DEVICE_ID_STALLBOX     Geraete-ID der Stallbox    (Projekt -> Devices)
+ *   TUYA_DEVICE_ID_ABKALBEBOX   Geraete-ID der Abkalbebox  (frueher "Stallbox";
+ *                               TUYA_DEVICE_ID_STALLBOX gilt weiter als Alias)
+ *   TUYA_DEVICE_ID_WEIDEWACHE   Geraete-ID der Weidewache  (Projekt -> Devices)
  *   TUYA_GERAETE                steuerbare Geraete, siehe `geraeteKatalog()`
  *   TUYA_API_BASE               optional, Default EU: https://openapi.tuyaeu.com
  *
@@ -28,12 +30,38 @@ const BASE = (process.env.TUYA_API_BASE?.trim() || "https://openapi.tuyaeu.com")
 const ACCESS_ID = process.env.TUYA_ACCESS_ID?.trim() || "";
 const ACCESS_SECRET = process.env.TUYA_ACCESS_SECRET?.trim() || "";
 
-export type TuyaKameraId = "stallwache" | "futterwache" | "stallbox";
+export type TuyaKameraId =
+  | "stallwache"
+  | "futterwache"
+  | "abkalbebox"
+  | "weidewache";
 
 const DEVICE_IDS: Record<TuyaKameraId, string> = {
   stallwache: process.env.TUYA_DEVICE_ID_STALLWACHE?.trim() || "",
   futterwache: process.env.TUYA_DEVICE_ID_FUTTERWACHE?.trim() || "",
-  stallbox: process.env.TUYA_DEVICE_ID_STALLBOX?.trim() || "",
+  // Alt-Name als Alias: ein Deployment, das noch TUYA_DEVICE_ID_STALLBOX
+  // gesetzt hat, laeuft nach der Umbenennung ohne Aenderung weiter.
+  abkalbebox:
+    process.env.TUYA_DEVICE_ID_ABKALBEBOX?.trim() ||
+    process.env.TUYA_DEVICE_ID_STALLBOX?.trim() ||
+    "",
+  weidewache: process.env.TUYA_DEVICE_ID_WEIDEWACHE?.trim() || "",
+};
+
+/** Anzeigename je Kamera – fuer Fehlermeldungen und die Geraeteuebersicht. */
+export const KAMERA_NAMEN: Record<TuyaKameraId, string> = {
+  stallwache: "Stallwache",
+  futterwache: "Futterwache",
+  abkalbebox: "Abkalbebox",
+  weidewache: "Weidewache",
+};
+
+/** Name der Env-Variable je Kamera – macht 503-Meldungen konkret. */
+export const KAMERA_ENV: Record<TuyaKameraId, string> = {
+  stallwache: "TUYA_DEVICE_ID_STALLWACHE",
+  futterwache: "TUYA_DEVICE_ID_FUTTERWACHE",
+  abkalbebox: "TUYA_DEVICE_ID_ABKALBEBOX",
+  weidewache: "TUYA_DEVICE_ID_WEIDEWACHE",
 };
 
 export function tuyaKonfiguriert(kamera: TuyaKameraId): boolean {
@@ -121,7 +149,13 @@ export async function holeTuyaStream(
 // Steuerbare Tuya-Geraete (Traenken, Licht, Sensoren)
 // ---------------------------------------------------------------------------
 
-export type GeraeteArt = "traenke" | "licht" | "sensor" | "kamera" | "sonstiges";
+export type GeraeteArt =
+  | "traenke"
+  | "licht"
+  | "steckdose"
+  | "sensor"
+  | "kamera"
+  | "sonstiges";
 
 export interface TuyaGeraet {
   /** Tuya-Geraete-ID. */
@@ -134,6 +168,7 @@ export interface TuyaGeraet {
 const ARTEN: readonly GeraeteArt[] = [
   "traenke",
   "licht",
+  "steckdose",
   "sensor",
   "kamera",
   "sonstiges",
@@ -150,7 +185,7 @@ const ARTEN: readonly GeraeteArt[] = [
  * Format von TUYA_GERAETE (kommagetrennt, Felder mit Doppelpunkt):
  *   <geraete-id>:<Anzeigename>:<art>
  * Beispiel:
- *   TUYA_GERAETE=bf1a..:Tränke Bucht 1:traenke,bf2b..:Stalllicht:licht
+ *   TUYA_GERAETE=bf1a..:Tränke Bucht 1:traenke,bf2b..:Powerwache:steckdose
  * Die Art ist optional (Default "sonstiges") und steuert nur das Symbol.
  */
 export function geraeteKatalog(): TuyaGeraet[] {
@@ -171,14 +206,10 @@ export function geraeteKatalog(): TuyaGeraet[] {
 
   // Die Kameras sind ohnehin schon konfiguriert – ihr Online-Status gehoert
   // mit in die Steuerungsuebersicht, damit der Landwirt einen Ort hat.
-  for (const [kamera, name] of [
-    ["stallwache", "Stallwache"],
-    ["futterwache", "Futterwache"],
-    ["stallbox", "Stallbox"],
-  ] as const) {
+  for (const kamera of Object.keys(DEVICE_IDS) as TuyaKameraId[]) {
     const id = DEVICE_IDS[kamera];
     if (id && !geraete.some((g) => g.id === id)) {
-      geraete.push({ id, name, art: "kamera" });
+      geraete.push({ id, name: KAMERA_NAMEN[kamera], art: "kamera" });
     }
   }
   return geraete;
@@ -209,6 +240,19 @@ export interface Funktion {
   values?: string;
 }
 
+/**
+ * Einheit und Skalierung eines Messwerts, wie das Geraet selbst sie meldet.
+ *
+ * Tuya liefert Messwerte als Ganzzahlen: die Powerwache meldet 2301 fuer
+ * 230,1 V (scale 1) und 125 fuer 12,5 W. Ohne diese Angaben waere jede
+ * Anzeige geraten — und eine falsche Wattzahl ist schlimmer als gar keine.
+ */
+export interface MessSpezifikation {
+  unit?: string;
+  /** Zehnerpotenz: Anzeigewert = Rohwert / 10^scale. */
+  scale?: number;
+}
+
 export interface GeraeteZustand {
   id: string;
   name: string;
@@ -216,8 +260,32 @@ export interface GeraeteZustand {
   online: boolean;
   status: StatusPunkt[];
   funktionen: Funktion[];
+  /** Einheit/Skalierung je Statuscode, aus dem Geraetemodell. */
+  messSpez: Record<string, MessSpezifikation>;
   /** Gesetzt, wenn Tuya fuer dieses Geraet nicht antworten konnte. */
   fehler?: string;
+}
+
+/** Rohantwort des Spezifikations-Endpoints. */
+interface Spezifikation {
+  status?: { code: string; type: string; values?: string }[];
+}
+
+/** Baut die Mess-Spezifikation aus dem Geraetemodell. */
+function messSpezAus(spez: Spezifikation): Record<string, MessSpezifikation> {
+  const karte: Record<string, MessSpezifikation> = {};
+  for (const s of spez.status ?? []) {
+    if (!s.values) continue;
+    try {
+      const v = JSON.parse(s.values) as { unit?: string; scale?: number };
+      if (v.unit !== undefined || v.scale !== undefined) {
+        karte[s.code] = { unit: v.unit, scale: v.scale };
+      }
+    } catch {
+      // Einzelner unlesbarer Eintrag darf die uebrigen nicht kosten.
+    }
+  }
+  return karte;
 }
 
 /**
@@ -234,7 +302,7 @@ export async function holeGeraeteZustand(
   try {
     const token = await holeToken();
     const pfad = `/v1.0/iot-03/devices/${encodeURIComponent(geraet.id)}`;
-    const [info, funktionen] = await Promise.all([
+    const [info, funktionen, spez] = await Promise.all([
       tuyaRequest<{ online: boolean; name?: string; status?: StatusPunkt[] }>(
         "GET",
         pfad,
@@ -248,12 +316,20 @@ export async function holeGeraeteZustand(
         undefined,
         token,
       ).catch(() => ({ functions: [] as Funktion[] })),
+      // Nicht jedes Geraet liefert ein Modell – dann bleibt die Anzeige roh.
+      tuyaRequest<Spezifikation>(
+        "GET",
+        `${pfad}/specification`,
+        undefined,
+        token,
+      ).catch(() => ({}) as Spezifikation),
     ]);
     return {
       ...basis,
       online: Boolean(info.online),
       status: info.status ?? [],
       funktionen: funktionen.functions ?? [],
+      messSpez: messSpezAus(spez),
     };
   } catch (e) {
     return {
@@ -261,6 +337,7 @@ export async function holeGeraeteZustand(
       online: false,
       status: [],
       funktionen: [],
+      messSpez: {},
       fehler: e instanceof Error ? e.message : "Tuya-Anfrage fehlgeschlagen",
     };
   }
