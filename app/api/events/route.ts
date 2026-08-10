@@ -112,8 +112,12 @@ export async function POST(req: NextRequest) {
       if ("id" in r) angenommen++;
       ergebnisse.push(r);
     }
+    // `ok` muss zum Status passen: Ein Stapel, in dem jeder Eintrag
+    // abgelehnt wurde, ist nicht in Ordnung — auch wenn der eigene Agent
+    // nur den Statuscode auswertet, ist alles andere eine Falle fuer
+    // jeden weiteren Client.
     return NextResponse.json(
-      { ok: true, angenommen, ergebnisse },
+      { ok: angenommen > 0, angenommen, ergebnisse },
       { status: angenommen > 0 ? 201 : 400 },
     );
   }

@@ -23,7 +23,7 @@ export interface StallEreignis {
   typ: EreignisTyp;
   /** Tracking-ID der Kuh (z.B. "Kuh #42"), null bei Systemmeldungen. */
   kuhId: string | null;
-  /** Quellkamera: stallwache | futterwache | stallbox */
+  /** Quellkamera: stallwache | futterwache | abkalbebox | weidewache */
   kamera: string;
   nachricht: string;
   /** Modell-Konfidenz 0..1, null bei regelbasierten/System-Ereignissen. */

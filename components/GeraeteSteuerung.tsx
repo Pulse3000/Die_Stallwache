@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { aktion } from "@/lib/offline";
-import type { Funktion, GeraeteArt, GeraeteZustand, StatusPunkt } from "@/lib/tuya";
+import type {
+  Funktion,
+  GeraeteArt,
+  GeraeteZustand,
+  MessSpezifikation,
+  StatusPunkt,
+} from "@/lib/tuya";
 
 /**
  * Steuerung der Tuya-Geraete im Stall (Traenken, Licht, Sensoren, Kameras).
@@ -27,9 +33,10 @@ interface Antwort {
 const ART_SYMBOL: Record<GeraeteArt, string> = {
   traenke: "💧",
   licht: "💡",
+  steckdose: "🔌",
   sensor: "📈",
   kamera: "🎥",
-  sonstiges: "🔌",
+  sonstiges: "⚙️",
 };
 
 export default function GeraeteSteuerung() {
@@ -141,7 +148,11 @@ export default function GeraeteSteuerung() {
                 <p className="mt-2 text-[11px] text-red-300/80">{g.fehler}</p>
               )}
 
-              <Messwerte status={g.status} funktionen={g.funktionen} />
+              <Messwerte
+                status={g.status}
+                funktionen={g.funktionen}
+                messSpez={g.messSpez}
+              />
 
               {g.funktionen.length > 0 && (
                 <div className="mt-2 flex flex-col gap-2">
@@ -164,13 +175,45 @@ export default function GeraeteSteuerung() {
   );
 }
 
-/** Statuspunkte ohne zugehoerigen Schalter — reine Messwerte (Sensoren). */
+/**
+ * Deutsche Beschriftungen fuer die haeufigsten Tuya-Statuscodes.
+ * Unbekannte Codes behalten ihren Originalnamen — lieber technisch als falsch.
+ */
+const MESS_LABEL: Record<string, string> = {
+  cur_power: "Leistung",
+  cur_voltage: "Spannung",
+  cur_current: "Strom",
+  add_ele: "Energie",
+  power_consumption: "Verbrauch",
+  temp_current: "Temperatur",
+  humidity_value: "Luftfeuchte",
+  battery_percentage: "Batterie",
+  countdown_1: "Countdown",
+  relay_status: "Verhalten nach Stromausfall",
+};
+
+/**
+ * Formatiert einen Messwert mit der Skalierung aus dem Geraetemodell.
+ * Die Powerwache meldet 2301 fuer 230,1 V — ohne `scale` waere das Unsinn.
+ */
+function messwert(wert: StatusPunkt["value"], spez?: MessSpezifikation): string {
+  if (typeof wert !== "number" || !spez) return String(wert);
+  const skaliert = spez.scale ? wert / 10 ** spez.scale : wert;
+  const text = skaliert.toLocaleString("de-DE", {
+    maximumFractionDigits: spez.scale ?? 0,
+  });
+  return spez.unit ? `${text} ${spez.unit}` : text;
+}
+
+/** Statuspunkte ohne zugehoerigen Schalter — reine Messwerte (Sensoren, Zaehler). */
 function Messwerte({
   status,
   funktionen,
+  messSpez,
 }: {
   status: StatusPunkt[];
   funktionen: Funktion[];
+  messSpez: GeraeteZustand["messSpez"];
 }) {
   const nurMessung = status.filter((s) => !funktionen.some((f) => f.code === s.code));
   if (nurMessung.length === 0) return null;
@@ -179,10 +222,10 @@ function Messwerte({
       {nurMessung.slice(0, 6).map((s) => (
         <div key={s.code} className="rounded-lg bg-black/20 px-2 py-1.5">
           <dt className="truncate text-[10px] uppercase tracking-wider text-white/35">
-            {s.code}
+            {MESS_LABEL[s.code] ?? s.code}
           </dt>
           <dd className="truncate text-xs font-semibold text-white/80">
-            {String(s.value)}
+            {messwert(s.value, messSpez?.[s.code])}
           </dd>
         </div>
       ))}

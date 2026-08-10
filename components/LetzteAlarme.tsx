@@ -62,10 +62,13 @@ export default function LetzteAlarme() {
   const zaehle = (...typen: EreignisTyp[]) =>
     ereignisse.filter((e) => typen.includes(e.typ)).length;
   const alarme = ereignisse.filter((e) => e.typ !== "info");
-  const dringend = alarme.some((e) => e.typ === "austreibung" && !e.quittiert);
+  // Demo-Daten duerfen nur eskalieren, wenn sie als echt gelten koennten.
+  const istDemo = daten?.quelle === "demo";
+  const dringend =
+    !istDemo && alarme.some((e) => e.typ === "austreibung" && !e.quittiert);
 
   return (
-    <section aria-label="Alarme" className="order-5">
+    <section aria-label="Alarme" className="order-2">
       <div className="mb-1.5 flex items-baseline justify-between">
         <p className="text-[10px] uppercase tracking-wider text-white/40">
           KI-Wache · letzte 24 h
@@ -74,6 +77,18 @@ export default function LetzteAlarme() {
           alle ansehen →
         </Link>
       </div>
+
+      {/* Ohne diese Kennzeichnung liest der Landwirt auf dem Hauptbildschirm
+          „Kalbeverdacht Kuh #42" und haelt es fuer echt — die gefaehrlichste
+          Sorte Fehlinformation, weil sie Wachsamkeit ersetzt statt sie zu
+          wecken. Die Alarmseite weist Demo-Daten laengst aus; das Dashboard,
+          das oefter angesehen wird, tat es nicht. */}
+      {istDemo && (
+        <p className="mb-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-[11px] text-sky-100/90">
+          <span className="font-semibold">Beispieldaten.</span> Der Edge-Agent
+          hat noch nichts gemeldet — diese Alarme sind nicht echt.
+        </p>
+      )}
 
       <div className="grid grid-cols-3 gap-2">
         <Kachel

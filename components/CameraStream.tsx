@@ -39,7 +39,7 @@ const PREVIEW_INITIAL_DELAY = 600;
  *                      ein leichtes HEAD-Status-Polling (kein Videodecode)
  *                      plus ruhiger Platzhalter statt Thumbnail.
  *
- * Quelle Tuya-Cloud (camera.tuyaFaehig, z.B. Futterwache/Stallbox):
+ * Quelle Tuya-Cloud (camera.tuyaFaehig, z.B. Futterwache/Abkalbebox):
  *   Rolle "haupt"    → HLS-URL von camera.tuyaEndpoint; bei 503/Fehler
  *                      automatischer Fallback auf die Bridge. Tuya-URLs
  *                      laufen ab → bei fatalem HLS-Fehler wird eine frische
