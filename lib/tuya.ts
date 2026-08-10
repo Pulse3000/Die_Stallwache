@@ -10,6 +10,7 @@
  * Benoetigte Umgebungsvariablen (Vercel -> Settings -> Environment Variables):
  *   TUYA_ACCESS_ID              Access ID / Client ID  (iot.tuya.com -> Cloud -> Projekt)
  *   TUYA_ACCESS_SECRET          Access Secret          (ebenda)
+ *   TUYA_DEVICE_ID_STALLWACHE   Geraete-ID der Stallwache  (Projekt -> Devices)
  *   TUYA_DEVICE_ID_FUTTERWACHE  Geraete-ID der Futterwache (Projekt -> Devices)
  *   TUYA_DEVICE_ID_STALLBOX     Geraete-ID der Stallbox    (Projekt -> Devices)
  *   TUYA_GERAETE                steuerbare Geraete, siehe `geraeteKatalog()`
@@ -27,9 +28,10 @@ const BASE = (process.env.TUYA_API_BASE?.trim() || "https://openapi.tuyaeu.com")
 const ACCESS_ID = process.env.TUYA_ACCESS_ID?.trim() || "";
 const ACCESS_SECRET = process.env.TUYA_ACCESS_SECRET?.trim() || "";
 
-export type TuyaKameraId = "futterwache" | "stallbox";
+export type TuyaKameraId = "stallwache" | "futterwache" | "stallbox";
 
 const DEVICE_IDS: Record<TuyaKameraId, string> = {
+  stallwache: process.env.TUYA_DEVICE_ID_STALLWACHE?.trim() || "",
   futterwache: process.env.TUYA_DEVICE_ID_FUTTERWACHE?.trim() || "",
   stallbox: process.env.TUYA_DEVICE_ID_STALLBOX?.trim() || "",
 };
@@ -170,6 +172,7 @@ export function geraeteKatalog(): TuyaGeraet[] {
   // Die Kameras sind ohnehin schon konfiguriert – ihr Online-Status gehoert
   // mit in die Steuerungsuebersicht, damit der Landwirt einen Ort hat.
   for (const [kamera, name] of [
+    ["stallwache", "Stallwache"],
     ["futterwache", "Futterwache"],
     ["stallbox", "Stallbox"],
   ] as const) {

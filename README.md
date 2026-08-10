@@ -10,7 +10,8 @@ Die App ist eine **installierbare PWA** (Android & iOS, „Zum Home-Bildschirm
 hinzufügen") mit vier Bereichen: **Dashboard** (Livebild + letzte Alarme),
 **Alarme** (Aktivitätsprotokoll mit Bild-Replay), **Steuerung** (Tuya-Geräte
 + Freitext-/Sprachanfragen) und **Einstellungen** (Push, Datensparen,
-Kameras). Kameras: **Stallwache** (Hauptkamera, WebRTC/HLS), **Futterwache**
+Kameras). Kameras: **Stallwache** (Hauptkamera, WebRTC/HLS — wahlweise auch
+über die Tuya-Cloud), **Futterwache**
 (läuft bereits live über die Tuya-Cloud) und **Stallbox** — Rollenwechsel
 ohne Seiten-Neuaufbau, Vollbild, Snapshot. Ein gemeinsames Passwort schützt
 die ganze App (`STALLBLICK_PASSWORT`). Unter **`/wache`** liegt weiterhin die
@@ -80,9 +81,9 @@ DIY-Marktvergleich: [`docs/wettbewerbsanalyse.md`](docs/wettbewerbsanalyse.md).
 
 ## Ohne Bridge starten (empfohlener Einstieg)
 
-Kameras, die schon in der **Tuya-Cloud** hängen (Futterwache, Stallbox),
-brauchen keine Bridge — weder fürs Livebild (Webapp: `TUYA_*`-Env-Variablen)
-noch für die KI-Datensammlung:
+Kameras, die schon in der **Tuya-Cloud** hängen (Stallwache, Futterwache,
+Stallbox), brauchen keine Bridge — weder fürs Livebild (Webapp:
+`TUYA_*`-Env-Variablen) noch für die KI-Datensammlung:
 
 ```bash
 bash edge-agent/setup.sh     # Quelle "1 = Cloud ohne Bridge" (Default)
@@ -92,6 +93,24 @@ Der Agent meldet sich an der Webapp an, holt die kurzlebige HLS-URL selbst
 und sammelt im Silent Mode Trainingsbilder — der erste Schritt zum eigenen
 Modell (`.claude/skills/modell-training`). Läuft auch auf einem
 Android-Handy per Termux ([`edge-agent/termux/`](edge-agent/termux/)).
+
+### Hauptkamera über Tuya (Kalbeüberwachung ganz ohne Bridge)
+
+Auch die **Stallwache** — die Kamera im Abkalbebereich, auf der die Kalbe- und
+Brunsterkennung läuft — kann direkt aus der Tuya-Cloud kommen. Damit braucht
+ein Betrieb für die vollständige Überwachung überhaupt keine Bridge:
+
+| Variable | Ort | Wert |
+| --- | --- | --- |
+| `TUYA_ACCESS_ID` / `TUYA_ACCESS_SECRET` | Vercel (serverseitig) | aus dem Tuya-Cloud-Projekt |
+| `TUYA_DEVICE_ID_STALLWACHE` | Vercel (serverseitig) | Geräte-ID der Kamera |
+| `NEXT_PUBLIC_STALLWACHE_TUYA` | Vercel | `1` |
+
+Im Edge-Agenten dazu `stream.url` leer lassen und
+`stream.quelle_api: /api/stallwache/stream` setzen — App und Agent sehen dann
+dieselbe Quelle. Tuya ist für die Hauptkamera bewusst **opt-in**: Ohne
+`NEXT_PUBLIC_STALLWACHE_TUYA=1` bleibt es beim bisherigen Bridge-Verhalten.
+Ist zusätzlich eine Bridge konfiguriert, dient sie als automatischer Fallback.
 
 ## Warum (später) eine Bridge?
 
@@ -198,7 +217,9 @@ Die Kamera-Streams laufen dort ohne Browser-Umwege direkt in der APK
 (Media3/ExoPlayer statt hls.js):
 
 * **Stallwache** → Bridge-HLS (go2rtc `api/stream.m3u8` bzw. MediaMTX
-  `index.m3u8`), Vorschau per go2rtc-Snapshot-Polling.
+  `index.m3u8`), Vorschau per go2rtc-Snapshot-Polling. In der Webapp
+  alternativ über die Tuya-Cloud (`/api/stallwache/stream`, siehe „Ohne
+  Bridge starten"); die Android-App nutzt bislang nur den Bridge-Weg.
 * **Futterwache/Stallbox** → Tuya-Cloud: wahlweise über die Webapp-Endpoints
   (`/api/<kamera>/stream`) oder direkt über die Tuya-OpenAPI (HMAC-SHA256 in
   Kotlin portiert); Bridge als Fallback. Der CORS-Proxy der Webapp wird nativ

@@ -64,11 +64,18 @@ export default function StallblickApp() {
   const [liveGestartet, setLiveGestartet] = useState(false);
   const liveAn = !einstellungen.datensparen || liveGestartet || vollbild;
 
-  const [camStates, setCamStates] = useState<Record<CameraId, CameraState>>({
-    stallwache: isConfigured ? "laedt" : "offline",
-    futterwache: isConfigured ? "laedt" : "offline",
-    stallbox: isConfigured ? "laedt" : "offline",
-  });
+  // Eine Kamera startet als "laedt", wenn sie ueberhaupt eine Quelle hat:
+  // Bridge ODER Tuya-Cloud. Ein Hof ohne Bridge, dessen Kameras ueber Tuya
+  // laufen, darf nicht faelschlich mit drei offline-Kacheln begruessen.
+  const [camStates, setCamStates] = useState<Record<CameraId, CameraState>>(
+    () =>
+      Object.fromEntries(
+        CAMERAS.map((c) => [
+          c.id,
+          isConfigured || c.tuyaFaehig ? "laedt" : "offline",
+        ]),
+      ) as Record<CameraId, CameraState>,
+  );
 
   // Ereignisliste laedt nachgelagert – blockiert den ersten Bildaufbau nicht.
   const [ereignisse, setEreignisse] = useState<Ereignis[]>([]);
