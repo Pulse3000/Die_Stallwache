@@ -75,14 +75,21 @@ dafür, dass er es nicht für verkaufsrelevant hält.
 | **Ever.Ag Maternity Warden** | „alarmiert unmittelbar das zuständige Personal" über die Vault-App. Kanal, Eskalation, Quittierung: keine öffentliche Aussage | **30-s-Videoclip** + benanntes Verhalten + Position in der Bucht; Auslöser 3 Anzeichen in 20 min | **Videoverarbeitung explizit lokal** („footage remains onsite"). Ob **Alarme** bei Internetausfall zugestellt werden: keine öffentliche Aussage |
 | **Cattle Care OmniCalf** | **SMS mit Direktlink** zum Videobericht bei dringenden Verstößen; Regelbetrieb ist ein Dashboard-Bericht, kein Weckruf | **Videoclip** des Vorfalls, teilbar (auch als Mitarbeiter-Nachweis) | Analyse **auf Cattle-Care-Servern**; Rohvideo bleibt lokal. Bandbreite/Netzausfall: keine öffentliche Aussage |
 | **Dilepix** | „Alarm in Echtzeit" — Kanal nicht benannt | keine öffentliche Aussage | keine öffentliche Aussage (weder Edge- noch Cloud-Architektur dokumentiert) |
-| **Moocall** | **SMS an bis zu 2 Nummern** + App-Push + E-Mail. **Zweistufig** nach Wehenstadium, nicht nach Reaktion | Kein Bild — reiner Text | **Eigene Roaming-SIM (GSM)**, unabhängig vom Hof-WLAN — die einzige echte Kanal-Redundanz am Markt. Ohne Mobilfunk kein Alarm; Zwischenspeicherung: keine öffentliche Aussage |
+| **Moocall** | **SMS an bis zu 2 Nummern** + App-Push + E-Mail. **Zweistufig** nach Wehenstadium, nicht nach Reaktion. **Kein Empfangsgerät fürs Haus** — jede Zustellung endet auf einem Telefon | Kein Bild — reiner Text | **Eigene Roaming-SIM (GSM)**, unabhängig vom Hof-WLAN — die einzige echte Kanal-Redundanz am Markt. Ohne Mobilfunk kein Alarm; Zwischenspeicherung: keine öffentliche Aussage. Praxisforum landwirt.com: „Die Meldung stimmt fast immer", Kritik betrifft Kosten und Sensorzahl, nicht die Zustellung |
 | **smaXtec** | Push **oder** E-Mail, pro Meldungstyp wählbar; Kalbealarm bis ~15 h vorher | Kein Bild — Temperaturkurve in der App | Bolus puffert 6 Tage intern, Base Station sendet ~alle 30 min. Die App erfasst offline **Dateneingaben**, nicht Alarmzustellung |
 | **SenseHub (Allflex/MSD)** | Feinstes Routing am Markt: E-Mail, SMS **oder** Push pro Alarmtyp; eigene „Distress Alerts" mit **einstellbarer Empfindlichkeit** | Kein Bild (Ohrmarke) | **Einzige explizite Offline-Zusage der Branche**: App 8.3.3 (04/2025) verspricht Alarme „regardless of Internet Connectivity" + Konnektivitätsbericht |
 | **CowManager** | Push + Web; seit 07/2025 auch Kalbe-Benachrichtigungen. **Snooze/Entfernen von Alarmen** — der einzige dokumentierte Anti-Alarmmüdigkeits-Mechanismus am Markt | Kein Bild (Ohrsensor) | App meldet Verbindungsverlust und **wiederholt automatisch**, zeigt gecachte Seiten. Sensor-Router bei Netzausfall: keine öffentliche Aussage |
 | **Nedap CowControl** | Push + priorisierte Tages-„Attention Lists" | Kein Bild | „on-premise reliability + Cloud-Skalierung"; Push bei Internetausfall: keine öffentliche Aussage |
 | **GEA CattleEye** | **Tagesberichte im Dashboard** — Berichtsrhythmus, ausdrücklich kein Nachtwecker | Widgets, kein Clip am Alarm | Cloud-Plattform; keine öffentliche Aussage |
 | **CowCatcherAI / CalvingCatcher** (DIY) | **Telegram-Foto**, genau ein Kanal, keine Stufen. Keine Eskalation, keine Quittierung, **keine App** | Annotiertes **Einzelfoto** | Analyse vollständig lokal — aber die **Zustellung** hängt an Telegram: kein Puffer, keine Nachlieferung, kein Offline-UI |
-| **Stall-Autodialer** (Sensaphone, FarmAlarm, Agralarm, SmartBarn) — Nachbarkategorie ohne KI | **Automatischer Telefonanruf** an mehrere Nummern nacheinander, bis jemand abnimmt, dazu SMS/E-Mail | Kein Bild (Klima-/Strom-/Füllstandsalarme) | **Lokaler Funk-Summer (bis ~450 m), der auch schrillt, wenn das Telefonnetz tot ist** — der Referenzstandard für „wer weckt nachts zuverlässig" |
+| **Der Stallwächter** (iking systems, DE) — Autodialer | GSM-**Sprachanruf** (frei besprechbar, 20 s), 4–16 Alarmlinien, 2–4 Zielnummern (Comfort bis 20). **Ruft die Nummern der Reihe nach an, bis quittiert wird.** Quittierung: Taste am Gerät **oder** Rückruf | Kein Bild — gesprochene Ansage, welche Linie ausgelöst hat | GSM statt Hof-WLAN, optionale LoRa-Module. Kein Funk-Summer im Zubehör dokumentiert; Preise nicht öffentlich |
+| **FarmAlarm IV** (US) — Autodialer | Sprachanruf an **bis zu 8 Personen**, dazu Signalton bzw. optionales Horn am Gebäude | Kein Bild (Temperatur, Strom, Wasserdruck) | **Funk-Summer im Wohnhaus oder Nebengebäude bis ~450 m, der auch alarmiert, wenn der gesamte Telefondienst tot ist** — die wörtliche Vorlage unserer Stufe 3. Eskalationszyklen und Quittierung unbelegt (Handbuch nur als Bild-Scan) |
+| **GSM-Telefonwählgerät Agrar** (Stallklimashop, DE) | 4 Meldelinien, **bis 10 Rufnummern**, Anruf/SMS | Kein Bild | **2,2-Ah-Bleiakku puffert bis 30 h Stromausfall**, IP55. Sirene (110 dB) separat. **656,88 €** — der ehrlichste Preisanker der Kategorie |
+| **ELV GTW-20** (DE, Consumer/Agrar-Grenzfall) | 4 Alarmeingänge, **20 Rufnummern**; 4 Steuerausgänge, davon **1 potentialfreies Relais** — der Standardweg, einen Hausgong anzusteuern | Kein Bild | Nur **2G** — nach GSM-Abschaltung ein Auslaufmodell. **99,95 €** |
+| **Sigloo Geburtsmelder** (Pferd) | Ortsfester **Empfänger im Wohnhaus** (100–1000 m Funk), Empfänger mit eigener SIM ruft **4 Nummern**; **zusätzlich eine Klingel direkt am Empfänger — laut Hersteller „im Schlafzimmer"** | Kein Bild; Auslöser ist ein vernähter Sender (invasiv, für uns Nicht-Ziel) | **Empfänger-Akku 36–48 h**, optional Autobatterie. Die einzige gefundene Geburtsüberwachung mit dediziertem Empfangsgerät im Haus |
+| **Birth Alarm** (NL, Pferd) | Classic: 433-MHz-Sender + Empfänger (100–1000 m). Mobile 2.0: **GSM-Anruf an bis zu 4 Nummern**, kein Empfänger mehr | Kein Bild — Lagesensor am Gurt | Die Classic-Funkstrecke ist der einzige netzunabhängige Weg der Familie; die Mobile-Variante tauscht ihn gegen Mobilfunkabdeckung |
+| **CowCam** (horizont, DE) | **Kein Alarm.** Richtfunk 800 m überträgt **Bild und Ton** auf einen Monitor im Wohnhaus | Live-Bild + **Ton** — der Ton ist hier der eigentliche Weckkanal (Hinhören statt Hinsehen) | Kein Netz nötig, reine Funkstrecke. **579 €** + 249 € je Zusatzkamera |
+| **Kerbl Funk-Stallüberwachung** (DE) | **Kein Alarm.** Kamera → Richtantenne bis 1,2 km → LCD-Monitor im Haus | Live-Bild | Kein Netz nötig. Repräsentiert exakt den Status quo „nächtliches Selber-Gucken" aus §1b |
 
 ### Der eigentliche Befund: Die Branche verkauft Erkennung, nicht Zustellung
 
@@ -131,6 +138,76 @@ Vergleichsmaßstab für den Nacht-Alarm nicht Lely oder Ever.Ag, sondern der
 **Autodialer mit Funk-Summer**: ein Gerät ohne jede KI, das die eine Aufgabe
 erfüllt, an der die KI-Systeme schweigen — jemanden wecken, auch wenn das
 Netz tot ist.
+
+## 1d. Weckkanal-Hardware (Stand August 2026)
+
+Was der Landwirt für Stufe 3 der Eskalationskette
+([`eskalationskette-spezifikation.md`](./eskalationskette-spezifikation.md) §4)
+tatsächlich kaufen müsste. Diese Tabelle existiert, weil unsere Kette als
+einzige Stufe Hardware voraussetzt, die ein Betrieb nicht ohnehin besitzt —
+und weil zwei Eigenschaften darüber entscheiden, ob sie funktioniert:
+**geräteseitige Selbstabschaltung** und **Tonhöhe**.
+
+| Gerät | Ansatz | Eignung als Weckkanal | Kosten |
+| --- | --- | --- | --- |
+| **Shelly Plus Plug S** (Gen2) | WLAN-Zwischenstecker, **nativ MQTT, vollständig lokal ohne Cloud** | **Erfüllt zwei Ausschaltwege in Hardware:** `Switch.Set` kennt `toggle_after`, per MQTT genügt die Nutzlast `on,300` → das Gerät schaltet **selbst** nach 300 s ab, auch wenn der Agent tot ist | **ab 17,79 €** |
+| **Tasmota-Relais** (Sonoff Basic o. ä.) | offene Firmware, MQTT | `PulseTime` schaltet hardwareseitig ab — „switch off happens on the hardware side, ensuring that in case of a connection error, a switch-off is safe" | ~10–15 € |
+| **Heiman HS2WD-E** Zigbee-Sirene | Zigbee2MQTT, 95–105 dB, Blitzlicht, **interner Akku** | geräteseitiges `max_duration` (0–1800 s); läuft bei Stromausfall weiter. Braucht Koordinator (~21 €) | **43,62 €** |
+| **Tuya ZA03 / TS0224** Zigbee-Sirene | Zigbee2MQTT, 32 Klänge | **Praxiswarnung:** ein HA-Nutzer gab die Sirene als Wecker auf — „MIDI-Sounds fragwürdiger Qualität aus den 80ern" und vor allem **kein physischer Stopp-Taster** | ~13–40 € |
+| **Grothe Mistral 300M E** Funkgong | 500 m Freifeld, LED-Blitz, **4× C-Batterien ⇒ überlebt Stromausfall** | Max. **83 dB(A)** — zu leise für sichere Weckung im Tiefschlaf. Potentialfreier Kontakt am Sender: im Händlertext genannt, **im Herstellerdatenblatt nicht bestätigt** | **92,05 €** |
+| **Funkklingel-Set SUPRA Batterie** | 300 m, bis **115 dB**, Sender und Empfänger batteriebetrieben, IP55 | lauteste Billigoption, aber **nur Drucktaster, kein dokumentierter potentialfreier Eingang** → nicht ohne Bastelei per MQTT auslösbar | **49,95 €** |
+| **Vibrationskissen / Bettrüttler** | aus der Gehörlosen-Signaltechnik, Kissen unter dem Kopfkissen | **Löst die soziale Kostenfrage der Stufe 3:** weckt gezielt eine Person, der Rest des Haushalts schläft weiter. Braucht einen geschalteten 230-V-Ausgang (→ Shelly) | **5,99 €** (Pearl) bis 82 € (Bellman Vibio) |
+
+**Der folgenreichste Einzelbefund dieser Runde ist die Tonhöhe.** Bruck et al.
+(Victoria University): Ein **520-Hz-Rechteckton weckt 4- bis 12-mal
+zuverlässiger** als die üblichen 3100-Hz-Piepser; viele Schläfer wachen bei
+3100 Hz **selbst bei 95 dB(A) am Kopfkissen nicht auf**, während 520 Hz bei
+95 dB(A) alle weckte. Praktisch jede billige Sirene und jeder Funkgong
+arbeitet im Hochtonbereich. Ein Weckton, der nicht weckt, ist schlimmer als
+keiner — er erzeugt genau das falsche Vertrauen, gegen das Vision-Prinzip 6
+geschrieben wurde.
+
+### Preisanker: Was kostet es heute, nachts geweckt zu werden?
+
+| Weg | Einmalig | Laufend |
+| --- | --- | --- |
+| **Billigste verifizierte Kombination** (Shelly + Vibrationskissen) | **~24 €** | 0 € |
+| Stallblick-Empfehlung (Shelly + Weckgerät + Taster, ohne USV) | **~66 €** | 0 € |
+| Zigbee mit Akku-Puffer (Heiman + Koordinator) | ~65 € | 0 € |
+| Günstigstes echtes Alarmwählgerät (ELV GTW-20, nur 2G) | 99,95 € | SIM |
+| **Kategorie-Referenz Landwirtschaft** (GSM-Wählgerät Agrar, 30 h Akku) | **656,88 €** | SIM |
+| Status quo „Selber-Gucken" (CowCam) | 579 € | 0 € — **weckt aber niemanden** |
+| Sensor-Referenz (Moocall) | 166 € | **~150–162 €/Jahr** |
+
+**Die Zahl, gegen die wir antreten, ist also nicht 0 €, sondern rund
+100–660 €** — und in der teuersten Variante bekommt der Landwirt nicht einmal
+einen Alarm, sondern nur ein Bild, vor dem er wach sitzen muss. Unsere
+ehrliche Position lautet deshalb **„Software 0 €, Weckhardware ab 24 €,
+laufend 0 €/Kuh/Jahr"** und nicht „0 €, du hast schon alles". Das ist die
+stärkere Aussage, weil sie überprüfbar ist.
+
+### Was die Belege hergeben — und was nicht
+
+**Belegt:** Schlafentzug in der Abkalbesaison ist gemessen, nicht behauptet
+(*Journal of Dairy Science* 02/2025, DOI 10.3168/jds.2024-24969: 35
+Vollzeitkräfte, 10 Betriebe, 90 Tage, Oura-Ring → Ø **6 h 15 min** Schlaf,
+Rückgang um 48 min von Woche 1 auf 13, nächtliche Kontrolle „alle 2–3
+Stunden"). top agrar zum Status quo: „Von nächtlicher Erholung kann dann keine
+Rede mehr sein!" — im selben Artikel über Stallkameras, der **keine einzige
+Alarmfunktion** nennt. Und: iOS Focus/„Nicht stören" schaltet Push von
+Drittanbieter-Apps stumm; nur der System-Wecker und Apples *Critical Alerts*
+brechen durch — genau die Stufe, die Web-Push nicht erreicht (§1c Punkt 5).
+
+**Nicht belegt — und das gehört hierhin:** Es gibt **keinen einzigen
+gefundenen Foren- oder Fachbericht, in dem ein Landwirt sagt, er habe einen
+Kalbealarm verschlafen.** Unsere These ist aus Schlafdaten, Plattformverhalten
+und den Anforderungen der Nachbarkategorie **hergeleitet, nicht empirisch
+belegt**. Ebenfalls offen: Das DLG-Merkblatt 422 ließ sich nicht im Volltext
+prüfen (Bild-PDF); die dort üblicherweise zitierten Zahlen (≥ 2 h Notstrom,
+≤ 60 s bis Auslösung) stammen hier aus der DLG-Landingpage und top agrar. Die
+für uns wichtigste Gegenaussage — Signalgeber gehörten in den Stallbereich —
+ist **am Primärdokument nicht belegt** und darf bis dahin nicht als Beleg
+verwendet werden.
 
 ## 2. Was die Konkurrenz besser macht (und was wir davon übernehmen)
 
@@ -238,9 +315,18 @@ im Stall auslösen. Deshalb:
   Stress im Stadium II hemmt die Oxytocin-Ausschüttung — eine Sirene über der
   kalbenden Kuh kann die Austreibung verzögern und damit genau das Kalb
   gefährden, das der Alarm retten soll. Dazu Vision-Prinzip 4 („Tierwohl ohne
-  Eingriff"). Der Autodialer als Vergleichsmaßstab macht es genauso: Sein
-  Funk-Summer hängt in der Wohnung. Steht ausnahmsweise nur ein Gerät im Stall
-  zur Verfügung: **Lampe statt Ton.**
+  Eingriff"). Steht ausnahmsweise nur ein Gerät im Stall zur Verfügung:
+  **Lampe statt Ton.**
+
+  **Korrektur einer eigenen Aussage (August 2026):** Hier stand zuerst, der
+  Autodialer mache es genauso — sein Funk-Summer hänge in der Wohnung. Das ist
+  nur zur Hälfte richtig. Der *Funk-Summer* hängt im Haus (FarmAlarm, Sigloo
+  mit Klingel „im Schlafzimmer"), die *primäre* Hupe der Kategorie hängt am
+  Stall und wird laut Fachliteratur mit ≥ 100 dB(A) so dimensioniert, dass sie
+  **vom Wohnhaus aus** hörbar ist. Unsere Entscheidung „nur Haus" bleibt
+  richtig, ist aber eine **bewusste Verschärfung aus dem Oxytocin-Argument** —
+  keine Kopie der Kategorie. Als „so machen es die anderen auch" verkauft, wäre
+  sie angreifbar.
 
 Damit ist die Eskalation der erste Baustein, der **vollständig ohne Internet**
 funktioniert — Kamera, Erkennung, Entscheidung und Weckruf liegen alle auf dem
@@ -248,8 +334,21 @@ Hof. Das ist die konsequente Fortsetzung von Vision-Ebene „Durchhalten".
 
 Implementierungsreife Ausarbeitung (Stufenzeiten aus dem geburtshilflichen
 Zeitbudget, MQTT-Vertrag mit vier Ausschaltwegen, Neustart-Sicherheit,
-21 Abnahmekriterien, 12 Risiken):
+21 Abnahmekriterien, 13 Risiken):
 [`eskalationskette-spezifikation.md`](./eskalationskette-spezifikation.md).
+
+### Entscheidungen aus der Weckkanal-Analyse (August 2026, 2. Runde)
+
+Aus Abschnitt 1d abgeleitet. Die erste Runde hat die Kette entworfen, diese
+prüft, ob die Hardware am Ende der Kette überhaupt weckt.
+
+| Prio | Entscheidung | Begründung / Wettbewerbsbezug |
+| --- | --- | --- |
+| **P1** | **Weckgerät verbindlich festlegen und als Einkaufsliste in die README schreiben:** Shelly Plus Plug S (ab 17,79 €) + **tieffrequentes** Weckgerät oder Vibrationskissen (6–30 €), geschaltet per MQTT-Nutzlast `on,300` | Zwei Probleme, eine Entscheidung. Erstens erledigt `toggle_after` den geräteseitigen Totmann (Spec §4.3 Weg 3, „der einzige Mechanismus, der ohne lebenden Agenten funktioniert") **für 18 € in Hardware statt in Code**. Zweitens weckt ein 3100-Hz-Piepser laut Bruck et al. viele Menschen selbst bei 95 dB(A) am Kopfkissen nicht — 520 Hz ist 4–12× wirksamer. Ohne diese Festlegung ist Stufe 3 ein Versprechen an Hardware, die vielleicht nicht weckt |
+| **P1** | **Lokaler Quittierungs-Taster wird Pflichtteil der Einkaufsliste, nicht Option** (Shelly Button / Zigbee-Taster ~15–20 €, publiziert auf `…/weckruf/quittung`) | Die Spec nennt ihn bereits „nicht optional" — die Praxis liefert jetzt den Beleg: Ein Home-Assistant-Nutzer gab die Sirene-als-Wecker-Lösung auf, weil **kein physischer Stopp-Taster** existierte. Die Fachliteratur der Nachbarkategorie geht weiter und lässt die endgültige Quittierung **nur vor Ort am Gerät** zu, damit niemand den Alarm wegdrückt und das Problem vergisst. Ein Weckton, den man nur per App stoppen kann, wird beim ersten Fehlalarm abgeklemmt |
+| **P2** | **Weckton auf +10 min vorziehen, wenn kein zweiter Empfänger konfiguriert ist** (`zweiter_empfaenger.telegram_chat_id` leer) — analog zur bereits beschlossenen `uplink_tot_verkuerzung` | Stufe 1 (+5 min) wiederholt Push und Telegram, also **genau den Kanal, den iOS Focus nachts stummschaltet**. Hat Stufe 0 nicht geweckt, weil das Betriebssystem stumm geschaltet hat, weckt Stufe 1 aus demselben Grund auch nicht — wir verbrennen 10 Minuten in einem systematisch tauben Kanal. Derselbe Denkfehler wie beim toten Uplink, nur mit intakter Leitung und stummem Endgerät. Zum Vergleich: **die gesamte Autodialer-Kategorie lässt den lokalen Signalgeber binnen 60 Sekunden losgehen**, nicht nach 15 Minuten. Mit Zweitempfänger bleibt es bei 15 min — ein zweiter wacher Mensch ist die bessere Redundanz als ein Krachmacher |
+| **P2** | **Notstrom als benannte Lücke: USV (~40 €) an Rechner, Router und Broker in die README, und die Lücke bis dahin offen aussprechen** | Die Kategorie fordert einhellig Notstrom (DLG/top agrar ≥ 2 h; das kommerzielle Agrar-Wählgerät liefert 30 h, der Sigloo-Empfänger 36–48 h). Unsere Kette hat **null** — bei Stromausfall ist sie tot, und der Totmann-Wächter kann es nicht melden, weil der Uplink mit ausfällt. Genau der stille Ausfall aus Vision-Prinzip 6, nur auf der Stromebene |
+| **P3** | **Preisaussage korrigieren: „Software 0 €, Weckhardware ab 24 €, laufend 0 €/Kuh/Jahr"** statt „0 €, du hast schon alles" | Der Weckkanal ist die einzige Stufe, für die der Landwirt Hardware kaufen muss, die er nicht hat. Der Vergleich gewinnt trotzdem haushoch (99,95 € bis 656,88 € in der Kategorie, 579 € für eine Kamera, die niemanden weckt) — aber nur, wenn wir die Zahl selbst nennen, statt sie den Betrieb beim Aufbau entdecken zu lassen |
 
 ## 4b. Alleinstellungs-Features (Juli 2026): Was NIEMAND bietet
 

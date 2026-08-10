@@ -90,6 +90,10 @@ sie sind das Budget.
 | `kalbeverdacht` (nur `wach_modus`) | 20 min | — | nein | 0 |
 | `brunstverdacht`, `info` | — | — | nie | — |
 
+Zwei Verkürzungen greifen in diese Zeiten ein: **toter Uplink** (§2.4, Weckton
+bei +8) und **kein zweiter Empfänger** (§2.5, Weckton bei +10). Beide ziehen
+nur vor, nie hinaus.
+
 ### 2.4 Leitungsbewusste Verkürzung (`uplink_tot_verkuerzung: true`)
 
 Der ehrliche Schwachpunkt der Kette: **Stufe 1 und 2 laufen über dieselbe
@@ -105,6 +109,30 @@ gescheitert (Telegram *und* Dashboard), gilt der Uplink als tot → Stufe 2 wird
 Das ist die einzige Stelle, an der die Architektur-Entscheidung **erweitert**
 wird: „Fehlerfall führt zum Wecken" ist richtig, aber daraus folgt nicht, dass
 man erst 15 Minuten lang in eine tote Leitung ruft.
+
+### 2.5 Verkürzung ohne zweiten Empfänger (`kein_zweiter_empfaenger_verkuerzung`)
+
+Derselbe Denkfehler noch einmal, nur mit **intakter** Leitung und stummem
+Endgerät: iOS Focus und „Nicht stören" schalten Push von Drittanbieter-Apps
+nachts stumm — nur der System-Wecker und Apples *Critical Alerts* brechen
+durch, und Web-Push erreicht diese Stufe nicht. Hat Stufe 0 nicht geweckt,
+**weil das Betriebssystem sie stummgeschaltet hat**, dann weckt Stufe 1 aus
+demselben Grund auch nicht.
+
+Regel: Ist `zweiter_empfaenger.telegram_chat_id` leer, entfällt Stufe 2
+ohnehin — dann rückt der Weckton von +15 auf **+10 min**. Ist ein zweiter
+Empfänger konfiguriert, bleibt es bei 15 min: Ein zweiter wacher Mensch ist
+die bessere Redundanz als ein Krachmacher.
+
+Zum Maßstab: Die gesamte Autodialer-Nachbarkategorie lässt ihren lokalen
+Signalgeber **binnen 60 Sekunden** losgehen, parallel zu den Anrufen — nicht
+nach 15 Minuten. Unsere Stufe 3 liegt um mehr als den Faktor 10 später. Das
+ist verteidigbar, aber nur mit zwei Argumenten, die man mitsagen muss:
+Deren Auslöser ist deterministisch (ein Kontakt öffnet), unserer ist
+probabilistisch mit Fehlalarmrate; und deren Hupe hängt draußen und kostet
+sozial nichts, unsere weckt ein Schlafzimmer. Als „vom Autodialer abgeschaut"
+verkauft wäre unsere Zeitachse schlicht falsch — die Kategorie würde bei +0
+läuten.
 
 ## 3. Abfragelogik der Quittierung
 
@@ -178,7 +206,11 @@ steckt bereits im `StallEreignis`. Kostet ~5 kB pro Abfrage statt 150 Byte; der
 3. **Lokaler Taster** — MQTT-Topic `…/weckruf/quittung` (§4). **Der einzige
    Weg, der bei totem Internet funktioniert** — und damit der einzige, der den
    Weckton stoppen kann, wenn der Weckton der einzige funktionierende Kanal
-   ist. Nicht optional.
+   ist. Nicht optional, und seit der Hardware-Recherche auch Pflichtteil der
+   Einkaufsliste: Ein Home-Assistant-Nutzer gab die Sirene-als-Wecker-Lösung
+   auf, **weil kein physischer Stopp-Taster existierte**. Ein Weckton, den man
+   nur per App stoppen kann, wird beim ersten Fehlalarm abgeklemmt — und
+   danach weckt gar nichts mehr.
 
 Eine Quittierung über Weg 2 oder 3 stoppt die Kette lokal, lässt aber den
 Dashboard-Eintrag offen (der Agent kann `quittieren` nicht aufrufen — der
@@ -218,6 +250,14 @@ damit `EskalationsKette` rein entscheidend und offline testbar bleibt.
 > **Wo das Weckgerät hängt: im Haus.** Nicht im Stall, nicht über der
 > Abkalbebox — Begründung in Risiko 2. Diese Festlegung ist Teil des Vertrags,
 > nicht Geschmackssache.
+>
+> **Und welches Gerät:** eines mit **tiefem Ton (~520 Hz) oder ein
+> Vibrationskissen**, geschaltet über einen MQTT-Zwischenstecker mit
+> geräteseitiger Abschaltzeit. Begründung und Einkaufsliste in
+> [`wettbewerbsanalyse.md`](./wettbewerbsanalyse.md) §1d — die Kurzfassung:
+> Ein 3100-Hz-Piepser weckt viele Menschen selbst bei 95 dB(A) am Kopfkissen
+> nicht, ein 520-Hz-Ton ist 4- bis 12-mal wirksamer. Praktisch jede billige
+> Sirene liegt im Hochtonbereich.
 
 ### 4.1 Topics
 
@@ -256,11 +296,16 @@ nicht). `weckruf.json: false` schaltet auf die reinen Nutzlasten
    einer Tick-Periode (≤ 30 s; bei Telegram/Taster ≤ 10 s).
 2. **Selbstabschaltung** nach `max_dauer_s` (Default **300 s**) — hart im
    Agenten, unabhängig von jeder Quittierung.
-3. **Geräteseitiger Totmann (empfohlen):** Der Agent sendet alle
-   `wiederholung_s` (20 s) ein Auffrisch-„an"; die Automation am Gerät schaltet
-   ab, wenn 60 s kein Auffrischen kommt. Damit verstummt der Ton **auch dann,
-   wenn der Agent-Rechner ausfällt** — der einzige Mechanismus, der ohne
-   lebenden Agenten funktioniert.
+3. **Geräteseitiger Totmann (Pflicht, nicht „empfohlen"):** Der Ton muss auch
+   dann verstummen, wenn der Agent-Rechner ausfällt — der einzige Mechanismus,
+   der ohne lebenden Agenten funktioniert. Die gute Nachricht aus der
+   Hardware-Recherche (§1d der Wettbewerbsanalyse): Das ist **keine
+   Automations-Bastelei, sondern eine Geräteeigenschaft für 18 €.** Ein Shelly
+   Gen2 kennt `toggle_after` — die MQTT-Nutzlast `on,300` schaltet nach 300 s
+   selbsttätig ab; Tasmotas `PulseTime` tut dasselbe ausdrücklich
+   hardwareseitig, „ensuring that in case of a connection error, a switch-off
+   is safe". Fallback für Geräte ohne diese Eigenschaft: Auffrisch-„an" alle
+   `wiederholung_s` (20 s), Automation schaltet nach 60 s ohne Auffrischen ab.
 4. **Last Will (LWT):**
    `will_set("<basis_topic>/weckruf/set", '{"zustand":"aus","grund":"agent_weg"}', qos=1, retain=False)`
    plus retained LWT auf `…/status`. Stirbt die MQTT-Verbindung, schaltet der
@@ -303,6 +348,12 @@ eskalation:
   uplink_tot_verkuerzung: true     # beide Kanaele tot -> Stufe 2 ueberspringen,
                                    #   Weckton vorziehen (nicht in eine tote
                                    #   Leitung rufen, waehrend das Kalb wartet)
+  kein_zweiter_empfaenger_verkuerzung: true
+                                   # kein zweiter Empfaenger konfiguriert ->
+                                   #   Weckton bei +10 statt +15 min. Stufe 1
+                                   #   wiederholt denselben Kanal, den iOS
+                                   #   nachts stummschaltet - hat Stufe 0 nicht
+                                   #   geweckt, weckt Stufe 1 auch nicht.
 
   # --- Neustart-Sicherheit ---
   zustand_datei: eskalation-zustand.json
@@ -449,34 +500,37 @@ Ergänzend ohne Simulationsbeleg, aber gleich verbindlich:
 11. **Kalbeverdacht** eskaliert nur bei `wach_modus: true` und nie mit Weckton.
 12. **Neue Episode nach Aufgabe:** derselbe Kuh/Typ 2 h später → neue
     `eskalations_id` → eskaliert wieder.
+13. **Verkürzung ohne zweiten Empfänger:** leere
+    `zweiter_empfaenger.telegram_chat_id` → Weckton bei +10 statt +15 min;
+    gesetzter Zweitempfänger → unverändert +15 min.
 
 ### 7.2 Integrationstest gegen die echte App (einmalig bei Inbetriebnahme)
 
-13. Alarm senden → ID aus der Antwort lesen → Abfrage liefert `null` → in der
+14. Alarm senden → ID aus der Antwort lesen → Abfrage liefert `null` → in der
     App quittieren → nächste Abfrage liefert Zeitstempel → Kette schließt.
     **Gemessen:** Zeit vom Tippen bis zum Kettenabbruch ≤ 35 s.
-14. Falscher Token → 401 → gilt als unquittiert; fehlende Ingest-Env → 503 →
+15. Falscher Token → 401 → gilt als unquittiert; fehlende Ingest-Env → 503 →
     dito.
-15. Quittierung aus der **Push-Benachrichtigung** (nicht aus der geöffneten
+16. Quittierung aus der **Push-Benachrichtigung** (nicht aus der geöffneten
     App) wirkt genauso.
-16. **Offline-Warteschlange:** im Flugmodus quittieren, danach online → die
+17. **Offline-Warteschlange:** im Flugmodus quittieren, danach online → die
     Warteschlange spielt nach, der Agent erkennt es. Erwartetes und zu
     dokumentierendes Ergebnis: Hat der Ton in der Zwischenzeit ausgelöst, war
     das korrektes Verhalten.
 
 ### 7.3 Weckkanal-Abnahme (Praxis, Pflicht vor dem Scharfschalten)
 
-17. **Hörprobe im Schlafzimmer bei geschlossener Tür.** Gemessen: Sekunden vom
+18. **Hörprobe im Schlafzimmer bei geschlossener Tür.** Gemessen: Sekunden vom
     MQTT-Kommando bis zum hörbaren Ton (Ziel < 3 s).
-18. **Alle vier Ausschaltwege einzeln geprüft:** Quittierung, `max_dauer_s`,
+19. **Alle vier Ausschaltwege einzeln geprüft:** Quittierung, `max_dauer_s`,
     geräteseitiger Totmann (Agent hart beenden → Ton verstummt binnen 60 s),
     LWT (Netzwerkkabel ziehen → Broker schaltet ab).
-19. **Broker-Neustart während laufendem Ton** → der Ton startet **nicht** von
+20. **Broker-Neustart während laufendem Ton** → der Ton startet **nicht** von
     selbst neu (Retain-Prüfung).
-20. **Trockenübung `--eskalations-probe`:** ganze Kette mit 10-fach gestauchten
+21. **Trockenübung `--eskalations-probe`:** ganze Kette mit 10-fach gestauchten
     Zeiten inklusive 3 s Ton. Gehört in die wöchentliche
     Alarmweg-TÜV-Routine (P2).
-21. **Nacht-Nullprobe:** 7 Nächte im Normalbetrieb mit sofortiger Quittierung →
+22. **Nacht-Nullprobe:** 7 Nächte im Normalbetrieb mit sofortiger Quittierung →
     **0 Wecktöne**. Erst danach gilt die Kette als eingeschwungen.
 
 ## 8. Risiken und Fehlerfälle
@@ -530,6 +584,31 @@ Ergänzend ohne Simulationsbeleg, aber gleich verbindlich:
     bei einer späteren Verlängerung der Profile zu prüfen.
 12. **Feedback-Buttons und `getUpdates`:** Der Telegram-Quittierungsweg erbt
     die bestehende Einschränkung — der Bot darf keinen Webhook betreiben.
+13. **Stromausfall legt die ganze Kette still — und niemand erfährt es.**
+    Rechner, Router, Broker und Weckgerät hängen am selben Netz; fällt es aus,
+    ist die Kette tot, und der Totmann-Wächter kann es nicht melden, weil der
+    Uplink mit ausfällt. Genau der stille Ausfall aus Vision-Prinzip 6, nur
+    eine Ebene tiefer. Die Nachbarkategorie hat das gelöst und wir nicht: Die
+    Fachliteratur fordert ≥ 2 h Notstrom, das kommerzielle Agrar-Wählgerät
+    liefert 30 h, der Sigloo-Empfänger 36–48 h. Gegenmittel und zugleich
+    Roadmap-P2: eine USV (~40 €) an Rechner, Router und Broker; ein
+    batteriebetriebener Funkgong oder eine akkugepufferte Zigbee-Sirene deckt
+    die Geräteseite ab. **Bis dahin gehört die Lücke ausgesprochen** — in die
+    README und in den Tagesbericht —, statt sie in der Nacht auffliegen zu
+    lassen, für die wir werben.
+
+### Was an dieser Spezifikation nicht belegt ist
+
+Die Kette beruht auf der These, dass Landwirte nächtliche Alarme verschlafen
+und App-Push allein nicht ausreicht. Die Recherche fand dafür **keinen
+einzigen dokumentierten Fall** — kein Forenbeitrag, kein Fachartikel, in dem
+ein Landwirt sagt, er habe einen Kalbealarm verschlafen. Was es gibt, sind
+gemessene Schlafdaten (Ø 6 h 15 min in der Abkalbesaison, Kontrolle „alle 2–3
+Stunden"), das dokumentierte Stummschalt-Verhalten von iOS Focus, und die
+Tatsache, dass die gesamte Nachbarkategorie einen netzunabhängigen Weckkanal
+für nötig hält. Das ist eine **plausible Herleitung, kein Beweis** — und die
+Nacht-Nullprobe (§7.3 Punkt 22) ist deshalb nicht nur eine Abnahme, sondern
+der erste eigene Datenpunkt.
 
 ## 9. Bewertung der Architektur-Entscheidung und Ausrollreihenfolge
 
@@ -569,4 +648,4 @@ Daraus die verbindliche Reihenfolge:
 | `edge-agent/tests/test_eskalation.py` | Testtabelle aus §7.1 |
 | `app/api/events/quittierungen/route.ts` | neuer Abfrage-Endpunkt (§3.2) |
 | `middleware.ts` | Ausnahme für den neuen Endpunkt (Token statt Session) |
-| `README.md` | „Netzausfall löst den Weckton aus" und „Weckgerät gehört ins Haus" |
+| `README.md` | „Netzausfall löst den Weckton aus", „Weckgerät gehört ins Haus", die Einkaufsliste aus [`wettbewerbsanalyse.md`](./wettbewerbsanalyse.md) §1d (Zwischenstecker + tieffrequentes Weckgerät + Taster, ~66 €) und die offene Notstrom-Lücke (Risiko 13) |

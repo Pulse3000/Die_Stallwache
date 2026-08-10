@@ -40,6 +40,12 @@ statt dass Schweigen fälschlich „alles ruhig" bedeutet.
 
 1. **0 € pro Kuh und Jahr.** Vorhandene Kameras, ausgemusterte Rechner,
    kostenlose Trainings-Infrastruktur (Colab, CVAT, offene Datensätze).
+   Ehrlich dazugesagt: Der lokale Weckkanal (Prinzip 8) ist die **einzige**
+   Stufe, für die ein Betrieb Hardware kaufen muss, die er nicht hat — rund
+   **24–66 € einmalig**, gegen 100–660 € in der Nachbarkategorie. Die Aussage
+   lautet deshalb „Software 0 €, Weckhardware ab 24 €, laufend 0 €/Kuh/Jahr"
+   und nicht „0 €, du hast schon alles". Die Zahl selbst zu nennen ist
+   stärker, als sie den Betrieb beim Aufbau entdecken zu lassen.
 2. **Edge-First.** Video verlässt den Hof nicht; nur Ereignisse gehen ins Netz.
    Datenhoheit ist Feature, nicht Fußnote.
 3. **Ruhe vor Fülle.** Jeder Alarm muss eine Handlung auslösen können; alles
