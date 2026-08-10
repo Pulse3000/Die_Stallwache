@@ -7,10 +7,11 @@ auszugeben und ohne einen Sensor im Pansen.* (Vision, Prinzipien und
 Zielbild: [`docs/vision.md`](docs/vision.md).)
 
 Die App ist eine **installierbare PWA** (Android & iOS, „Zum Home-Bildschirm
-hinzufügen") mit vier Bereichen: **Dashboard** (Livebild + letzte Alarme),
+hinzufügen") mit fünf Bereichen: **Dashboard** (Livebild + letzte Alarme),
 **Alarme** (Aktivitätsprotokoll mit Bild-Replay), **Steuerung** (Tuya-Geräte
-+ Freitext-/Sprachanfragen) und **Einstellungen** (Push, Datensparen,
-Kameras). Vier Kameras: **Stallwache** (Hauptkamera, WebRTC/HLS — wahlweise
++ Freitext-/Sprachanfragen), **Analytik** (Verlauf, Tagesgang, Brunstrhythmus)
+und **Einstellungen** (Push, Datensparen, Kameras). Vier Kameras:
+**Stallwache** (Hauptkamera, WebRTC/HLS — wahlweise
 auch über die Tuya-Cloud) sowie **Futterwache**, **Abkalbebox** und
 **Weidewache** über die Tuya-Cloud — Rollenwechsel ohne Seiten-Neuaufbau,
 Vollbild, Snapshot. Dazu die **Powerwache**, eine Steckdose mit Stromzähler,
@@ -40,6 +41,7 @@ im Stall regelmäßig wegbricht.
 | **Dashboard** | „Muss ich raus?" — Livebild der gewählten Kamera, Zähler der letzten 24 h, die drei jüngsten Alarme. Eine laufende Austreibung färbt die Kachel rot. |
 | **Alarme** | Aktivitätsprotokoll, filterbar nach Art (Kalbung/Brunst/System) und Zeitraum (24 h / 3 / 7 Tage). Jeder Alarm bringt seine **Bildserie** mit: abspielbar wie ein kurzer Film, damit man sieht, worauf das Modell reagiert hat. „Gesehen" quittiert ihn. |
 | **Steuerung** | Tränken, Licht und Sensoren über die Tuya-Cloud schalten; die Bedienelemente entstehen aus dem, was das Gerät selbst meldet. Dazu Freitext- und **Sprachanfragen**: „Zeig mir alle Aktivitäten von Kuh #42". |
+| **Analytik** | „Was erzählt die Herde über Wochen?" — Verlauf (7/14/30 Tage), **Tagesgang** (wann in der Nacht passiert es?), **Brunstrhythmus je Kuh** mit Prognose des nächsten Termins, Reaktionszeit und Bestätigungsquote. |
 | **Einstellungen** | Push-Benachrichtigungen an/aus und pro Alarmart, Datensparen, Startkamera, Diagnose. |
 
 **Push (Firebase Cloud Messaging).** Kalbeverdacht und Brunstverdacht kommen
@@ -49,6 +51,21 @@ Unterschied. Direkt aus der Benachrichtigung lässt sich der Alarm öffnen oder
 quittieren. Der Probealarm in den Einstellungen prüft die ganze Kette
 einmal bewusst durch, statt sie im Ernstfall zu testen.
 *iOS: Web-Push gibt es nur in der installierten PWA, nicht im Safari-Tab.*
+
+**Analytik.** Dashboard und Alarme beantworten „muss ich jetzt raus?"; die
+Analytik beantwortet die Fragen, die man erst nach Wochen stellen kann. Der
+**Tagesgang** legt alle Ereignisse über 24 Stunden übereinander und zeigt
+schwarz auf weiß, welcher Anteil in die Stunden fällt, in denen niemand im
+Stall steht. Der **Brunstrhythmus** rechnet aus den Abständen der
+Brunstmeldungen je Kuh den persönlichen Zyklus aus, prognostiziert den
+nächsten Termin (nur bei plausiblen 18–24 Tagen — aus einem
+6-Tage-„Zyklus" entsteht bewusst kein Datum) und markiert auffällige
+Abstände. Dazu die **Reaktionszeit** (Median, nicht Mittelwert: eine Nacht
+mit dem Handy im Haus darf die Zahl nicht kippen) und die
+**Bestätigungsquote** — wie viele Kalbeverdachte mündeten in eine
+Austreibung. Gerechnet wird serverseitig (`/api/analytik`): gemessen ~10 kB
+Bericht statt ~48 kB Rohliste. Ohne Chart-Bibliothek, die Diagramme sind
+antippbare CSS-Balken.
 
 **Datensparend.** Ein Livestream kostet im Mobilfunk ein Vielfaches einer
 Ereignisliste. Deshalb zeigt das Dashboard zunächst ein Standbild und startet
@@ -201,11 +218,13 @@ Futterwache) setzen – fertig. Die App ist als PWA installierbar (Homescreen).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `app/` | Next.js App Router – die vier PWA-Bereiche (`/`, `/alarme`, `/steuerung`, `/einstellungen`) |
+| `app/` | Next.js App Router – die fünf PWA-Bereiche (`/`, `/alarme`, `/steuerung`, `/analytik`, `/einstellungen`) |
 | `components/StallblickApp.tsx` | Dashboard-Hauptscreen: Kamera-Karten, Rollenwechsel, Vollbild, Datensparen |
 | `components/CameraStream.tsx` | Kamera-Container: WebRTC/HLS (Hauptbild) bzw. Snapshot-Polling (Vorschau) |
 | `components/AlarmListe.tsx` + `AlarmBilder.tsx` | Aktivitätsprotokoll mit Filtern, Bild-Replay und Quittierung |
 | `components/GeraeteSteuerung.tsx` + `Assistent.tsx` | Tuya-Schaltflächen aus dem Gerätemodell; Freitext-/Sprachanfragen |
+| `lib/analytik.ts` + `components/AnalytikApp.tsx` | Langzeitauswertung (rein rechnende Schicht) und die antippbaren Diagramme dazu |
+| `tests/` | Testsuite der Auswertungslogik (24 Checks, `npm test`, ohne Build und ohne Zusatzpaket) |
 | `public/sw.js` + `lib/offline.ts` | Service Worker (Offline-Shell, Push, Background Sync) und der lokale Puffer dazu |
 | `lib/push.ts` + `lib/gcp.ts` | FCM-Versand (HTTP v1) und Service-Account-Auth ohne Zusatzpaket |
 | `lib/pubsub.ts` | Spiegelung jedes Ereignisses in die bestehende GCP-Architektur |

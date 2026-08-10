@@ -18,7 +18,11 @@
  * Hintergrundprozess und haelt den Alarmweg unabhaengig vom SDK-Update.
  */
 
-const VERSION = "stallwache-v1";
+// Version hochzaehlen, sobald sich SHELL oder eine Abrufstrategie aendert:
+// `activate` loescht alle Caches, die nicht mit der aktuellen Version
+// beginnen — sonst behielte ein installiertes Handy die alte Shell ohne
+// /analytik. (v2: Analytik-Bereich, Ersatzantwort je Endpoint)
+const VERSION = "stallwache-v2";
 const SHELL_CACHE = `${VERSION}-shell`;
 const DATEN_CACHE = `${VERSION}-daten`;
 const BILD_CACHE = `${VERSION}-bilder`;
@@ -28,6 +32,7 @@ const SHELL = [
   "/",
   "/alarme",
   "/steuerung",
+  "/analytik",
   "/einstellungen",
   "/offline",
   "/manifest.webmanifest",
@@ -90,7 +95,22 @@ self.addEventListener("fetch", (event) => {
 
   // Ereignisliste: frisch bevorzugt, letzter Stand als Rueckfallebene.
   if (url.pathname === "/api/events") {
-    event.respondWith(netzZuerst(req, DATEN_CACHE));
+    event.respondWith(
+      netzZuerst(req, DATEN_CACHE, {
+        ereignisse: [],
+        letzterKontakt: null,
+        quelle: "edge-agent",
+        offline: true,
+      }),
+    );
+    return;
+  }
+
+  // Langzeitauswertung: gleiche Strategie, aber ohne Ersatzantwort. Eine
+  // leere Auswertung saehe aus wie eine ruhige Herde — hier ist „nicht
+  // abrufbar" die einzige ehrliche Antwort.
+  if (url.pathname === "/api/analytik") {
+    event.respondWith(netzZuerst(req, DATEN_CACHE, null));
     return;
   }
 
@@ -124,7 +144,15 @@ async function cacheZuerst(req, cacheName) {
   }
 }
 
-async function netzZuerst(req, cacheName) {
+/**
+ * Netz zuerst, Cache als Rueckfallebene.
+ *
+ * `ersatz` ist der Koerper, den der Client bekommt, wenn es weder Netz noch
+ * Cache-Treffer gibt — null heisst „dann lieber gar nichts": Eine erfundene
+ * leere Antwort ist nur dort richtig, wo der Client sie von echter Leere
+ * unterscheiden kann.
+ */
+async function netzZuerst(req, cacheName, ersatz) {
   const cache = await caches.open(cacheName);
   try {
     const res = await fetch(req);
@@ -141,15 +169,18 @@ async function netzZuerst(req, cacheName) {
         headers: kopf,
       });
     }
-    return new Response(
-      JSON.stringify({
-        ereignisse: [],
-        letzterKontakt: null,
-        quelle: "edge-agent",
-        offline: true,
-      }),
-      { headers: { "content-type": "application/json", "x-stallwache-offline": "1" } },
-    );
+    if (!ersatz) {
+      return new Response(JSON.stringify({ offline: true }), {
+        status: 503,
+        headers: {
+          "content-type": "application/json",
+          "x-stallwache-offline": "1",
+        },
+      });
+    }
+    return new Response(JSON.stringify(ersatz), {
+      headers: { "content-type": "application/json", "x-stallwache-offline": "1" },
+    });
   }
 }
 
