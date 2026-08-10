@@ -23,6 +23,8 @@
  *   NEXT_PUBLIC_STREAM_NAME_2  Stream/Pfad der Futterwache (Default: "futterwache")
  *   NEXT_PUBLIC_STREAM_NAME_3  Stream/Pfad der Abkalbebox  (Default: "abkalbebox")
  *   NEXT_PUBLIC_STREAM_NAME_4  Stream/Pfad der Weidewache  (Default: "weidewache")
+ *   NEXT_PUBLIC_STALLWACHE_TUYA  "1" = Hauptkamera ueber die Tuya-Cloud
+ *                                (Betrieb ganz ohne Bridge moeglich)
  *
  * Die Abkalbebox hiess frueher "Stallbox"; die alten Variablennamen
  * (NEXT_PUBLIC_STALLBOX_TUYA, TUYA_DEVICE_ID_STALLBOX) gelten weiter als
@@ -89,6 +91,18 @@ const ABKALBEBOX_TUYA =
     ?.trim() !== "0";
 const WEIDEWACHE_TUYA = process.env.NEXT_PUBLIC_WEIDEWACHE_TUYA?.trim() !== "0";
 
+/**
+ * Die Stallwache ist die Hauptkamera im Abkalbebereich und lief historisch nur
+ * ueber die Bridge. Tuya ist deshalb hier bewusst **opt-in**: Ein Hof mit
+ * bestehender Bridge behaelt sein Verhalten unveraendert (kein zusaetzlicher
+ * Tuya-Versuch beim Verbindungsaufbau), waehrend ein Hof mit Tuya-Kamera die
+ * komplette Kalbeueberwachung ganz ohne Bridge betreiben kann.
+ *
+ * Aktivieren: NEXT_PUBLIC_STALLWACHE_TUYA=1 (plus TUYA_DEVICE_ID_STALLWACHE
+ * serverseitig). Ist zusaetzlich eine Bridge gesetzt, dient sie als Fallback.
+ */
+const STALLWACHE_TUYA = process.env.NEXT_PUBLIC_STALLWACHE_TUYA?.trim() === "1";
+
 /** Stallwache = Hauptkamera (Default), weitere Kameras als Zweitkameras. */
 export const CAMERAS: readonly CameraConfig[] = [
   {
@@ -96,8 +110,8 @@ export const CAMERAS: readonly CameraConfig[] = [
     name: "Stallwache",
     streamName: process.env.NEXT_PUBLIC_STREAM_NAME?.trim() || "stallwache",
     ort: "Abkalbebereich",
-    tuyaFaehig: false,
-    tuyaEndpoint: "",
+    tuyaFaehig: STALLWACHE_TUYA,
+    tuyaEndpoint: "/api/stallwache/stream",
   },
   {
     id: "futterwache",

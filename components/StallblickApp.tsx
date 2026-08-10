@@ -65,7 +65,10 @@ export default function StallblickApp() {
   const liveAn = !einstellungen.datensparen || liveGestartet || vollbild;
 
   // Aus CAMERAS ableiten statt auflisten: eine neue Kamera in lib/config.ts
-  // soll nicht daran scheitern, dass hier ein Eintrag fehlt.
+  // soll nicht daran scheitern, dass hier ein Eintrag fehlt. Eine Kamera
+  // startet als "laedt", wenn sie ueberhaupt eine Quelle hat: Bridge ODER
+  // Tuya-Cloud. Ein Hof ohne Bridge, dessen Kameras ueber Tuya laufen, darf
+  // nicht faelschlich mit lauter Offline-Kacheln begruessen.
   const [camStates, setCamStates] = useState<Record<CameraId, CameraState>>(() =>
     Object.fromEntries(
       CAMERAS.map((c) => [c.id, isConfigured || c.tuyaFaehig ? "laedt" : "offline"]),
