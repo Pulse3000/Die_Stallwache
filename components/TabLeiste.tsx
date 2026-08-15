@@ -7,9 +7,14 @@ import { useEffect, useState } from "react";
 /**
  * Untere Navigationsleiste der PWA.
  *
- * Vier Ziele, weil vier die Grenze dessen sind, was am Handy mit dem Daumen
- * sicher getroffen wird — die Reihenfolge folgt der Dringlichkeit im Stall:
- * erst sehen, dann pruefen, dann schalten, dann einstellen.
+ * Fuenf Ziele — die Obergrenze dessen, was am Handy mit dem Daumen noch
+ * sicher getroffen wird (dieselbe Grenze, die auch iOS fuer seine Tab-Leiste
+ * zieht). Die Reihenfolge folgt der Dringlichkeit im Stall: erst sehen, dann
+ * pruefen, dann schalten, dann nachschlagen, dann einstellen.
+ *
+ * Analytik steht bewusst hinter Steuerung: Sie beantwortet keine Frage, die
+ * nachts um drei draengt, sondern die, die man sonntags am Kuechentisch
+ * stellt.
  *
  * Die Leiste sitzt fest am unteren Rand inklusive `safe-area-inset-bottom`,
  * damit sie auf iPhones nicht unter der Home-Indicator-Leiste klebt.
@@ -27,6 +32,7 @@ const TABS: Tab[] = [
   { href: "/", label: "Dashboard", symbol: <SymbolStall /> },
   { href: "/alarme", label: "Alarme", symbol: <SymbolGlocke /> },
   { href: "/steuerung", label: "Steuerung", symbol: <SymbolSchalter /> },
+  { href: "/analytik", label: "Analytik", symbol: <SymbolDiagramm /> },
   { href: "/einstellungen", label: "Einstellungen", symbol: <SymbolZahnrad /> },
 ];
 
@@ -99,7 +105,12 @@ export default function TabLeiste() {
                     </span>
                   )}
                 </span>
-                {tab.label}
+                {/* Mit fuenf Zielen wird es auf schmalen Geraeten eng:
+                    abschneiden statt umbrechen haelt alle Ziele auf einer
+                    Zeile und damit gleich gross und gleich treffbar. */}
+                <span className="w-full truncate px-0.5 text-center">
+                  {tab.label}
+                </span>
               </Link>
             </li>
           );
@@ -147,6 +158,16 @@ function SymbolSchalter() {
     <svg {...svgProps}>
       <rect x="3" y="7" width="18" height="10" rx="5" />
       <circle cx="8.5" cy="12" r="2.6" />
+    </svg>
+  );
+}
+
+function SymbolDiagramm() {
+  return (
+    <svg {...svgProps}>
+      <path d="M4 20V4" />
+      <path d="M4 20h16" />
+      <path d="M8 20v-6M13 20v-10M18 20v-4" />
     </svg>
   );
 }
