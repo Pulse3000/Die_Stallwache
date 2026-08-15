@@ -15,6 +15,11 @@ CVAT kostenlos, offene Datensätze).
 1. Der Agent hat eine Videoquelle:
    - **Cloud-Quelle (Standardweg, alle Kameras hängen in der Tuya-Cloud):**
      in `config.yaml` `stream.app_url` +
+1. Der Agent hat eine Videoquelle — **einer** der beiden Wege genügt:
+   - **Bridge:** `NEXT_PUBLIC_BRIDGE_URL` gesetzt, RTSP-Restream erreichbar
+     (go2rtc Port 8554 bzw. MediaMTX), ODER
+   - **Cloud-Quelle ohne Bridge** (Kameras in der Tuya-Cloud: Futterwache,
+     Abkalbebox): in `config.yaml` `stream.app_url` +
      `stream.quelle_api` (z. B. `/api/futterwache/stream`) +
      `stream.app_passwort` setzen, `stream.url` leer lassen — der Agent
      holt und erneuert die kurzlebige HLS-URL selbst.

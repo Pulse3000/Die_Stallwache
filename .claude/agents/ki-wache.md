@@ -58,6 +58,13 @@ Maßgebliche Implementierung: `edge-agent/main.py`; exakte Defaults:
 - **Videoquelle des Agenten** (`CloudQuelle`): Login an der Webapp,
   kurzlebige HLS-URL von `/api/<kamera>/stream`, CDN-Direktzugriff,
   automatische URL-Erneuerung beim Reconnect
+- **Kameras** liefern lokal RTSP. Eine **Bridge** (go2rtc oder MediaMTX) im
+  Stall-LAN macht daraus WebRTC/HLS und stellt einen RTSP-Restream (Port 8554)
+  + Snapshot-API (go2rtc Port 1984) bereit.
+- **Alternativ ohne Bridge** (`CloudQuelle`): Kameras, die bereits in der
+  Tuya-Cloud hängen (Futterwache, Abkalbebox, Weidewache), liest der Agent direkt — Login
+  an der Webapp, kurzlebige HLS-URL von `/api/<kamera>/stream`, CDN-
+  Direktzugriff, automatische URL-Erneuerung beim Reconnect
   (`stream.app_url`/`quelle_api`/`app_passwort`).
 - **RTSP** (`stream.url`) bleibt im Agenten unterstützt, ist im Betrieb
   Oberer Stollenhof aber nicht mehr im Einsatz.

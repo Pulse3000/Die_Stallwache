@@ -7,6 +7,7 @@ import { authAktiv, pruefeToken, SESSION_COOKIE } from "@/lib/auth";
  * Ausnahmen (auch ohne Session erreichbar):
  *   - /login, /api/login, /api/logout  (Anmeldeweg selbst)
  *   - POST /api/events                  (Edge-Agent-Ingest, eigene Token-Auth)
+ *   - POST /api/datensatz               (Edge-Agent-Bildarchiv, eigene Token-Auth)
  *   - statische Assets                  (ueber matcher unten ausgeschlossen)
  */
 export async function middleware(req: NextRequest) {
@@ -22,8 +23,12 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Edge-Agent meldet Ereignisse mit eigenem x-ingest-token (kein Session-Cookie).
-  if (pathname === "/api/events" && req.method === "POST") {
+  // Edge-Agent meldet Ereignisse und archiviert Trainingsbilder mit eigenem
+  // x-ingest-token (kein Session-Cookie). Die Routen pruefen ihn selbst.
+  if (
+    (pathname === "/api/events" || pathname === "/api/datensatz") &&
+    req.method === "POST"
+  ) {
     return NextResponse.next();
   }
 
@@ -42,7 +47,12 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   // Alles ausser Next-internen und statischen Dateien.
+  //
+  // sw.js muss ausgenommen bleiben: Ein Redirect auf /login liefert HTML
+  // statt JavaScript, und der Browser verweigert die Registrierung des
+  // Service Workers – die PWA waere damit weder offlinefaehig noch
+  // push-faehig. Das Skript enthaelt keine Daten, nur Ablauflogik.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|webp|gif|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|.*\\.(?:svg|png|jpg|jpeg|webp|gif|ico)$).*)",
   ],
 };

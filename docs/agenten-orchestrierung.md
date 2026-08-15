@@ -15,15 +15,27 @@ Skills kapseln wiederkehrende Abläufe.**
 | **Fachexperte** | Agent `ki-wache` | Erkennungslogik prüfen/erklären, Logik-Simulationen, Alarm-Texte formulieren | Dateien ändern, Schwellenwerte lockern |
 
 Skills sind keine Agenten, sondern **Prozeduren**, die der Orchestrator (oder
-ein Agent) aufruft: `stallblick-deploy`, `ki-wache-smoketest`,
-`wettbewerbs-check`, `tuya-futterwache`, `security-sweep`, `modell-training`,
-`fehlalarm-triage`, `bytetrack-tuning`, `stallwache-live-schalten`,
-`persistenz-live-schalten`.
+ein Agent) aufruft. Sie zerfallen in drei Gruppen:
+
+| Gruppe | Skills | Wofür |
+| --- | --- | --- |
+| **Scharfschalten** (einmalig je Baustein) | `stallwache-live-schalten`, `persistenz-live-schalten`, `push-live-schalten`, `gcp-anbindung`, `tuya-futterwache`, `modell-training` | Einen fertig gebauten, aber schlafenden Baustein in Betrieb nehmen — und den Betrieb **beweisen**, nicht nur konfigurieren |
+| **Prüfen & Ausliefern** | `betriebs-bereitschaft`, `stallblick-deploy`, `ki-wache-smoketest`, `pwa-abnahme`, `security-sweep` | Vor und nach jeder Auslieferung |
+| **Betrieb & Störung** | `tuya-diagnose`, `neue-kamera`, `fehlalarm-triage`, `bytetrack-tuning`, `wettbewerbs-check` | Wenn im laufenden Betrieb etwas klemmt oder nachgeschärft wird |
+| **Bauen** | `spezifikation-umsetzen` | Der Rückweg der Spezifikations-Pipeline: aus einer der fünf Spec-Dateien wird gemergter Code — mit dem Umfang auf den Teil geschnitten, dessen Voraussetzung wirklich existiert |
+
+Die Scharfschalt-Skills teilen ein Muster, das sich bewährt hat: Die App
+**degradiert still**, wenn ein Baustein fehlt (kein Push, keine Persistenz,
+kein Livebild — aber alles andere läuft weiter). Das ist im Betrieb richtig
+und in der Abnahme gefährlich, weil „läuft" und „läuft halb" gleich aussehen.
+Jeder dieser Skills endet deshalb mit einem Beweis am echten Gerät, nicht mit
+einer gesetzten Variablen.
 
 ## Delegations-Entscheidung: Wann was?
 
 ```
 Neue Aufgabe
+├─ "Läuft das System?" / "Was fehlt noch?"      → Skill betriebs-bereitschaft (zuerst!)
 ├─ Marktfrage / "Konkurrenz" / Feature-Wahl   → Agent markt-analyst (+ Skill wettbewerbs-check)
 ├─ Vor Merge / Deploy / nach neuer Route       → Agent qa-waechter
 ├─ Erkennungslogik/Schwellenwerte betroffen    → Agent ki-wache (Treue-Befund vor Merge)
@@ -32,11 +44,17 @@ Neue Aufgabe
 ├─ Ausliefern                                  → Skill stallblick-deploy
 ├─ Ereignis-API/Dashboard geändert             → Skill ki-wache-smoketest
 ├─ Tuya-Zugangsdaten liegen vor                → Skill tuya-futterwache
+├─ Tuya meldet "sign invalid"/"clientId"       → Skill tuya-diagnose
+├─ Kamera dazu / Kamera umbenennen             → Skill neue-kamera
 ├─ Tunnel-Hostname gemeldet                    → Skill stallwache-live-schalten
 ├─ KV-Store verknüpft                          → Skill persistenz-live-schalten
+├─ Firebase eingerichtet / Push fehlt          → Skill push-live-schalten
+├─ Pub/Sub, Vertex AI, Dienstkonto             → Skill gcp-anbindung
+├─ sw.js, Offline-Puffer, Manifest, Tabs       → Skill pwa-abnahme
 ├─ Bridge läuft, Modell fehlt                  → Skill modell-training
 ├─ Analyse-Modus läuft, Fehlalarme kommen      → Skill fehlalarm-triage
-└─ ID-Wechsel / Alarme bleiben aus             → Skill bytetrack-tuning
+├─ ID-Wechsel / Alarme bleiben aus             → Skill bytetrack-tuning
+└─ Blocker einer Spezifikation ist weg         → Skill spezifikation-umsetzen
 ```
 
 ## Koordinationsmuster (bewährt in dieser Session)
@@ -54,18 +72,40 @@ Neue Aufgabe
 4. **Verifizieren vor Merge:** Kein Merge ohne grünen `qa-waechter`-Befund
    bzw. lokal grüne Build-/Smoke-/Sicherheits-Suite. Reine Sicherheits-Fixes
    dürfen im Selbst-Review-Modus direkt gemergt werden.
-5. **Nicht-destruktiv bleiben:** Nach einem Squash-Merge trägt der Feature-
-   Branch veraltete Historie — statt Force-Push einen **neuen Branch** vom
-   frischen `main` aufmachen (so geschehen bei PR #9/#10).
+5. **Nicht-destruktiv bleiben — Historie vorwärts bauen:** Nach einem
+   Squash-Merge trägt der Feature-Branch veraltete Historie. Force-Push ist
+   dafür der falsche Reflex und inzwischen ohnehin durch eine
+   Repository-Regel gesperrt (`GH013: Cannot force-push to this branch`).
+   Der saubere Weg, wenn der Branchname erhalten bleiben muss:
+
+   ```bash
+   git checkout -B <branch> origin/<branch>   # alte Remote-Historie
+   git merge origin/main                      # Squash-Stand vorwärts holen
+   git cherry-pick <neuer-commit>             # eigene Arbeit obendrauf
+   git push origin <branch>                   # normaler Fast-Forward
+   ```
+
+   Der Merge ist inhaltlich ein No-Op (der Squash-Commit hat denselben Baum
+   wie der Branch-Commit — mit `git diff <alt> <squash>` vorher belegen), und
+   der PR zeigt danach exakt die neuen Dateien gegenüber `main`. Nur wenn der
+   Name frei wählbar ist, bleibt ein frischer Branch die einfachere Variante.
 6. **Spezifikations-Pipeline (für blockierte Ideen):** Marktbefund
    (`markt-analyst`) → Produktentscheidung (Orchestrator, dokumentiert in
    `wettbewerbsanalyse.md`/`roadmap.md`) → Fachspezifikation (`ki-wache`,
    Struktur: Grundsatz → ehrliche Grenzen → Regeln mit Zahlen → Config →
    fertige Texte → Abnahmekriterien → Risiken) → Code erst, wenn die
-   Voraussetzung real ist. Blockierte Ideen werden spezifiziert statt halb
-   gebaut (so entstanden Festliege #26, Brunst-Fusion #27, Kalbe-Akte #31,
-   Lahmheit #32). Fällt der Fachagent aus (z. B. API-Überlastung), entwirft
-   der Orchestrator nach dessen Mandat und vermerkt die Provenienz.
+   Voraussetzung real ist (Rückweg: Skill `spezifikation-umsetzen`).
+   Blockierte Ideen werden spezifiziert statt halb gebaut (so entstanden
+   Festliege #26, Brunst-Fusion #27, Kalbe-Akte #31, Lahmheit #32,
+   Eskalationskette #49). Fällt der Fachagent aus (z. B. API-Überlastung),
+   entwirft der Orchestrator nach dessen Mandat und vermerkt die Provenienz.
+7. **Widerspruch ausdrücklich bestellen.** Der Auftrag an den Fachexperten
+   endet mit „widersprich, wenn die Entscheidung fachlich nicht trägt" — und
+   das ist keine Höflichkeitsfloskel. Die Eskalations-Spezifikation hat auf
+   diesem Weg eine bereits dokumentierte Architektur-Entscheidung korrigiert
+   (das Weckgerät gehört ins Haus, nicht in den Stall: Stress im Stadium II
+   hemmt die Oxytocin-Ausschüttung). Ein Agent, der nur bestätigen darf, ist
+   ein teurer Formatierer.
 
 ## Leitplanken für jede Delegation
 

@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
-import { holeTuyaStream, tuyaKonfiguriert } from "@/lib/tuya";
+import { kameraStreamAntwort } from "@/lib/kamera-stream";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * Liefert dem Frontend eine kurzlebige HLS-URL der Futterwache aus der
@@ -15,29 +15,7 @@ export const dynamic = "force-dynamic";
  * im Browser die Antworten sonst nicht lesen koennte (schwarzes Bild ohne
  * sichtbaren Fehler). Der Proxy macht den Stream same-origin.
  */
+/** Kurzlebige HLS-URL der Futterwache aus der Tuya-Cloud. */
 export async function GET() {
-  if (!tuyaKonfiguriert("futterwache")) {
-    return NextResponse.json(
-      {
-        fehler:
-          "Tuya nicht konfiguriert – TUYA_ACCESS_ID, TUYA_ACCESS_SECRET und TUYA_DEVICE_ID_FUTTERWACHE setzen.",
-      },
-      { status: 503 },
-    );
-  }
-  try {
-    const stream = await holeTuyaStream("futterwache", "hls");
-    const proxied = {
-      ...stream,
-      url: `/api/futterwache/proxy?url=${encodeURIComponent(stream.url)}`,
-    };
-    return NextResponse.json(proxied, {
-      headers: { "Cache-Control": "no-store" },
-    });
-  } catch (e) {
-    return NextResponse.json(
-      { fehler: e instanceof Error ? e.message : "Tuya-Anfrage fehlgeschlagen" },
-      { status: 502 },
-    );
-  }
+  return kameraStreamAntwort("futterwache");
 }

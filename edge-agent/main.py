@@ -24,8 +24,13 @@ Start:  cp config.example.yaml config.yaml && python3 main.py
 
 from __future__ import annotations
 
+import base64
+import datetime as dt
+import json
 import logging
 import math
+import queue
+import threading
 import time
 import urllib.parse
 from collections import defaultdict, deque
@@ -514,6 +519,92 @@ class LogicEngine:
 
 
 # --------------------------------------------------------------------------
+# Datensatz-Archiv: Zweitkopie der Trainingsbilder in der Cloud
+# --------------------------------------------------------------------------
+
+class DatensatzArchiv:
+    """Spiegelt Trainings- und Fehlalarmbilder in Google Cloud Storage.
+
+    Das Problem: Silent-Mode-Aufnahmen und die per Feedback markierten Hard
+    Negatives liegen ausschliesslich auf der Platte des Stallrechners — meist
+    ein ausgemusterter Laptop ohne Backup. Geht sie kaputt, ist die gesamte
+    Datengrundlage des eigenen Modells verloren, oft die Sammelarbeit mehrerer
+    Wochen. Diese Klasse legt eine zweite Kopie ueber die Webapp ab
+    (``POST /api/datensatz`` -> GCS); GCP-Zugangsdaten bleiben in Vercel, der
+    Agent nutzt nur seinen ohnehin vorhandenen Ingest-Token.
+
+    Der Upload laeuft in einem Hintergrund-Thread mit begrenzter Warteschlange.
+    Das ist kein Selbstzweck: Ein blockierender POST (30 s Timeout bei zickigem
+    Stall-WLAN) wuerde die 1-FPS-Analyseschleife anhalten — und damit im
+    schlimmsten Fall eine Austreibung verpassen. Die Schleife darf niemals auf
+    das Netz warten. Laeuft die Warteschlange voll, werden Bilder verworfen
+    statt gestaut: Die lokale Kopie existiert ohnehin, das Archiv ist die
+    Zweitkopie und nie der einzige Ablageort.
+    """
+
+    WARTESCHLANGE_MAX = 32
+    TIMEOUT_S = 30
+
+    def __init__(self, cfg: dict):
+        db = cfg.get("dashboard") or {}
+        self.token = (db.get("token") or "").strip()
+        url = (db.get("archiv_url") or "").strip()
+        if not url:
+            # Bequemer Default: dieselbe App, anderer Pfad.
+            basis = (db.get("url") or "").strip()
+            url = basis.replace("/api/events", "/api/datensatz") if basis else ""
+        self.url = url
+        self.aktiv = bool(db.get("archiv", False)) and bool(self.url and self.token)
+        self.kamera = (cfg.get("stream") or {}).get("kamera", "stallwache")
+        self._queue: "queue.Queue[tuple[str, list[bytes]]]" = queue.Queue(
+            maxsize=self.WARTESCHLANGE_MAX
+        )
+        self._verworfen = 0
+        if self.aktiv:
+            threading.Thread(target=self._arbeite, daemon=True).start()
+            log.info("Datensatz-Archiv aktiv: %s", self.url)
+
+    def sichere(self, art: str, bilder: list[bytes]) -> None:
+        """Reiht Bilder zum Upload ein. Kehrt sofort zurueck (nie blockierend)."""
+        if not (self.aktiv and bilder):
+            return
+        try:
+            self._queue.put_nowait((art, bilder))
+        except queue.Full:
+            self._verworfen += 1
+            log.warning(
+                "Datensatz-Archiv ueberlastet – Bild nur lokal gespeichert "
+                "(%d verworfen)",
+                self._verworfen,
+            )
+
+    def _arbeite(self) -> None:
+        while True:
+            art, bilder = self._queue.get()
+            try:
+                requests.post(
+                    self.url,
+                    json={
+                        "art": art,
+                        "kamera": self.kamera,
+                        "bilder": [
+                            base64.b64encode(b).decode("ascii") for b in bilder
+                        ],
+                    },
+                    headers={"x-ingest-token": self.token},
+                    timeout=self.TIMEOUT_S,
+                ).raise_for_status()
+            except requests.RequestException as e:
+                # Kein Wiederholungsversuch: Die lokale Kopie ist die
+                # massgebliche: das Archiv darf nie zum Stau werden.
+                log.error("Datensatz-Archiv nicht erreichbar: %s", e)
+            except Exception:  # noqa: BLE001 – der Worker darf nie sterben
+                log.exception("Datensatz-Archiv: unerwarteter Fehler")
+            finally:
+                self._queue.task_done()
+
+
+# --------------------------------------------------------------------------
 # Alarmierung: Telegram + Stallblick-Dashboard (Vercel)
 # --------------------------------------------------------------------------
 
@@ -545,6 +636,9 @@ class FeedbackSchleife:
         self._naechste_id = 0
         self._offset = 0
         self._letzter_poll = 0.0
+        # Wird von main() gesetzt, sobald das Archiv steht. Bewusst optional:
+        # Ohne Archiv laeuft die Feedback-Schleife unveraendert weiter.
+        self.archiv: DatensatzArchiv | None = None
 
     def registriere(self, alarm: Alarm, bilder: list[bytes]) -> dict | None:
         """Merkt die (unannotierten) Alarm-Bilder fuer spaeteres Feedback und
@@ -621,6 +715,11 @@ class FeedbackSchleife:
         for i, b in enumerate(bilder):
             (ordner / f"{typ}-{fid}-{i}.jpg").write_bytes(b)
         log.info("Fehlalarm-Feedback: %d Bild(er) -> %s", len(bilder), ordner)
+        # Zweitkopie in die Cloud – Hard Negatives sind die wertvollsten
+        # Trainingsbilder ueberhaupt (echte Szenen aus genau diesem Stall,
+        # bei denen das Modell nachweislich falsch lag).
+        if self.archiv:
+            self.archiv.sichere("fehlalarm", bilder)
         return len(bilder)
 
     def _antworte(self, cq: dict, text: str) -> None:
@@ -639,8 +738,6 @@ class FeedbackSchleife:
         if not msg.get("message_id"):
             return
         try:
-            import json
-
             requests.post(
                 f"https://api.telegram.org/bot{self.token}/editMessageReplyMarkup",
                 data={
@@ -671,6 +768,15 @@ class Notifier:
         db = cfg.get("dashboard") or {}
         self.db_url = (db.get("url") or "").strip()
         self.db_token = (db.get("token") or "").strip()
+        # Alarmbilder ans Dashboard mitschicken (die App zeigt sie als Serie).
+        # Auf 0 setzen, wenn die Uplink-Leitung zu schmal ist.
+        self.db_bilder = max(0, int(db.get("bilder", 3)))
+        self._puffer_datei = Path(db.get("puffer_datei") or "alarm-puffer.jsonl")
+        # Offline-Puffer: was nicht rausging, wird beim naechsten Kontakt
+        # nachgeliefert. Begrenzt, damit eine lange Stoerung den Speicher
+        # nicht sprengt.
+        self._puffer: deque[dict] = deque(maxlen=int(db.get("puffer_max", 200)))
+        self._puffer_laden()
 
         self.kamera = cfg["stream"].get("kamera", "stallwache")
         self._zuletzt: dict[tuple[str | None, str], float] = {}
@@ -734,7 +840,7 @@ class Notifier:
         markup = self.feedback.registriere(alarm, roh)
 
         self._telegram(alarm, bild, serie, markup)
-        self._dashboard(alarm)
+        self._dashboard(alarm, self._dashboard_bilder(serie, bild))
         self._mqtt(alarm)
 
     def status(self, nachricht: str) -> None:
@@ -812,8 +918,6 @@ class Notifier:
     ) -> None:
         if not (self.tg_token and self.tg_chat):
             return
-        import json
-
         markup_json = json.dumps(markup) if markup else None
         text = f"⚠️ {alarm.typ.upper()}"
         if alarm.kuh_id:
@@ -884,8 +988,6 @@ class Notifier:
         if self._mqtt_client is None:
             return
         try:
-            import json
-
             self._mqtt_client.publish(
                 f"{self._mqtt_topic}/{self.kamera}/{alarm.typ}",
                 json.dumps(
@@ -903,24 +1005,113 @@ class Notifier:
         except Exception as e:  # noqa: BLE001
             log.error("MQTT-Publish fehlgeschlagen: %s", e)
 
-    def _dashboard(self, alarm: Alarm) -> None:
+    def _dashboard_bilder(
+        self,
+        serie: list[bytes],
+        alarmbild: bytes | None,
+    ) -> list[bytes]:
+        """Waehlt die Bilder fuer die App aus: erst die Frames vor dem Alarm,
+        zuletzt das annotierte Alarmbild.
+
+        Bewusst die annotierte Fassung — anders als beim Fehlalarm-Feedback,
+        wo eingezeichnete Boxen das Nachtraining vergiften wuerden. Hier
+        schaut ein Mensch drauf, und der will nachts um drei sofort sehen,
+        worauf das Modell reagiert hat.
+        """
+        if not self.db_bilder:
+            return []
+        bilder = [*serie, alarmbild] if alarmbild else list(serie)
+        # Die juengsten Bilder sind die aussagekraeftigsten.
+        return bilder[-self.db_bilder :]
+
+    # ------------------------------------------------------------------
+    # Dashboard-Meldung mit Offline-Puffer
+    #
+    # Der Stall ist der Ort mit dem schlechtesten Empfang des Betriebs. Faellt
+    # die Leitung aus, darf ein Kalbealarm nicht einfach verschwinden: er
+    # wandert in einen Puffer auf der Platte und geht beim naechsten Kontakt
+    # als Stapel raus (POST /api/events mit {"ereignisse": [...]}).
+    # ------------------------------------------------------------------
+
+    def _puffer_laden(self) -> None:
+        """Liest den Puffer eines vorherigen Laufs (Stromausfall, Neustart)."""
+        if not self._puffer_datei.exists():
+            return
+        try:
+            for zeile in self._puffer_datei.read_text("utf-8").splitlines():
+                zeile = zeile.strip()
+                if zeile:
+                    self._puffer.append(json.loads(zeile))
+            log.info("Offline-Puffer geladen: %d Ereignis(se)", len(self._puffer))
+        except (OSError, ValueError) as e:
+            log.error("Offline-Puffer nicht lesbar (wird verworfen): %s", e)
+            self._puffer.clear()
+
+    def _puffer_sichern(self) -> None:
+        """Schreibt den Puffer atomar zurueck (erst temporaer, dann ersetzen)."""
+        try:
+            if not self._puffer:
+                self._puffer_datei.unlink(missing_ok=True)
+                return
+            tmp = self._puffer_datei.with_suffix(".tmp")
+            tmp.write_text(
+                "\n".join(json.dumps(e, ensure_ascii=False) for e in self._puffer),
+                "utf-8",
+            )
+            tmp.replace(self._puffer_datei)
+        except OSError as e:
+            log.error("Offline-Puffer nicht schreibbar: %s", e)
+
+    def _dashboard(
+        self,
+        alarm: Alarm,
+        bilder: list[bytes] | None = None,
+    ) -> None:
         if not (self.db_url and self.db_token):
             return
+
+        ereignis: dict = {
+            "typ": alarm.typ,
+            "kuhId": alarm.kuh_id,
+            "kamera": self.kamera,
+            "nachricht": alarm.nachricht,
+            "konfidenz": alarm.konfidenz,
+            # Eigener Zeitstempel: bei Nachlieferung waere die Eingangszeit
+            # des Servers falsch — die Kalbung war um 03:12, nicht um 07:40.
+            "zeit": dt.datetime.now(dt.timezone.utc)
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z"),
+        }
+        if bilder and self.db_bilder:
+            # Von hinten schneiden: das letzte Bild ist das annotierte
+            # Alarmbild und damit das wichtigste der Serie.
+            ereignis["bilder"] = [
+                base64.b64encode(b).decode("ascii") for b in bilder[-self.db_bilder :]
+            ]
+
+        # Alles, was noch aussteht, geht in derselben Verbindung mit raus.
+        stapel = list(self._puffer) + [ereignis]
         try:
             requests.post(
                 self.db_url,
-                json={
-                    "typ": alarm.typ,
-                    "kuhId": alarm.kuh_id,
-                    "kamera": self.kamera,
-                    "nachricht": alarm.nachricht,
-                    "konfidenz": alarm.konfidenz,
-                },
+                json={"ereignisse": stapel},
                 headers={"x-ingest-token": self.db_token},
-                timeout=15,
+                timeout=30,
             ).raise_for_status()
         except requests.RequestException as e:
-            log.error("Dashboard-Meldung fehlgeschlagen: %s", e)
+            self._puffer.append(ereignis)
+            self._puffer_sichern()
+            log.error(
+                "Dashboard-Meldung fehlgeschlagen (%d im Puffer): %s",
+                len(self._puffer),
+                e,
+            )
+            return
+
+        if self._puffer:
+            log.info("Offline-Puffer nachgeliefert: %d Ereignis(se)", len(self._puffer))
+            self._puffer.clear()
+            self._puffer_sichern()
 
 
 # --------------------------------------------------------------------------
@@ -939,6 +1130,11 @@ def main() -> None:
     logik = LogicEngine(cfg)
     notifier = Notifier(cfg)
     totmann = TotmannWaechter(cfg)
+    # Zweitkopie der Trainingsbilder in der Cloud (dashboard.archiv). Die
+    # Feedback-Schleife bekommt dieselbe Instanz, damit nur ein Worker-Thread
+    # laeuft und Silent-Mode-Bilder wie Hard Negatives denselben Weg nehmen.
+    archiv = DatensatzArchiv(cfg)
+    notifier.feedback.archiv = archiv
 
     frame_puffer: deque[np.ndarray] = deque(maxlen=8)  # Verlauf fuer Bildserien
 
@@ -969,6 +1165,15 @@ def main() -> None:
                     name = ordner / f"{time.strftime('%Y%m%d-%H%M%S')}.jpg"
                     cv2.imwrite(str(name), frame)
                     log.info("Trainingsbild gespeichert: %s", name)
+                    if archiv.aktiv:
+                        # Fuer den Upload neu kodieren statt die Datei zu
+                        # lesen: spart einen Plattenzugriff und haelt die
+                        # Cloud-Kopie unabhaengig vom lokalen Schreibergebnis.
+                        ok, jpg = cv2.imencode(
+                            ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80]
+                        )
+                        if ok:
+                            archiv.sichere("silent", [jpg.tobytes()])
                 continue
 
             frame_puffer.append(frame)

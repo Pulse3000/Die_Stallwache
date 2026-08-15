@@ -26,6 +26,13 @@ interface Props {
  *                      Dauerstream: jede Tuya-Allokation kostet ein
  *                      Cloud-Kontingent, und ein Einzelbild-Endpoint (wie
  *                      frueher go2rtcs frame.jpeg) existiert dort nicht.
+ * Quelle Tuya-Cloud (camera.tuyaFaehig, z.B. Futterwache/Abkalbebox):
+ *   Rolle "haupt"    → HLS-URL von camera.tuyaEndpoint; bei 503/Fehler
+ *                      automatischer Fallback auf die Bridge. Tuya-URLs
+ *                      laufen ab → bei fatalem HLS-Fehler wird eine frische
+ *                      URL geholt.
+ *   Rolle "vorschau" → wie Bridge-Vorschau oben (go2rtc-Snapshot wenn
+ *                      verfuegbar, sonst ruhiger Platzhalter).
  *
  * Der Rollenwechsel bindet nur die Medienquelle im selben Container um;
  * die Komponente bleibt gemountet, es gibt keinen Seiten-Neuaufbau.
