@@ -30,7 +30,6 @@ const BASE = (process.env.TUYA_API_BASE?.trim() || "https://openapi.tuyaeu.com")
 const ACCESS_ID = process.env.TUYA_ACCESS_ID?.trim() || "";
 const ACCESS_SECRET = process.env.TUYA_ACCESS_SECRET?.trim() || "";
 
-export type TuyaKameraId = "stallwache" | "futterwache" | "stallbox";
 export type TuyaKameraId =
   | "stallwache"
   | "futterwache"

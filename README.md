@@ -6,11 +6,6 @@ wie klein, verdient eine Nachtwache, die niemals blinzelt — ohne 45.000 €
 auszugeben und ohne einen Sensor im Pansen.* (Vision, Prinzipien und
 Zielbild: [`docs/vision.md`](docs/vision.md).)
 
-Die mobil-optimierte Webapp zeigt **Stallwache** (Hauptkamera), **Futterwache**
-und **Stallbox** — alle drei live über die **Tuya-Cloud**; Rollenwechsel ohne
-Seiten-Neuaufbau, Vollbild, Snapshot, Ereignisliste.
-Ein gemeinsames Passwort schützt die ganze App (`STALLBLICK_PASSWORT`).
-Unter **`/wache`** läuft das KI-Alarm-Dashboard.
 Die App ist eine **installierbare PWA** (Android & iOS, „Zum Home-Bildschirm
 hinzufügen") mit fünf Bereichen: **Dashboard** (Livebild + letzte Alarme),
 **Alarme** (Aktivitätsprotokoll mit Bild-Replay), **Steuerung** (Tuya-Geräte
@@ -109,33 +104,21 @@ nur einzelne komprimierte JPEGs.
 Frigate, Viseron & Co. erkennen *Objekte* („Kuh im Bild"); Stallblick erkennt
 **Verhaltensphasen** („Kuh in der Austreibungsphase", „Duldung seit 6 s").
 Stallblick ersetzt deshalb keinen NVR — es läuft **parallel** dazu auf
-denselben Kameras. Wer bereits Frigate betreibt, behält
+denselben RTSP-Streams der go2rtc-Bridge. Wer bereits Frigate betreibt, behält
 es für Aufzeichnung/Zonen und lässt den Stallblick-Edge-Agenten zusätzlich
 laufen; wer nichts davon hat, braucht nur diesen Stack. Details und
 DIY-Marktvergleich: [`docs/wettbewerbsanalyse.md`](docs/wettbewerbsanalyse.md).
 
-## Kein Gerät im Stall: alles über die Tuya-Cloud
+## Ohne Bridge starten (empfohlener Einstieg)
 
-Eine RTSP-Kamera lässt sich weder direkt in ein `<video>`-Tag stecken noch aus
-dem Internet erreichen — eine in der Cloud (Vercel) gehostete Webapp kommt an
-eine private LAN-Adresse nie heran. Früher löste das eine **Bridge**
-(go2rtc/MediaMTX) auf einem Gerät im Stall. Seit alle Kameras Tuya-fähig sind,
-entfällt das:
 Kameras, die schon in der **Tuya-Cloud** hängen (Stallwache, Futterwache,
 Abkalbebox, Weidewache), brauchen keine Bridge — weder fürs Livebild (Webapp:
 `TUYA_*`-Env-Variablen) noch für die KI-Datensammlung:
 
-```
-Tuya-Kamera  ──▶  Tuya-Cloud  ──kurzlebige HLS-URL──▶  Webapp (Proxy)  ──HTTPS──▶  Browser / App
+```bash
+bash edge-agent/setup.sh     # Quelle "1 = Cloud ohne Bridge" (Default)
 ```
 
-* Die Kamera schickt ihr Bild **selbst** in die Tuya-Cloud — kein Gerät im
-  Stall, keine Portfreigabe, kein Cloudflare Tunnel.
-* Die Webapp holt pro Zugriff serverseitig eine **kurzlebige HLS-URL**
-  (`lib/tuya.ts`) und reicht sie über einen eigenen Proxy durch (Tuyas CDN
-  setzt keine CORS-Header).
-* **Keine Kamera-Zugangsdaten im Frontend** — die `TUYA_*`-Variablen bleiben
-  serverseitig.
 Der Agent meldet sich an der Webapp an, holt die kurzlebige HLS-URL selbst
 und sammelt im Silent Mode Trainingsbilder — der erste Schritt zum eigenen
 Modell (`.claude/skills/modell-training`). Läuft auch auf einem
@@ -166,51 +149,68 @@ Die Tapo TCA72 liefert **nur lokal** einen RTSP-Stream
 Webapp kann diese private LAN-Adresse **niemals direkt** erreichen, und Browser
 spielen RTSP ohnehin nicht ab.
 
-Die frühere Bridge-Konfiguration liegt als Legacy unter
-[`_archiv/`](_archiv/README.md) — relevant nur noch für Kameras ohne
-Cloud-Anbindung.
+Lösung (Standardweg, auch von go2rtc/RTSPtoWeb empfohlen):
+
+```
+Tapo TCA72  ──RTSP──▶  Bridge (im Stall-LAN)  ──WebRTC/HLS──▶  Cloudflare Tunnel ──HTTPS──▶  Browser / Webapp
+```
+
+* Die **Bridge** wandelt RTSP in browser-taugliches **WebRTC** (< 1 s Latenz)
+  bzw. **HLS** (Fallback) um – wahlweise **go2rtc** (Default) oder
+  **MediaMTX** (Standard-WHEP-Protokoll). Entscheidungshilfe & Setup beider
+  Varianten: [`bridge/README.md`](bridge/README.md).
+* **Cloudflare Tunnel** macht die Bridge **24/7 ohne Portfreigabe** per HTTPS erreichbar.
+* Die Webapp spricht ausschließlich mit der Bridge – **keine Kamera-Zugangsdaten im Frontend**.
 
 ---
 
-## 1. Tuya-Projekt einrichten (einmalig)
+## 1. Bridge im Stall einrichten (einmalig)
 
-Auf [iot.tuya.com](https://iot.tuya.com) → *Cloud* → Projekt anlegen, dort die
-API **„IoT Video Live Stream"** abonnieren und das App-Konto unter *Link Tuya
-App Account* verknüpfen (sonst Fehler 1106 bzw. 28841105). Danach notieren:
+Auf einem Gerät im selben Netz wie die Kamera (Raspberry Pi, Mini-PC, NAS …) mit
+Docker – **go2rtc** (Default) oder **MediaMTX** (Alternative,
+[Entscheidungshilfe](bridge/README.md)):
 
-* **Access ID** und **Access Secret** (gelten projektweit für alle Kameras)
-* pro Kamera die **Device ID** unter *Projekt → Devices*
+```bash
+cd bridge                # oder: cd bridge/mediamtx
+cp .env.example .env
+#  -> TAPO_PASS und CLOUDFLARE_TUNNEL_TOKEN eintragen
+docker compose up -d
+docker compose logs -f
+```
+
+**Voraussetzungen an der Kamera:** In der Tapo-App unter *Erweiterte
+Einstellungen → Kamerakonto* ein Konto anlegen (hier: Benutzer `Stallwache`).
+Genau diese Daten nutzt die Bridge für RTSP.
+
+**Cloudflare Tunnel:** Im [Zero-Trust-Dashboard](https://one.dash.cloudflare.com)
+einen *Named Tunnel* erstellen, Token in `.env` eintragen und einen *Public
+Hostname* (z. B. `stallwache.deine-domain.de`) auf `http://localhost:1984`
+zeigen lassen.
+
+> Kein eigene Domain? Für einen schnellen Test geht auch
+> `cloudflared tunnel --url http://localhost:1984` (liefert eine zufällige
+> `*.trycloudflare.com`-URL).
+
+Prüfen: `https://stallwache.deine-domain.de` öffnet das Bridge-Webinterface
+(go2rtc) bzw. liefert die HLS-Playlist (MediaMTX) und zeigt den Stream `stallwache`.
+
+---
 
 ## 2. Webapp konfigurieren & deployen
 
 ```bash
 cp .env.example .env.local
-#  -> TUYA_ACCESS_ID / TUYA_ACCESS_SECRET eintragen
-#  -> TUYA_DEVICE_ID_STALLWACHE / _FUTTERWACHE / _STALLBOX eintragen
+#  -> NEXT_PUBLIC_BRIDGE_URL = https://stallwache.deine-domain.de
+#  -> NEXT_PUBLIC_BRIDGE_TYPE = go2rtc  (oder mediamtx, falls diese Bridge genutzt wird)
 
 npm install
 npm run dev      # lokal: http://localhost:3000
 ```
 
-**Deploy auf Vercel:** Repo importieren und die `TUYA_*`-Variablen unter
-*Settings → Environment Variables* setzen (**nie** als `NEXT_PUBLIC_*`) —
-fertig. Die App ist als PWA installierbar (Homescreen).
-
-Kameras ohne hinterlegte Device ID antworten bewusst mit **503**; ihre Kachel
-bleibt dann beim Wartehinweis, die übrigen laufen normal weiter.
-
-## Der Edge-Agent braucht ebenfalls keine Bridge
-
-Die KI-Datensammlung läuft über dieselbe Cloud-Quelle:
-
-```bash
-bash edge-agent/setup.sh     # Quelle "1 = Cloud ohne Bridge" (Default)
-```
-
-Der Agent meldet sich an der Webapp an, holt die kurzlebige HLS-URL selbst
-und sammelt im Silent Mode Trainingsbilder — der erste Schritt zum eigenen
-Modell (`.claude/skills/modell-training`). Läuft auch auf einem
-Android-Handy per Termux ([`edge-agent/termux/`](edge-agent/termux/)).
+**Deploy auf Vercel:** Repo importieren und die Umgebungsvariable
+`NEXT_PUBLIC_BRIDGE_URL` (und optional `NEXT_PUBLIC_BRIDGE_TYPE`,
+`NEXT_PUBLIC_STREAM_NAME` sowie `NEXT_PUBLIC_STREAM_NAME_2` für die
+Futterwache) setzen – fertig. Die App ist als PWA installierbar (Homescreen).
 
 ---
 
@@ -218,15 +218,6 @@ Android-Handy per Termux ([`edge-agent/termux/`](edge-agent/termux/)).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `app/` | Next.js App Router – Stallblick-Startseite (mobil optimiert) |
-| `components/StallblickApp.tsx` | Hauptscreen: Kamera-Karten, Rollenwechsel, Vollbild, Status, Ereignisse |
-| `components/CameraStream.tsx` | Kamera-Container: Tuya-HLS im Hauptbild, ruhiger Platzhalter als Vorschau |
-| `lib/config.ts` + `lib/tuya.ts` | Kamera-Liste bzw. signierte Tuya-OpenAPI-Aufrufe (Token-Cache, Stream-Allokation) |
-| `app/api/*/stream/` | Pro Kamera ein Endpoint für die kurzlebige HLS-URL; `app/api/futterwache/proxy/` = CORS-Proxy für alle drei |
-| `app/wache/` + `app/api/events/` | **KI-Wache**: Alarm-Dashboard & Ingest-API (persistiert automatisch, sobald ein Vercel-KV-Store verknüpft ist) |
-| `edge-agent/` | Python-Agent (YOLO-Pose + ByteTrack): Kalbe-/Brunsterkennung, Totmann, Feedback-Schleife; `setup.sh` = Ein-Befehl-Einrichtung |
-| `edge-agent/tests/` | Offline-Testsuite (52 Checks, pures Python ohne Installation) |
-| `_archiv/` | Legacy: frühere Bridge (go2rtc/MediaMTX, Cloudflare Tunnel) und Cloud-Transcoder — seit der Tuya-Umstellung nicht mehr im Einsatz |
 | `app/` | Next.js App Router – die fünf PWA-Bereiche (`/`, `/alarme`, `/steuerung`, `/analytik`, `/einstellungen`) |
 | `components/StallblickApp.tsx` | Dashboard-Hauptscreen: Kamera-Karten, Rollenwechsel, Vollbild, Datensparen |
 | `components/CameraStream.tsx` | Kamera-Container: WebRTC/HLS (Hauptbild) bzw. Snapshot-Polling (Vorschau) |
@@ -247,9 +238,6 @@ Android-Handy per Termux ([`edge-agent/termux/`](edge-agent/termux/)).
 
 ## Live
 
-Deployt auf Vercel: **https://die-stallwache.vercel.app**
-(eine Kamera-Kachel bleibt beim Wartehinweis, bis ihre `TUYA_DEVICE_ID_*`
-gesetzt ist und das Gerät in der Tuya-Cloud online ist).
 Deployt auf Vercel: **https://stallwache.vercel.app**
 (zeigt „Warte auf Bridge", bis `NEXT_PUBLIC_BRIDGE_URL` gesetzt und die Bridge im Stall verbunden ist).
 
@@ -274,8 +262,6 @@ Die Kamera-Streams laufen dort ohne Browser-Umwege direkt in der APK
 
 ## Tech-Stack
 
-Next.js 16 (App Router) · React 19 · Tailwind CSS · hls.js · Tuya OpenAPI ·
-Upstash Redis (optional) · Python (OpenCV, Ultralytics)
 Next.js 16 (App Router) · React 19 · Tailwind CSS · hls.js · PWA (eigener
 Service Worker, IndexedDB, Background Sync) · Firebase Cloud Messaging ·
 Google Pub/Sub · Google Cloud Storage (optional) · Vertex AI / Gemini ·

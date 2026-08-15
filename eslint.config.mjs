@@ -11,7 +11,7 @@ const eslintConfig = [
       ".next/**",
       "node_modules/**",
       "edge-agent/**", // Python-Projekt
-      "_archiv/**", // Legacy-Bridge (Shell/Docker), kein JS
+      "bridge/**", // Shell/Docker, kein JS
     ],
   },
 ];

@@ -9,6 +9,9 @@ import {
   type CameraId,
   type CameraState,
   cameraById,
+  isConfigured,
+  snapshotSupported,
+  snapshotUrl,
 } from "@/lib/config";
 
 const STATE_LABEL: Record<CameraState, string> = {
@@ -52,14 +55,6 @@ export default function StallblickApp() {
   const [hauptkamera, setHauptkamera] = useState<CameraId>("stallwache");
   const [vollbild, setVollbild] = useState(false);
 
-  // Ob eine Kamera in der Tuya-Cloud eingerichtet ist, weiss erst der Server
-  // (die TUYA_*-Vars sind bewusst nicht oeffentlich). Bis der jeweilige
-  // Stream-Endpoint geantwortet hat, steht deshalb ueberall "laedt".
-  const [camStates, setCamStates] = useState<Record<CameraId, CameraState>>({
-    stallwache: "laedt",
-    futterwache: "laedt",
-    stallbox: "laedt",
-  });
   /**
    * Datensparen: Das Hauptbild laeuft zunaechst als Vorschau (Einzelbilder)
    * statt als Videostream. Erst „Live starten" – oder das Vollbild – bindet
@@ -161,28 +156,20 @@ export default function StallblickApp() {
 
   const snapshot = useCallback(async () => {
     const cam = cameraById(hauptkamera);
-    // Die Tuya-Cloud hat kein Einzelbild-Endpoint (anders als frueher
-    // go2rtcs frame.jpeg). Das Standbild kommt daher aus dem laufenden
-    // Video: Der Tuya-Stream laeuft ueber unseren eigenen Proxy, ist also
-    // same-origin – die Canvas bleibt exportierbar ("untainted").
-    const video = document.querySelector<HTMLVideoElement>(
-      'video[data-rolle="haupt"]',
-    );
-    if (!video?.videoWidth) {
-      addEreignis(`Snapshot nicht möglich – ${cam.name} liefert kein Bild`);
+    if (!isConfigured) {
+      addEreignis(`Snapshot nicht möglich – Bridge nicht verbunden`);
+      return;
+    }
+    if (!snapshotSupported) {
+      addEreignis(
+        `Snapshot nicht verfügbar – MediaMTX hat kein Einzelbild-Endpoint`,
+      );
       return;
     }
     try {
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas nicht verfügbar");
-      ctx.drawImage(video, 0, 0);
-      const blob = await new Promise<Blob | null>((fertig) =>
-        canvas.toBlob(fertig, "image/jpeg", 0.92),
-      );
-      if (!blob) throw new Error("Kein Bild");
+      const res = await fetch(`${snapshotUrl(cam.streamName)}&t=${Date.now()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

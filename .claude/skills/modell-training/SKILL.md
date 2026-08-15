@@ -1,6 +1,6 @@
 ---
 name: modell-training
-description: Geführte Prozedur für die Modell-Erstinbetriebnahme der KI-Wache — Silent Mode (Datensammlung) → CVAT-Labeling → Colab-Training → best.pt → Analyse-Modus → Fehlalarm-Nachtraining. Nutzen, sobald der Agent eine Videoquelle hat (Cloud-Quelle über die Tuya-Kameras) und Trainingsbilder gesammelt werden können, sowie bei jedem Nachtraining.
+description: Geführte Prozedur für die Modell-Erstinbetriebnahme der KI-Wache — Silent Mode (Datensammlung) → CVAT-Labeling → Colab-Training → best.pt → Analyse-Modus → Fehlalarm-Nachtraining. Nutzen, sobald der Agent eine Videoquelle hat (Cloud-Quelle ohne Bridge über die Tuya-Kameras ODER Bridge-RTSP) und Trainingsbilder gesammelt werden können, sowie bei jedem Nachtraining.
 ---
 
 # KI-Wache: Modell-Erstinbetriebnahme & Nachtraining
@@ -12,9 +12,6 @@ CVAT kostenlos, offene Datensätze).
 
 ## Voraussetzungen prüfen
 
-1. Der Agent hat eine Videoquelle:
-   - **Cloud-Quelle (Standardweg, alle Kameras hängen in der Tuya-Cloud):**
-     in `config.yaml` `stream.app_url` +
 1. Der Agent hat eine Videoquelle — **einer** der beiden Wege genügt:
    - **Bridge:** `NEXT_PUBLIC_BRIDGE_URL` gesetzt, RTSP-Restream erreichbar
      (go2rtc Port 8554 bzw. MediaMTX), ODER

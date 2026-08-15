@@ -52,12 +52,6 @@ Maßgebliche Implementierung: `edge-agent/main.py`; exakte Defaults:
 
 ## Technische Architektur
 
-- **Kameras** hängen alle in der **Tuya-Cloud** (Stallwache, Futterwache,
-  Stallbox) — kein Gerät im Stall, keine Portfreigabe. Die frühere Bridge
-  (go2rtc/MediaMTX) ist abgelöst und liegt nur noch unter `_archiv/`.
-- **Videoquelle des Agenten** (`CloudQuelle`): Login an der Webapp,
-  kurzlebige HLS-URL von `/api/<kamera>/stream`, CDN-Direktzugriff,
-  automatische URL-Erneuerung beim Reconnect
 - **Kameras** liefern lokal RTSP. Eine **Bridge** (go2rtc oder MediaMTX) im
   Stall-LAN macht daraus WebRTC/HLS und stellt einen RTSP-Restream (Port 8554)
   + Snapshot-API (go2rtc Port 1984) bereit.
@@ -66,8 +60,6 @@ Maßgebliche Implementierung: `edge-agent/main.py`; exakte Defaults:
   an der Webapp, kurzlebige HLS-URL von `/api/<kamera>/stream`, CDN-
   Direktzugriff, automatische URL-Erneuerung beim Reconnect
   (`stream.app_url`/`quelle_api`/`app_passwort`).
-- **RTSP** (`stream.url`) bleibt im Agenten unterstützt, ist im Betrieb
-  Oberer Stollenhof aber nicht mehr im Einsatz.
 - **Der Edge-Agent** läuft als Python-Prozess auf einem beliebigen Rechner im
   Stall-Netz (alter Laptop/Raspberry Pi genügt — 1 FPS reicht, weil sich
   Kalbeanzeichen über Minuten entwickeln). GPU ist optional.

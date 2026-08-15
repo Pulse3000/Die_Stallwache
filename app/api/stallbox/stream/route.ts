@@ -4,11 +4,6 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * Liefert dem Frontend eine kurzlebige HLS-URL der Stallbox aus der
- * Tuya-Cloud. Zugangsdaten bleiben serverseitig; ohne TUYA_*-Env-Vars
- * bleibt der Endpoint geschlossen (503) und die Kachel zeigt den
- * Wartehinweis – seit der Tuya-Umstellung gibt es keinen Bridge-Fallback
- * mehr.
  * Alt-Pfad der Abkalbebox (hiess frueher "Stallbox").
  *
  * Bleibt bestehen, weil die Android-App (Der-Stallblick) und moeglicherweise

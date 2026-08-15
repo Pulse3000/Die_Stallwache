@@ -1,9 +1,5 @@
 # Bridge-Wahl: go2rtc oder MediaMTX
 
-> **Legacy – nicht mehr im Einsatz.** Stallblick läuft seit der Umstellung
-> vollständig über die Tuya-Cloud; dieses Verzeichnis liegt nur noch im Archiv.
-> Siehe [`_archiv/README.md`](../README.md).
-
 Beide wandeln den lokalen RTSP-Stream der Kameras in browser-taugliches
 WebRTC/HLS um und werden per Cloudflare Tunnel öffentlich erreichbar gemacht.
 Stallblick unterstützt beide über `NEXT_PUBLIC_BRIDGE_TYPE` (siehe
