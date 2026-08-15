@@ -22,6 +22,7 @@ ein Agent) aufruft. Sie zerfallen in drei Gruppen:
 | **Scharfschalten** (einmalig je Baustein) | `stallwache-live-schalten`, `persistenz-live-schalten`, `push-live-schalten`, `gcp-anbindung`, `tuya-futterwache`, `modell-training` | Einen fertig gebauten, aber schlafenden Baustein in Betrieb nehmen — und den Betrieb **beweisen**, nicht nur konfigurieren |
 | **Prüfen & Ausliefern** | `betriebs-bereitschaft`, `stallblick-deploy`, `ki-wache-smoketest`, `pwa-abnahme`, `security-sweep` | Vor und nach jeder Auslieferung |
 | **Betrieb & Störung** | `tuya-diagnose`, `neue-kamera`, `fehlalarm-triage`, `bytetrack-tuning`, `wettbewerbs-check` | Wenn im laufenden Betrieb etwas klemmt oder nachgeschärft wird |
+| **Bauen** | `spezifikation-umsetzen` | Der Rückweg der Spezifikations-Pipeline: aus einer der fünf Spec-Dateien wird gemergter Code — mit dem Umfang auf den Teil geschnitten, dessen Voraussetzung wirklich existiert |
 
 Die Scharfschalt-Skills teilen ein Muster, das sich bewährt hat: Die App
 **degradiert still**, wenn ein Baustein fehlt (kein Push, keine Persistenz,
@@ -52,7 +53,8 @@ Neue Aufgabe
 ├─ sw.js, Offline-Puffer, Manifest, Tabs       → Skill pwa-abnahme
 ├─ Bridge läuft, Modell fehlt                  → Skill modell-training
 ├─ Analyse-Modus läuft, Fehlalarme kommen      → Skill fehlalarm-triage
-└─ ID-Wechsel / Alarme bleiben aus             → Skill bytetrack-tuning
+├─ ID-Wechsel / Alarme bleiben aus             → Skill bytetrack-tuning
+└─ Blocker einer Spezifikation ist weg         → Skill spezifikation-umsetzen
 ```
 
 ## Koordinationsmuster (bewährt in dieser Session)
@@ -92,10 +94,18 @@ Neue Aufgabe
    `wettbewerbsanalyse.md`/`roadmap.md`) → Fachspezifikation (`ki-wache`,
    Struktur: Grundsatz → ehrliche Grenzen → Regeln mit Zahlen → Config →
    fertige Texte → Abnahmekriterien → Risiken) → Code erst, wenn die
-   Voraussetzung real ist. Blockierte Ideen werden spezifiziert statt halb
-   gebaut (so entstanden Festliege #26, Brunst-Fusion #27, Kalbe-Akte #31,
-   Lahmheit #32). Fällt der Fachagent aus (z. B. API-Überlastung), entwirft
-   der Orchestrator nach dessen Mandat und vermerkt die Provenienz.
+   Voraussetzung real ist (Rückweg: Skill `spezifikation-umsetzen`).
+   Blockierte Ideen werden spezifiziert statt halb gebaut (so entstanden
+   Festliege #26, Brunst-Fusion #27, Kalbe-Akte #31, Lahmheit #32,
+   Eskalationskette #49). Fällt der Fachagent aus (z. B. API-Überlastung),
+   entwirft der Orchestrator nach dessen Mandat und vermerkt die Provenienz.
+7. **Widerspruch ausdrücklich bestellen.** Der Auftrag an den Fachexperten
+   endet mit „widersprich, wenn die Entscheidung fachlich nicht trägt" — und
+   das ist keine Höflichkeitsfloskel. Die Eskalations-Spezifikation hat auf
+   diesem Weg eine bereits dokumentierte Architektur-Entscheidung korrigiert
+   (das Weckgerät gehört ins Haus, nicht in den Stall: Stress im Stadium II
+   hemmt die Oxytocin-Ausschüttung). Ein Agent, der nur bestätigen darf, ist
+   ein teurer Formatierer.
 
 ## Leitplanken für jede Delegation
 

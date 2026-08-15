@@ -16,7 +16,7 @@ Handeln nötig ist.
 | --- | --- | --- |
 | **Sehen** | Stallblick (Vier-Kamera-Übersicht) | In 3 Sekunden wissen, was im Stall los ist |
 | **Verstehen** | Edge-Agent (YOLO-Pose, lokal) | Kalbung & Brunst erkennen, bevor es der Mensch könnte |
-| **Handeln** | Alarme (Telegram + Push + KI-Wache) | Geweckt werden, wenn es zählt — mit Beweisbildern |
+| **Handeln** | Alarme (Telegram + Push + KI-Wache) | Geweckt werden, wenn es zählt — mit Beweisbildern, und so lange, bis jemand bestätigt |
 | **Durchhalten** | PWA-Cache, Aktions-Warteschlange, Agent-Puffer | Der Alarm kommt an, **auch wenn das Netz zusammenbricht** |
 | **Verbessern** | Ein-Tipp-Feedback + Nachtraining | Jeder Fehlalarm macht das System schlauer — der Landwirt trainiert sein eigenes Modell, keine Blackbox |
 
@@ -40,6 +40,12 @@ statt dass Schweigen fälschlich „alles ruhig" bedeutet.
 
 1. **0 € pro Kuh und Jahr.** Vorhandene Kameras, ausgemusterte Rechner,
    kostenlose Trainings-Infrastruktur (Colab, CVAT, offene Datensätze).
+   Ehrlich dazugesagt: Der lokale Weckkanal (Prinzip 8) ist die **einzige**
+   Stufe, für die ein Betrieb Hardware kaufen muss, die er nicht hat — rund
+   **24–66 € einmalig**, gegen 100–660 € in der Nachbarkategorie. Die Aussage
+   lautet deshalb „Software 0 €, Weckhardware ab 24 €, laufend 0 €/Kuh/Jahr"
+   und nicht „0 €, du hast schon alles". Die Zahl selbst zu nennen ist
+   stärker, als sie den Betrieb beim Aufbau entdecken zu lassen.
 2. **Edge-First.** Video verlässt den Hof nicht; nur Ereignisse gehen ins Netz.
    Datenhoheit ist Feature, nicht Fußnote.
 3. **Ruhe vor Fülle.** Jeder Alarm muss eine Handlung auslösen können; alles
@@ -61,6 +67,23 @@ statt dass Schweigen fälschlich „alles ruhig" bedeutet.
    jeder Alarm quittierbar. Nachgelieferte Ereignisse aus einem Funkloch
    wandern still ins Protokoll statt vierzigmal zu klingeln — Alarmmüdigkeit
    kostet mehr als eine spät gelesene Meldung.
+8. **Gesendet ist nicht angekommen — die Kette endet am wachen Menschen.**
+   Die ganze Branche hört beim Absenden auf: Erkennung, Push, fertig. Aber
+   Schweigen ist zweideutig — „gesehen und für harmlos befunden" und
+   „durchgeschlafen" sehen von außen identisch aus. Nur die **Quittierung**
+   löst diese Zweideutigkeit auf. Deshalb wird ein unbestätigter dringender
+   Alarm nicht leiser, sondern hartnäckiger: Wiederholung, zweiter Mensch,
+   und zuletzt ein Weckton, der ohne Internet auskommt. Das ist die einzige
+   Stelle, an der das System die Ruhe des Landwirts bewusst übergeht — und
+   sie ist mit Prinzip 7 vereinbar, weil sie **niemanden zusätzlich
+   alarmiert, der reagiert hat**. Die zusätzliche Lautstärke bezahlt nur, wer
+   nicht antwortet.
+
+   Zwei Konsequenzen, die nicht verhandelbar sind: Der Weckkanal liegt
+   **lokal** (MQTT im Hof-LAN, nicht in der Cloud, die mit derselben Leitung
+   ausfällt), und das Weckgerät hängt **im Wohnhaus, nicht im Stall** — Stress
+   im Stadium II hemmt die Oxytocin-Ausschüttung, ein Ton über der kalbenden
+   Kuh gefährdet genau das Kalb, das der Alarm retten soll (Prinzip 5).
 
 ## Nordstern-Metriken
 
@@ -101,7 +124,11 @@ nichts ist halb:
 - **Spezifiziert** (je mit Schwellen, Config, Alarmtexten, Abnahmekriterien):
   Festliege-Wächter, Zwei-Kamera-Brunst-Fusion, Kalbe-Akte,
   Lahmheits-Frühwarnung — alle Anforderungen an das 2. Modelltraining
-  sind im Skill `modell-training` gebündelt.
+  sind im Skill `modell-training` gebündelt — sowie die
+  **quittierungs-getriebene Nacht-Eskalation** samt lokalem Weckkanal
+  (Prinzip 8); sie hängt als einzige nicht am Modell, sondern nur an der
+  Ereignis-Persistenz. Der Weg von einer Spezifikation zu gemergtem Code ist
+  selbst eine Prozedur: Skill `spezifikation-umsetzen`.
 - **Arbeitsmodell dahinter — die Spezifikations-Pipeline:** Marktbefund
   (`markt-analyst`) → Produktentscheidung (Orchestrator, dokumentiert in
   `wettbewerbsanalyse.md`) → Fachspezifikation (`ki-wache`) → Code erst,
