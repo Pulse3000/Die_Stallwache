@@ -1,0 +1,43 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d --build",
+  "secrets": [
+    {
+      "name": "TUYA_ACCESS_ID",
+      "description": "Tuya-Cloud Access-ID (Tuya IoT Platform -> Cloud-Projekt -> Overview). Nur noetig fuer Livebilder/Steuerung; ohne sie zeigt die App Demo-/Warte-Zustaende.",
+      "requiredAtBoot": false,
+      "generatedForDevelopment": false
+    },
+    {
+      "name": "TUYA_ACCESS_SECRET",
+      "description": "Tuya-Cloud Access-Secret zum selben Cloud-Projekt. Optional.",
+      "requiredAtBoot": false,
+      "generatedForDevelopment": false
+    },
+    {
+      "name": "TUYA_DEVICE_ID_STALLWACHE",
+      "description": "Geraete-ID der Hauptkamera (Tuya IoT Platform -> Devices). Optional.",
+      "requiredAtBoot": false,
+      "generatedForDevelopment": false
+    },
+    {
+      "name": "TUYA_DEVICE_ID_FUTTERWACHE",
+      "description": "Geraete-ID der Kamera Futterwache. Optional.",
+      "requiredAtBoot": false,
+      "generatedForDevelopment": false
+    },
+    {
+      "name": "TUYA_DEVICE_ID_ABKALBEBOX",
+      "description": "Geraete-ID der Kamera Abkalbebox (Alias: TUYA_DEVICE_ID_STALLBOX). Optional.",
+      "requiredAtBoot": false,
+      "generatedForDevelopment": false
+    },
+    {
+      "name": "TUYA_DEVICE_ID_WEIDEWACHE",
+      "description": "Geraete-ID der Kamera Weidewache. Optional.",
+      "requiredAtBoot": false,
+      "generatedForDevelopment": false
+    }
+  ]
+}
