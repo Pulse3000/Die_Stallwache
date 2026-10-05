@@ -1,0 +1,50 @@
+# Stallblick (die-stallwache) — Base44 development environment.
+#
+# Nur die Webapp: Next.js 16 Dev-Server aus dem geklonten Quellcode.
+# Bridge, Edge-Agent, Tuya/FCM/GCP sind optionale Integrationen — ohne
+# Zugangsdaten laeuft die App vollstaendig (leere/Demo-Zustaende, das
+# Passwort-Gate ist aus, solange STALLBLICK_PASSWORT leer ist).
+#
+# Start: docker compose -f docker-compose.base44.yml up -d --build
+
+services:
+  web:
+    # Bewusst ein schlichtes Runtime-Image + Bind-Mount statt eines
+    # Produktions-Images: nur so spiegeln Codeaenderungen in die Vorschau.
+    image: node:22
+    working_dir: /app
+    command:
+      - sh
+      - -ec
+      - npm ci --no-audit --no-fund && exec npm run dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      - NEXT_TELEMETRY_DISABLED=1
+      # Bind-Mounts liefern oft keine inotify-Events — Polling erzwingt HMR.
+      - WATCHPACK_POLLING=true
+      # next.config.mjs baut daraus allowedDevOrigins (Origin-Pruefung des
+      # Dev-Servers hinter dem Preview-Proxy).
+      - BASE44_PUBLIC_HOST_SUFFIX=${BASE44_PUBLIC_HOST_SUFFIX}
+      - BASE44_SANDBOX_HOST_DOMAIN=${BASE44_SANDBOX_HOST_DOMAIN}
+    env_file:
+      # Projekt-Defaults zuerst, echte Secrets zuletzt (letzter Treffer gewinnt).
+      - ./.base44/defaults.env
+      - /run/base44/app.env
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 180s
+    restart: on-failure
+
+volumes:
+  node_modules:
