@@ -1,0 +1,22 @@
+# Edge-Agent als Dauerdienst auf der Stallwache LELA.
+# Start (aus edge-agent/):  docker compose -f deploy-stallwache-lela/docker-compose.yml up -d --build
+services:
+  stallblick-agent:
+    build:
+      context: ..
+      dockerfile: deploy-stallwache-lela/Dockerfile
+    container_name: stallblick-agent
+    restart: unless-stopped
+    cpus: 1            # flache Last - Hitzeschutz der alten APU
+    mem_limit: 2g
+    working_dir: /agent
+    volumes:
+      - ../config.yaml:/agent/config.yaml:ro
+      - ../aufnahmen:/agent/aufnahmen
+      - ../modelle:/agent/modelle:ro
+      - stallblick-daten:/agent/daten
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+volumes:
+  stallblick-daten:
