@@ -9,6 +9,7 @@ import type {
   MessSpezifikation,
   StatusPunkt,
 } from "@/lib/tuya";
+import { sichtbaresIntervall } from "@/lib/sichtbares-intervall";
 
 /**
  * Steuerung der Tuya-Geraete im Stall (Traenken, Licht, Sensoren, Kameras).
@@ -61,11 +62,11 @@ export default function GeraeteSteuerung() {
     };
     void laden();
     // Geraetezustaende aendern sich selten – ein ruhiges Intervall reicht und
-    // schont Akku wie Tuya-Kontingent.
-    const t = setInterval(() => void laden(), 60_000);
+    // schont Akku wie Tuya-Kontingent; im verborgenen Tab pausiert es ganz.
+    const ende = sichtbaresIntervall(() => void laden(), 60_000);
     return () => {
       beendet = true;
-      clearInterval(t);
+      ende();
     };
   }, [nachzaehlen]);
 

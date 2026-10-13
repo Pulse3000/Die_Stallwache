@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { sichtbaresIntervall } from "@/lib/sichtbares-intervall";
 
 /**
  * Untere Navigationsleiste der PWA.
@@ -67,10 +68,11 @@ export default function TabLeiste() {
       }
     };
     void laden();
-    const t = setInterval(laden, 60_000);
+    // Im verborgenen Tab pausiert; beim Zurueckkehren sofort frische Daten.
+    const ende = sichtbaresIntervall(laden, 60_000);
     return () => {
       beendet = true;
-      clearInterval(t);
+      ende();
     };
   }, [pfad, versteckt]);
 
