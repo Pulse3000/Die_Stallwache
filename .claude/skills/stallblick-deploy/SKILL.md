@@ -21,7 +21,7 @@ kaputte Deploys kosten Vertrauen ins „Dritte Auge".
 3. **Deploy:** `npx vercel deploy --prod --yes < /dev/null` (im Hintergrund
    starten; wartet die CLI auf Device-Login, dem Nutzer die
    `vercel.com/oauth/device`-URL samt Code geben).
-4. **Live-Check:** `https://die-stallwache.vercel.app/`, `/wache` und
+4. **Live-Check:** `https://stallwache.vercel.app/`, `/wache` und
    `/api/events` müssen 200 liefern; bei POST ohne Token muss `/api/events`
    503 (unkonfiguriert) oder 401 (falscher Token) liefern — niemals 201.
 5. **Git:** Änderungen committen und auf den Arbeitsbranch pushen; ohne offenen
@@ -29,7 +29,7 @@ kaputte Deploys kosten Vertrauen ins „Dritte Auge".
 
 ## Wichtige Eigenheiten
 
-- Produktions-Alias: `die-stallwache.vercel.app` (Team `stallwache`,
+- Produktions-Alias: `stallwache.vercel.app` (alt `die-stallwache.vercel.app` leitet per 307 dorthin um) (Team `stallwache`,
   Projekt `die-stallwache`, `team_7af87ADvim4feu9IPsZoUFq8`).
 - Env-Vars (`EDGE_INGEST_TOKEN`, `NEXT_PUBLIC_GO2RTC_URL`, …) nur der Nutzer
   im Vercel-Dashboard setzen lassen — Schreibzugriff auf den Secret-Store ist
