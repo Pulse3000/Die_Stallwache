@@ -63,6 +63,7 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptsRef = useRef(0);
   const wasLiveRef = useRef(false);
+  const webrtcWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disposedRef = useRef(false);
   // Tuya fehlgeschlagen -> fuer diese Haupt-Session auf die Bridge bleiben.
   const tuyaAufgegebenRef = useRef(false);
@@ -105,6 +106,8 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
 
     const teardownLive = () => {
       clearTimer();
+      if (webrtcWatchdogRef.current) clearTimeout(webrtcWatchdogRef.current);
+      webrtcWatchdogRef.current = null;
       pcRef.current?.close();
       pcRef.current = null;
       teardownWhep();
@@ -112,6 +115,7 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
       hlsRef.current = null;
       const video = videoRef.current;
       if (video) {
+        video.removeEventListener("playing", markLive);
         video.srcObject = null;
         video.removeAttribute("src");
       }
@@ -206,7 +210,10 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
 
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = url; // Safari / iOS: natives HLS
-        video.play().then(markLive).catch(() => {});
+        // "online" erst beim echten "playing"-Event – play() aufgeloest
+        // heisst nur "Wiedergabe gestartet", nicht "Bild da".
+        video.addEventListener("playing", markLive, { once: true });
+        video.play().catch(() => {});
         return;
       }
       // hls.js (~250 KB) erst laden, wenn er wirklich gebraucht wird:
@@ -238,8 +245,10 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
         hls.loadSource(url);
         hls.attachMedia(video);
         hls.on(HlsJs.Events.MANIFEST_PARSED, () => {
+          // "online" erst beim echten "playing"-Event – ein geparstes
+          // Manifest heisst nur "Playlist gueltig", nicht "Bild da".
+          video.addEventListener("playing", markLive, { once: true });
           video.play().catch(() => {});
-          markLive();
         });
         hls.on(HlsJs.Events.ERROR, (_e, data) => {
           if (data.fatal) onFatal();
@@ -256,6 +265,16 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
       const video = videoRef.current;
       if (!video || disposedRef.current) return;
 
+      // Pro Verbindungsversuch eigenes Flag: wasLiveRef bleibt ueber
+      // Reconnects hinweg true, sobald die Kamera einmal online war, und
+      // taugt deshalb nicht zur Erkennung "dieser Versuch liefert kein Bild".
+      let bildDa = false;
+      const onPlaying = () => {
+        bildDa = true;
+        markLive();
+      };
+      video.addEventListener("playing", onPlaying, { once: true });
+
       try {
         const pc = new RTCPeerConnection({
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -271,11 +290,29 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
           }
         };
         pc.onconnectionstatechange = () => {
-          if (pc.connectionState === "connected") markLive();
+          if (pc.connectionState === "connected") {
+            // ICE/DTLS steht – das heisst noch nicht, dass auch ein
+            // Videotrack ankommt (z.B. RTSP-Quelle an der Bridge offline).
+            // "online" meldet erst das "playing"-Event oben; kommt bis
+            // dahin kein Bild, auf HLS zurueckfallen statt den Nutzer vor
+            // einem endlosen Lade-Spinner haengen zu lassen.
+            if (webrtcWatchdogRef.current) clearTimeout(webrtcWatchdogRef.current);
+            webrtcWatchdogRef.current = setTimeout(() => {
+              if (pcRef.current === pc && !disposedRef.current && !bildDa) {
+                video.removeEventListener("playing", onPlaying);
+                pc.close();
+                if (pcRef.current === pc) pcRef.current = null;
+                startHls();
+              }
+            }, 8000);
+          }
           if (
             pc.connectionState === "failed" ||
             pc.connectionState === "disconnected"
           ) {
+            if (webrtcWatchdogRef.current) clearTimeout(webrtcWatchdogRef.current);
+            webrtcWatchdogRef.current = null;
+            video.removeEventListener("playing", onPlaying);
             pc.close();
             if (pcRef.current === pc && !disposedRef.current) {
               pcRef.current = null;
@@ -313,6 +350,9 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
           await pc.setRemoteDescription(answer);
         }
       } catch {
+        if (webrtcWatchdogRef.current) clearTimeout(webrtcWatchdogRef.current);
+        webrtcWatchdogRef.current = null;
+        video.removeEventListener("playing", onPlaying);
         pcRef.current?.close();
         pcRef.current = null;
         teardownWhep();
