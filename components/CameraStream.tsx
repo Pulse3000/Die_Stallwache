@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Hls from "hls.js";
+import type Hls from "hls.js";
 import {
   BRIDGE_TYPE,
   type CameraConfig,
@@ -194,16 +194,32 @@ export default function CameraStream({ camera, role, onState }: Props) {
         video.play().then(markLive).catch(() => {});
         return;
       }
-      if (Hls.isSupported()) {
-        const hls = new Hls({ lowLatencyMode: true, liveSyncDuration: 2 });
+      // hls.js (~250 KB) erst laden, wenn er wirklich gebraucht wird:
+      // Safari/iOS spielt nativ, WebRTC-Pfade brauchen ihn nie.
+      import("hls.js")
+        .then(({ default: HlsJs }) => {
+          if (disposedRef.current) return;
+          startHlsJs(HlsJs, video, url, onFatal);
+        })
+        .catch(onFatal);
+    };
+
+    const startHlsJs = (
+      HlsJs: typeof Hls,
+      video: HTMLVideoElement,
+      url: string,
+      onFatal: () => void,
+    ) => {
+      if (HlsJs.isSupported()) {
+        const hls = new HlsJs({ lowLatencyMode: true, liveSyncDuration: 2 });
         hlsRef.current = hls;
         hls.loadSource(url);
         hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        hls.on(HlsJs.Events.MANIFEST_PARSED, () => {
           video.play().catch(() => {});
           markLive();
         });
-        hls.on(Hls.Events.ERROR, (_e, data) => {
+        hls.on(HlsJs.Events.ERROR, (_e, data) => {
           if (data.fatal) onFatal();
         });
       } else {
