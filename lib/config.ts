@@ -133,7 +133,7 @@ export const CAMERAS: readonly CameraConfig[] = [
     id: "weidewache",
     name: "Weidewache",
     streamName: process.env.NEXT_PUBLIC_STREAM_NAME_4?.trim() || "weidewache",
-    ort: "Weide",
+    ort: "Melkstand Eingang",
     tuyaFaehig: WEIDEWACHE_TUYA,
     tuyaEndpoint: "/api/weidewache/stream",
   },
