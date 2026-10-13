@@ -64,3 +64,12 @@ einem laufenden Dev-Server stoert dessen Zustand — danach
 Erwartung ohne Zugangsdaten: fuenf Bereiche rendern (`/`, `/alarme`,
 `/steuerung`, `/analytik`, `/einstellungen`), 0 von 4 Kameras online,
 `/api/events` liefert Demo-Daten, `/api/tuya/geraete` → 503.
+
+## Merge-Freigabe
+
+Der Betreiber erlaubt Agenten dauerhaft, eigene PRs gegen `main` selbst zu
+mergen (Merge = Vercel-Produktionsdeploy) – aber nur, wenn
+`npm run typecheck && npm run lint && npm test && npm run build` grün ist,
+die Vercel-Preview „Ready" meldet, keine Review-Threads offen sind und kein
+Merge-Konflikt besteht. Danach Live-Check laut
+`.claude/skills/stallblick-deploy/SKILL.md`.
