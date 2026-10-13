@@ -1,0 +1,130 @@
+"""Freeze-Watchdog für den KI-Wache-Agent (Stallblick / Oberer Stollenhof).
+
+Erkennt zwei Kamera-Defekte, die sonst niemand bemerkt:
+  1. Eingefrorenes Bild  – N aufeinanderfolgende Frames (nahezu) identisch.
+  2. Streifen-Korruption – Bildbereich aus senkrechten Farbstreifen
+     (jede Spalte vertikal konstant -> Zeilen-Differenz ~ 0).
+
+Ruhe vor Fülle: genau EIN `info`-Ereignis beim Eintritt in den Fehlerzustand,
+eines bei Erholung. Kein Spam dazwischen. Blockiert die Analyse nie.
+
+Einbindung (pro Kamera eine Instanz):
+    wd = FreezeWatchdog("stallwache")
+    ev = wd.pruefe(frame_bgr)          # numpy-Array HxWx3, uint8
+    if ev: sende_event(ev)             # Telegram + POST /api/events
+    if wd.defekt: ueberspringe Trainingsbild-Speicherung / Analyse
+
+Im Agenten übernimmt das `pruefe_kamerabild()` in main.py; die Schwelle
+`frames_bis_alarm` kommt aus `watchdog.frames_bis_alarm` (config.yaml) bzw.
+`baue_watchdog()` (Silent Mode 5 Aufnahmen, Analyse-Modus 300 Frames).
+"""
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import dataclass, field
+
+import numpy as np
+
+log = logging.getLogger("stallblick-agent")
+
+# Silent Mode: geprüft wird jedes gespeicherte Trainingsbild (alle
+# `silent_mode.intervall_sekunden`, z. B. 60-120 s) -> 5 Bilder = 5-10 min.
+FRAMES_SILENT = 5
+# Analyse-Modus: geprüft wird jeder Frame bei ~1 FPS -> 300 Frames = 5 min.
+FRAMES_ANALYSE = 300
+
+
+@dataclass
+class FreezeWatchdog:
+    kamera: str
+    frames_bis_alarm: int = 5          # Silent Mode @120 s -> 10 min; Analyse @1 FPS -> 5 s (ggf. 300 setzen)
+    diff_schwelle: float = 0.5         # mittlere abs. Grauwert-Differenz (0..255) = "identisch"
+    streifen_schwelle: float = 1.0     # mittlere Zeilen-Differenz im Band = "Streifen"
+    streifen_anteil: float = 0.15      # Mindesthöhe eines Streifenbands (Anteil der Bildhöhe)
+    _letztes: np.ndarray | None = field(default=None, repr=False)
+    _gleich: int = 0
+    _streifen: int = 0
+    _seit: float | None = None
+    defekt: bool = False
+    grund: str | None = None
+    ausfaelle: int = 0                 # Wie oft der Watchdog selbst gestolpert ist (Diagnose)
+
+    @staticmethod
+    def _grau(frame: np.ndarray) -> np.ndarray:
+        g = frame.mean(axis=2) if frame.ndim == 3 else frame.astype(np.float32)
+        h, w = g.shape
+        # auf ~160 px Breite verkleinern: schnell auf Pi, robust gegen JPEG-Rauschen
+        s = max(1, w // 160)
+        return g[::s, ::s].astype(np.float32)
+
+    def _hat_streifen(self, g: np.ndarray) -> bool:
+        zeilen_diff = np.abs(np.diff(g, axis=0)).mean(axis=1)  # pro Zeilenpaar
+        flach = zeilen_diff < self.streifen_schwelle
+        # Spalten müssen untereinander verschieden sein (sonst nur Wand/Himmel)
+        if g.std(axis=1).mean() < 5:
+            return False
+        laengstes = lauf = 0
+        for f in flach:
+            lauf = lauf + 1 if f else 0
+            laengstes = max(laengstes, lauf)
+        return laengstes >= self.streifen_anteil * len(zeilen_diff)
+
+    def pruefe(self, frame: np.ndarray, jetzt: float | None = None) -> dict | None:
+        if frame is None:
+            # Kein Bild ist kein Bildfehler – das meldet der TotmannWaechter.
+            return None
+        try:
+            jetzt = time.time() if jetzt is None else jetzt
+            g = self._grau(frame)
+            if self._letztes is not None and self._letztes.shape == g.shape \
+                    and np.abs(g - self._letztes).mean() < self.diff_schwelle:
+                self._gleich += 1
+            else:
+                self._gleich = 0
+            self._letztes = g
+            self._streifen = self._streifen + 1 if self._hat_streifen(g) else 0
+
+            grund = None
+            if self._gleich >= self.frames_bis_alarm:
+                grund = "Bild eingefroren"
+            elif self._streifen >= self.frames_bis_alarm:
+                grund = "Bild gestört (Streifen)"
+
+            if grund and not self.defekt:
+                self.defekt, self.grund, self._seit = True, grund, jetzt
+                zeit = time.strftime("%d.%m. %H:%M", time.localtime(jetzt))
+                return self._event(f"Kamera {self.kamera}: {grund} seit {zeit}. "
+                                   "Analyse ausgesetzt – bitte Kamera/Bridge prüfen.")
+            if not grund and self.defekt:
+                dauer = int((jetzt - (self._seit or jetzt)) / 60)
+                self.defekt, self.grund = False, None
+                return self._event(f"Kamera {self.kamera}: Bild wieder in Ordnung "
+                                   f"(Ausfall ca. {dauer} min).")
+        except Exception:  # Watchdog darf die Analyse NIE blockieren
+            # Fail-open: Ein gestolperter Watchdog darf die Analyse nicht
+            # dauerhaft ausgesetzt lassen – also Zustand zurücksetzen.
+            self.ausfaelle += 1
+            self.defekt, self.grund = False, None
+            self._letztes, self._gleich, self._streifen = None, 0, 0
+            if self.ausfaelle <= 3:
+                log.exception("Freeze-Watchdog (%s) gestolpert – Analyse läuft weiter",
+                              self.kamera)
+        return None
+
+    def _event(self, nachricht: str) -> dict:
+        return {"typ": "info", "kuhId": None, "kamera": self.kamera,
+                "nachricht": nachricht, "konfidenz": None}
+
+
+def baue_watchdog(cfg: dict, kamera: str, analyse_aktiv: bool) -> FreezeWatchdog | None:
+    """Erzeugt den Watchdog einer Kamera aus der config.yaml (Abschnitt
+    ``watchdog``). ``frames_bis_alarm`` leer/ungültig -> Silent Mode 5,
+    Analyse-Modus 300. ``watchdog.aktiv: false`` schaltet ihn ab (None)."""
+    w = (cfg.get("watchdog") or {}) if isinstance(cfg, dict) else {}
+    if w.get("aktiv", True) is False:
+        return None
+    frames = w.get("frames_bis_alarm")
+    if isinstance(frames, bool) or not isinstance(frames, int) or frames < 1:
+        frames = FRAMES_ANALYSE if analyse_aktiv else FRAMES_SILENT
+    return FreezeWatchdog(kamera, frames_bis_alarm=frames)
