@@ -43,7 +43,7 @@ export default function EinstellungenApp() {
         <div className="flex flex-col gap-2">
           <Schalterzeile
             titel="Livebild erst auf Tippen"
-            erklaerung="Das Dashboard zeigt zuerst ein Standbild. Video startet erst, wenn du es startest – spart im Mobilfunk ein Vielfaches."
+            erklaerung="Aus: Alle Kameras laufen beim Öffnen sofort live. An: Das Dashboard zeigt zuerst ein Standbild, Video startet erst auf Tippen – spart im Mobilfunk ein Vielfaches."
             an={werte.datensparen}
             umschalten={() => aendern({ datensparen: !werte.datensparen })}
           />
