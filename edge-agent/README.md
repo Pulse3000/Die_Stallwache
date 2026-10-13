@@ -139,11 +139,33 @@ sudo systemctl enable --now stallblick-agent
 Tracking über **ByteTrack** (in Ultralytics integriert) hält die Kuh-Identität
 („Kuh #42") über die Zeit stabil – Grundlage des Zeitfilters.
 
+## Freeze-Watchdog (Kamera-Defekte)
+
+`freeze_watchdog.py` erkennt zwei Fehler, die sonst niemand bemerkt: ein
+**eingefrorenes Bild** (N Bilder in Folge praktisch identisch) und
+**Streifen-Korruption** (senkrechte Farbstreifen). Je Kamera läuft ein
+Watchdog (`stream.kamera`; die Futterwache als eigene Agent-Instanz mit eigener
+`config.yaml`).
+
+* **Eine** Meldung beim Eintritt in den Fehlerzustand (Telegram + Dashboard
+  `info`), **eine** bei Erholung – kein Spam dazwischen.
+* Solange die Kamera defekt ist: **keine Trainingsbilder, keine Analyse**
+  (ein eingefrorenes Bild würde alte Befunde „weiterzählen"; im Datensatz wäre
+  es Müll).
+* Schwelle `watchdog.frames_bis_alarm`: leer = **Silent Mode 5** (geprüft wird
+  jedes gespeicherte Trainingsbild, also 5 × `silent_mode.intervall_sekunden`)
+  bzw. **Analyse-Modus 300** (jeder Frame bei ~1 FPS ≈ 5 min).
+  `watchdog.aktiv: false` schaltet ihn ab.
+* **Fail-open:** Ein Fehler im Watchdog oder beim Senden setzt die Analyse nie
+  aus. Erkennungsschwellen (45°/20 %/30 min/0.80/IoU 0.15/4 s) und Cooldown
+  bleiben unberührt.
+
 ## Logiktests
 
 Die zeitkritischen Bausteine (Totmann-Meldung, Feedback-Schleife,
-Tracker-Konfiguration, Referenz-Schwellenwerte) haben eine Offline-Testsuite,
-die ohne jede Installation läuft (cv2/numpy/requests werden gestubbt):
+Tracker-Konfiguration, Referenz-Schwellenwerte, Freeze-Watchdog) haben eine
+Offline-Testsuite (cv2/requests werden gestubbt; die Watchdog-Tests brauchen
+echtes `numpy` aus `requirements.txt`):
 
 ```bash
 python3 edge-agent/tests/alle_tests.py
