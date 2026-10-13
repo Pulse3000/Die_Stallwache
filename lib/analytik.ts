@@ -255,7 +255,7 @@ export function baueBericht(
     verlauf: baueVerlauf(imFenster, tage, jetzt, formatierer),
     tagesgang: baueTagesgang(imFenster, formatierer),
     kameras: baueKameras(imFenster),
-    brunstZyklen: baueBrunstZyklen(alle, jetzt),
+    brunstZyklen: baueBrunstZyklen(alle),
     reaktion: baueReaktion(imFenster),
     bestaetigung: baueBestaetigung(alle, imFenster),
   };
@@ -354,7 +354,6 @@ function baueKameras(ereignisse: readonly StallEreignis[]): KameraPunkt[] {
  */
 function baueBrunstZyklen(
   alle: readonly StallEreignis[],
-  jetzt: number,
 ): BrunstZyklus[] {
   const nachKuh = new Map<string, number[]>();
   for (const e of alle) {
@@ -412,7 +411,8 @@ function baueBrunstZyklen(
     const ta = a.prognose ? Date.parse(a.prognose) : Number.POSITIVE_INFINITY;
     const tb = b.prognose ? Date.parse(b.prognose) : Number.POSITIVE_INFINITY;
     if (ta !== tb) return ta - tb;
-    return Date.parse(b.brunsten[b.brunsten.length - 1] ?? "0") - jetzt;
+    return Date.parse(b.brunsten[b.brunsten.length - 1] ?? "0") -
+      Date.parse(a.brunsten[a.brunsten.length - 1] ?? "0");
   });
 }
 
