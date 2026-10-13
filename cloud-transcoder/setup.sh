@@ -50,6 +50,6 @@ Fertig. Naechste Schritte:
 
 4) Webapp (Vercel): Env-Variable setzen
    NEXT_PUBLIC_GO2RTC_URL = https://STREAM_DOMAIN
-   -> danach laeuft der Livestream auf die-stallwache.vercel.app
+   -> danach laeuft der Livestream auf stallwache.vercel.app
 ============================================================
 EOF

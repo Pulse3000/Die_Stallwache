@@ -50,7 +50,7 @@ sys.modules["requests"].Session = StubSession
 
 cfg = {
     "stream": {
-        "app_url": "https://die-stallwache.vercel.app/",
+        "app_url": "https://stallwache.vercel.app/",
         "quelle_api": "/api/futterwache/stream",
         "app_passwort": "geheim",
     }
