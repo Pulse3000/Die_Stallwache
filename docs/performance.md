@@ -25,3 +25,26 @@ Von 521 KB sind ~514 KB Next.js-/React-Runtime und das gemeinsame Layout
 (Router, `PwaLaufzeit` mit Service-Worker/Offline-Queue, `TabLeiste`). Die
 seiteneigene Logik (`WacheDashboard`) ist nur 6,8 KB. Weitere Einsparung ginge
 nur durch Abbau von PWA-/Offline-Funktionen – ausgeschlossen.
+
+## Übertragungsgröße (gzip, alle Ressourcen)
+
+Gleiche Messung, aber jede Antwort mit gzip -9 komprimiert und nach Typ
+summiert – das entspricht grob dem, was über Stall-WLAN/Mobilfunk geht.
+
+| Route | vorher | nachher | Δ |
+| --- | --- | --- | --- |
+| `/` gesamt | 559,3 KB | 169,9 KB | **−70 %** |
+| `/` davon Bild | 401,9 KB | 4,9 KB | −99 % |
+| `/` davon JS | 147,3 KB | ~150 KB | ± Messrauschen (Prefetch-Zeitpunkt) |
+| `/wache` gesamt | 160,0 KB | 160,0 KB | ±0 |
+
+3. **Logo in Anzeigegröße ausliefern:** `logo-stallwache.jpg` (859×864 px,
+   412 KB) wurde im Header mit 36 px und auf `/login` mit max. 220 px
+   gezeigt. Jetzt `logo-stallwache-108.webp` (5 KB, 3× für Retina) im Header
+   und `logo-stallwache-440.webp` (54 KB, 2×) auf `/login`, jeweils mit
+   `width`/`height` gegen Layout-Springen. Das Original bleibt liegen.
+4. **Header-Logo offline:** in die App-Shell von `public/sw.js`
+   aufgenommen, `VERSION` → `stallwache-v3`.
+
+JS ist auf beiden Routen zu ~95 % Next.js-/React-Runtime (~140 KB gzip);
+eigener Code liegt unter 10 KB.

@@ -192,8 +192,10 @@ export default function StallblickApp() {
         <div className="flex min-w-0 items-center gap-2.5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/logo-stallwache.jpg"
+            src="/logo-stallwache-108.webp"
             alt=""
+            width={36}
+            height={36}
             className="h-9 w-9 shrink-0 rounded-lg ring-1 ring-white/10"
           />
           <div className="min-w-0">
