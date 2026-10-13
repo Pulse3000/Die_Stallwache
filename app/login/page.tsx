@@ -13,9 +13,9 @@ export default function LoginPage() {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/logo-stallwache-440.webp"
-          alt="Stallwache – Oberer Stollenhof"
+          alt="Stallwache: LELA"
           width={220}
-          height={221}
+          height={220}
           className="mx-auto mb-4 w-full max-w-[220px] rounded-2xl ring-1 ring-white/10"
         />
         <p className="text-xs text-white/50">Bitte anmelden</p>
