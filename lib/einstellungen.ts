@@ -5,8 +5,9 @@
  *
  * Der Schwerpunkt liegt auf Datenverbrauch und Akku: Ein Livebild kostet im
  * Mobilfunk ein Vielfaches einer Ereignisliste, und der Landwirt hat das Handy
- * den ganzen Tag im Stall dabei. Deshalb ist „Datensparen" der Default —
- * Video laeuft erst, wenn er es ausdruecklich startet.
+ * den ganzen Tag im Stall dabei. „Datensparen" laesst sich deshalb
+ * einschalten — ab Werk laufen aber alle Kameras beim Oeffnen sofort live:
+ * Der Blick in den Stall ist der Hauptzweck der App.
  */
 
 import { useCallback, useSyncExternalStore } from "react";
@@ -27,7 +28,7 @@ export interface Einstellungen {
 }
 
 export const STANDARD: Einstellungen = {
-  datensparen: true,
+  datensparen: false,
   bilderNurAufTippen: true,
   startKamera: "stallwache",
   pushTypen: [...ALARM_TYPEN],
@@ -35,6 +36,12 @@ export const STANDARD: Einstellungen = {
 };
 
 const SCHLUESSEL = "stallwache:einstellungen";
+/**
+ * Bis Version 1 war Datensparen ab Werk an und wurde beim ersten Speichern
+ * irgendeiner Einstellung mit festgeschrieben. Ein so gespeichertes `true` war
+ * also meist keine bewusste Wahl — erst ab Version 2 gilt es als gewollt.
+ */
+const VERSION = 2;
 
 /** Liest die Einstellungen; unbekannte/kaputte Werte fallen auf STANDARD zurueck. */
 export function ladeEinstellungen(): Einstellungen {
@@ -44,7 +51,10 @@ export function ladeEinstellungen(): Einstellungen {
     if (!roh) return STANDARD;
     const g = JSON.parse(roh) as Partial<Einstellungen>;
     return {
-      datensparen: typeof g.datensparen === "boolean" ? g.datensparen : STANDARD.datensparen,
+      datensparen:
+        (g as { version?: number }).version === VERSION && typeof g.datensparen === "boolean"
+          ? g.datensparen
+          : STANDARD.datensparen,
       bilderNurAufTippen:
         typeof g.bilderNurAufTippen === "boolean"
           ? g.bilderNurAufTippen
@@ -72,7 +82,7 @@ const GEAENDERT = "stallwache:einstellungen-geaendert";
 
 export function speichereEinstellungen(e: Einstellungen): void {
   if (typeof localStorage === "undefined") return;
-  localStorage.setItem(SCHLUESSEL, JSON.stringify(e));
+  localStorage.setItem(SCHLUESSEL, JSON.stringify({ ...e, version: VERSION }));
   window.dispatchEvent(new CustomEvent(GEAENDERT));
 }
 

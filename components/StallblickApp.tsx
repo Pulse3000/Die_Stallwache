@@ -56,10 +56,11 @@ export default function StallblickApp() {
   const [vollbild, setVollbild] = useState(false);
 
   /**
-   * Datensparen: Das Hauptbild laeuft zunaechst als Vorschau (Einzelbilder)
-   * statt als Videostream. Erst „Live starten" – oder das Vollbild – bindet
-   * WebRTC/HLS an. Ein Livestream kostet im Mobilfunk ein Vielfaches, und der
-   * Blick aufs Dashboard beantwortet meist schon ein Standbild.
+   * Ab Werk laufen alle Kameras beim Oeffnen sofort live (WebRTC/HLS).
+   * Mit „Datensparen" laeuft das Hauptbild zunaechst als Vorschau
+   * (Einzelbilder); erst „Live starten" – oder das Vollbild – bindet den
+   * Videostream an, die uebrigen Kacheln bleiben Vorschau. Ein Livestream
+   * kostet im Mobilfunk ein Vielfaches eines Standbilds.
    */
   const [liveGestartet, setLiveGestartet] = useState(false);
   const liveAn = !einstellungen.datensparen || liveGestartet || vollbild;
@@ -227,7 +228,9 @@ export default function StallblickApp() {
         {CAMERAS.map((cam) => {
           const istHaupt = cam.id === hauptkamera;
           const state = camStates[cam.id];
-          const rolle = istHaupt && liveAn ? "haupt" : "vorschau";
+          // Ohne Datensparen sind alle Kacheln live, sonst nur das Hauptbild.
+          const live = einstellungen.datensparen ? istHaupt && liveAn : true;
+          const rolle = live ? "haupt" : "vorschau";
 
           return (
             <article
@@ -265,7 +268,7 @@ export default function StallblickApp() {
 
                 {/* Statuszeile ueber dem Bild */}
                 <div className="pointer-events-none absolute left-2.5 top-2.5 flex items-center gap-2">
-                  {istHaupt && liveAn && state === "online" && (
+                  {live && state === "online" && (
                     <span className="rounded bg-red-600 px-2 py-0.5 text-[11px] font-bold tracking-wide text-white">
                       LIVE
                     </span>
@@ -274,7 +277,7 @@ export default function StallblickApp() {
                     <span className={`h-1.5 w-1.5 rounded-full ${STATE_DOT[state]}`} />
                     {cam.name} · {STATE_LABEL[state]}
                   </span>
-                  {!istHaupt && (
+                  {!live && (
                     <span className="rounded bg-black/70 px-2 py-0.5 text-[11px] text-white/60">
                       Vorschau
                     </span>
