@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import CameraStream from "@/components/CameraStream";
 import LetzteAlarme from "@/components/LetzteAlarme";
 import { useEinstellungen } from "@/lib/einstellungen";
+import { usePausiert } from "@/lib/pausiert";
 import {
   CAMERAS,
   type CameraId,
@@ -27,6 +28,11 @@ const STATE_DOT: Record<CameraState, string> = {
   laedt: "bg-amber-400",
   instabil: "bg-orange-400",
 };
+
+/** Anzeige-Zustand: wie der Kamerazustand, plus „pausiert" (nicht im Bild). */
+type Anzeige = CameraState | "pausiert";
+const ANZEIGE_LABEL: Record<Anzeige, string> = { ...STATE_LABEL, pausiert: "Pausiert" };
+const ANZEIGE_DOT: Record<Anzeige, string> = { ...STATE_DOT, pausiert: "bg-white/30" };
 
 interface Ereignis {
   zeit: string;
@@ -183,8 +189,18 @@ export default function StallblickApp() {
     }
   }, [hauptkamera, addEreignis]);
 
+  // Streams laufen nur bei Sicht (lib/pausiert.ts). Eine pausierte Kachel, die
+  // nie verbunden war, ist „unbekannt" und zaehlt nicht als Stoerung; eine
+  // pausierte, zuvor online gewesene gilt weiter als online.
+  const pausiert = usePausiert(CAMERAS.map((c) => c.id));
+  const anzeige = (id: CameraId): Anzeige =>
+    pausiert[id] && camStates[id] !== "offline" ? "pausiert" : camStates[id];
   const onlineCount = CAMERAS.filter((c) => camStates[c.id] === "online").length;
-  const systemOk = onlineCount === CAMERAS.length;
+  const unbekannt = CAMERAS.filter(
+    (c) => pausiert[c.id] && camStates[c.id] !== "online" && camStates[c.id] !== "offline",
+  ).length;
+  const gezaehlt = CAMERAS.length - unbekannt;
+  const systemOk = gezaehlt > 0 && onlineCount === gezaehlt;
 
   return (
     <>
@@ -204,9 +220,13 @@ export default function StallblickApp() {
               Stallblick
             </h1>
             <p className="truncate text-xs text-white/50">
-              {systemOk
-                ? `${CAMERAS.length} Kameras online`
-                : `${onlineCount} von ${CAMERAS.length} Kameras online`}
+              {gezaehlt === 0
+                ? "Livebilder pausiert"
+                : systemOk
+                  ? unbekannt > 0
+                    ? `${onlineCount} Kameras online · ${unbekannt} pausiert`
+                    : `${CAMERAS.length} Kameras online`
+                  : `${onlineCount} von ${gezaehlt} Kameras online`}
             </p>
           </div>
         </div>
@@ -228,6 +248,7 @@ export default function StallblickApp() {
         {CAMERAS.map((cam) => {
           const istHaupt = cam.id === hauptkamera;
           const state = camStates[cam.id];
+          const zustand = anzeige(cam.id);
           // Ohne Datensparen sind alle Kacheln live, sonst nur das Hauptbild.
           const live = einstellungen.datensparen ? istHaupt && liveAn : true;
           const rolle = live ? "haupt" : "vorschau";
@@ -235,6 +256,7 @@ export default function StallblickApp() {
           return (
             <article
               key={cam.id}
+              data-kamera={cam.id}
               className={
                 vollbild && istHaupt
                   ? "fixed inset-0 z-50 flex flex-col bg-black"
@@ -264,7 +286,12 @@ export default function StallblickApp() {
                       }`
                 }
               >
-                <CameraStream camera={cam} role={rolle} onState={onCamState} />
+                <CameraStream
+                  camera={cam}
+                  role={rolle}
+                  pausiert={pausiert[cam.id] && !(vollbild && istHaupt)}
+                  onState={onCamState}
+                />
 
                 {/* Statuszeile ueber dem Bild */}
                 <div className="pointer-events-none absolute left-2.5 top-2.5 flex items-center gap-2">
@@ -274,8 +301,8 @@ export default function StallblickApp() {
                     </span>
                   )}
                   <span className="flex items-center gap-1.5 rounded bg-black/70 px-2 py-0.5 text-[11px] font-semibold">
-                    <span className={`h-1.5 w-1.5 rounded-full ${STATE_DOT[state]}`} />
-                    {cam.name} · {STATE_LABEL[state]}
+                    <span className={`h-1.5 w-1.5 rounded-full ${ANZEIGE_DOT[zustand]}`} />
+                    {cam.name} · {ANZEIGE_LABEL[zustand]}
                   </span>
                   {!live && (
                     <span className="rounded bg-black/70 px-2 py-0.5 text-[11px] text-white/60">
@@ -354,9 +381,9 @@ export default function StallblickApp() {
               </p>
               <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold">
                 <span
-                  className={`h-2 w-2 rounded-full ${STATE_DOT[camStates[cam.id]]}`}
+                  className={`h-2 w-2 rounded-full ${ANZEIGE_DOT[anzeige(cam.id)]}`}
                 />
-                {STATE_LABEL[camStates[cam.id]]}
+                {ANZEIGE_LABEL[anzeige(cam.id)]}
               </p>
             </div>
           ))}

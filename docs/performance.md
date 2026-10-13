@@ -48,3 +48,37 @@ summiert – das entspricht grob dem, was über Stall-WLAN/Mobilfunk geht.
 
 JS ist auf beiden Routen zu ~95 % Next.js-/React-Runtime (~140 KB gzip);
 eigener Code liegt unter 10 KB.
+
+## Streams nur bei Sicht
+
+Seit alle Kameras beim Öffnen live laufen, würden auch Kacheln streamen, die
+niemand sieht: weiter unten auf der Seite oder in einem Tab im Hintergrund. Das
+kostet Mobilfunkdaten, Akku und – bei Tuya – bei jedem Neuverbinden einen
+API-Aufruf (begrenztes Kontingent).
+
+5. **Pausieren statt streamen** (`lib/pausiert.ts`, `CameraStream.pausiert`):
+   - Tab verborgen (Bildschirm aus, andere App) → **sofort** pausieren.
+   - Kachel aus dem Bild gescrollt → nach **5 s** pausieren (kurzes
+     Wegscrollen kostet keine neue Verbindung); 150 px Vorlauf am Bildrand.
+   - Wieder sichtbar → sofort fortsetzen. Das Vollbild pausiert nie.
+   - Beim Laden gelten Befunde erst nach 350 ms: Das Layout verschiebt sich
+     anfangs noch (eine Kachel am Bildrand rutschte sonst nach dem ersten
+     Befund nach unten, hatte sich aber schon verbunden).
+   - Statusanzeige: pausierte Kacheln zeigen „Pausiert". Eine pausierte, nie
+     verbundene Kachel zählt nicht als Störung („3 Kameras online · 1 pausiert"),
+     eine zuvor online gewesene gilt weiter als online. „Offline" bleibt sichtbar.
+6. **Schlankere hls.js-Puffer** (`maxBufferLength` 8 s, kein Rückpuffer):
+   vier Player gleichzeitig, weniger Speicher.
+
+**Messung** (Chromium 390×844, `tests/e2e/pausiert.mjs`, Stream-Endpunkte mit
+503 beantwortet; gezählt werden Verbindungsversuche):
+
+| Situation | vorher | nachher |
+| --- | --- | --- |
+| Laden: Kachel unterhalb des Bildschirms | verbindet sich sofort | 0 Anfragen |
+| nach Scrollen zurück nach oben (5 s) | läuft weiter | pausiert |
+| Tab verborgen, 12 s | alle Kacheln fragen weiter an | 0 Anfragen |
+| Tab wieder sichtbar | – | sichtbare Kacheln verbinden sich neu |
+
+Nicht gemessen sind Bytes echter Videostreams (lokal ohne Kameras); der Effekt
+folgt daraus, dass pausierte Kacheln keine Segmente laden.
