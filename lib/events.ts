@@ -70,6 +70,8 @@ const KV_TOKEN = process.env.KV_REST_API_TOKEN?.trim() || "";
 const kvAktiv = Boolean(KV_URL && KV_TOKEN);
 const KV_LISTE = "kiwache:ereignisse";
 const KV_KONTAKT = "kiwache:kontakt";
+/** Hash-Schluessel: field = ereignis-ID, value = ISO-Zeitstempel der Quittierung. */
+const KV_QUITTIERT = "kiwache:quittiert";
 const kvBildSchluessel = (id: string, index: number) =>
   `kiwache:bild:${id}:${index}`;
 
@@ -80,22 +82,9 @@ async function kvPipeline(
   return kvSenden("pipeline", befehle);
 }
 
-/**
- * Wie `kvPipeline`, aber als Transaktion (MULTI/EXEC).
- *
- * Nur dort noetig, wo zwischen zwei Befehlen nichts dazwischenkommen darf —
- * beim Zurueckschreiben der Ereignisliste wuerde sonst ein Alarm, der genau
- * zwischen DEL und RPUSH eintrifft, verloren gehen. Genau den Alarm gibt es
- * nicht zweimal.
- */
-async function kvTransaktion(
-  befehle: (string | number)[][],
-): Promise<{ result: unknown }[] | null> {
-  return kvSenden("multi-exec", befehle);
-}
 
 async function kvSenden(
-  endpunkt: "pipeline" | "multi-exec",
+  endpunkt: "pipeline",
   befehle: (string | number)[][],
 ): Promise<{ result: unknown }[] | null> {
   if (!kvAktiv) return null;
@@ -193,13 +182,24 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
   const kv = await kvPipeline([
     ["LRANGE", KV_LISTE, 0, MAX_EREIGNISSE - 1],
     ["GET", KV_KONTAKT],
+    ["HGETALL", KV_QUITTIERT],
   ]);
   if (kv) {
     const roh = Array.isArray(kv[0]?.result) ? (kv[0].result as string[]) : [];
+    // HGETALL liefert ein flaches Array [feld1, wert1, feld2, wert2, …].
+    const quittiert = new Map<string, string>();
+    const hgetallRoh = Array.isArray(kv[2]?.result)
+      ? (kv[2].result as string[])
+      : [];
+    for (let i = 0; i + 1 < hgetallRoh.length; i += 2) {
+      quittiert.set(hgetallRoh[i], hgetallRoh[i + 1]);
+    }
     const ereignisse: StallEreignis[] = [];
     for (const s of roh) {
       try {
-        ereignisse.push(normalisiere(JSON.parse(s) as StallEreignis));
+        const e = normalisiere(JSON.parse(s) as StallEreignis);
+        const qt = quittiert.get(e.id);
+        ereignisse.push(qt ? { ...e, quittiert: qt } : e);
       } catch {
         // korrupten Einzeleintrag ueberspringen statt Liste zu verwerfen
       }
@@ -316,31 +316,11 @@ export async function quittiereEreignis(
     treffer = imPuffer;
   }
 
-  const kv = await kvPipeline([["LRANGE", KV_LISTE, 0, MAX_EREIGNISSE - 1]]);
-  const roh = Array.isArray(kv?.[0]?.result) ? (kv[0].result as string[]) : [];
-  if (roh.length > 0) {
-    let gefunden = false;
-    const neu = roh.map((s) => {
-      try {
-        const e = normalisiere(JSON.parse(s) as StallEreignis);
-        if (e.id !== id) return s;
-        gefunden = true;
-        treffer = { ...e, quittiert: zeit };
-        return JSON.stringify(treffer);
-      } catch {
-        return s;
-      }
-    });
-    if (gefunden) {
-      // Neu aufbauen statt einzeln patchen: DEL + ein RPUSH erhaelt die
-      // Reihenfolge. Als Transaktion, damit ein zeitgleich eintreffender
-      // Alarm nicht zwischen den beiden Befehlen verschwindet.
-      await kvTransaktion([
-        ["DEL", KV_LISTE],
-        ["RPUSH", KV_LISTE, ...neu],
-      ]);
-    }
-  }
+  // HSET ist eine einzelne atomare Schreiboperation; sie kann niemals ein
+  // gleichzeitig eintreffendes LPUSH aus addEreignis verdraengen. Die
+  // frueheren DEL+RPUSH-Schritte konnten Ereignisse verlieren, die zwischen
+  // dem LRANGE und dem MULTI/EXEC per LPUSH eintrafen.
+  await kvPipeline([["HSET", KV_QUITTIERT, id, zeit]]);
   return treffer;
 }
 
