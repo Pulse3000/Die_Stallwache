@@ -135,7 +135,7 @@ export const CAMERAS: readonly CameraConfig[] = [
   },
   {
     id: "weidewache",
-    name: "Weidewache",
+    name: "Eingang Melkstand",
     streamName: process.env.NEXT_PUBLIC_STREAM_NAME_4?.trim() || "weidewache",
     ort: "Melkstand Eingang",
     tuyaFaehig: WEIDEWACHE_TUYA,

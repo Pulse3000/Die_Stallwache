@@ -59,7 +59,7 @@ export const KAMERA_NAMEN: Record<TuyaKameraId, string> = {
   stallwache: "Stallwache",
   futterwache: "Futterwache",
   abkalbebox: "Abkalbebox",
-  weidewache: "Weidewache",
+  weidewache: "Eingang Melkstand",
 };
 
 /** Name der Env-Variable je Kamera – macht 503-Meldungen konkret. */
