@@ -14,7 +14,8 @@
  *   TUYA_DEVICE_ID_FUTTERWACHE  Geraete-ID der Futterwache (Projekt -> Devices)
  *   TUYA_DEVICE_ID_ABKALBEBOX   Geraete-ID der Abkalbebox  (frueher "Stallbox";
  *                               TUYA_DEVICE_ID_STALLBOX gilt weiter als Alias)
- *   TUYA_DEVICE_ID_WEIDEWACHE   Geraete-ID der Weidewache  (Projekt -> Devices)
+ *   TUYA_DEVICE_ID_WEIDEWACHE   Geraete-ID der Weidewache  (Melkstand-Eingang;
+ *                               TUYA_DEVICE_ID_MELKSTAND_EINGANG gilt als Alias)
  *   TUYA_GERAETE                steuerbare Geraete, siehe `geraeteKatalog()`
  *   TUYA_API_BASE               optional, Default EU: https://openapi.tuyaeu.com
  *
@@ -45,7 +46,12 @@ const DEVICE_IDS: Record<TuyaKameraId, string> = {
     process.env.TUYA_DEVICE_ID_ABKALBEBOX?.trim() ||
     process.env.TUYA_DEVICE_ID_STALLBOX?.trim() ||
     "",
-  weidewache: process.env.TUYA_DEVICE_ID_WEIDEWACHE?.trim() || "",
+  // Die Weidewache-Kamera steht am Melkstand-Eingang; der Betreiber hat die
+  // Variable danach benannt – beide Namen gelten.
+  weidewache:
+    process.env.TUYA_DEVICE_ID_WEIDEWACHE?.trim() ||
+    process.env.TUYA_DEVICE_ID_MELKSTAND_EINGANG?.trim() ||
+    "",
 };
 
 /** Anzeigename je Kamera – fuer Fehlermeldungen und die Geraeteuebersicht. */
