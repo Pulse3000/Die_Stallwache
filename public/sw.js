@@ -22,7 +22,7 @@
 // `activate` loescht alle Caches, die nicht mit der aktuellen Version
 // beginnen — sonst behielte ein installiertes Handy die alte Shell ohne
 // /analytik. (v2: Analytik-Bereich, Ersatzantwort je Endpoint)
-const VERSION = "stallwache-v2";
+const VERSION = "stallwache-v3";
 const SHELL_CACHE = `${VERSION}-shell`;
 const DATEN_CACHE = `${VERSION}-daten`;
 const BILD_CACHE = `${VERSION}-bilder`;
@@ -37,6 +37,7 @@ const SHELL = [
   "/offline",
   "/manifest.webmanifest",
   "/logo-mark.svg",
+  "/logo-stallwache-108.webp",
   "/icon-192.png",
   "/icon-512.png",
 ];
