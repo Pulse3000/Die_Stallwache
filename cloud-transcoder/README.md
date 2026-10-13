@@ -34,7 +34,7 @@ sudo bash setup.sh
 ```
 
 Danach in **Vercel** setzen: `NEXT_PUBLIC_GO2RTC_URL = https://stream.deine-domain.de`
-→ der Livestream erscheint auf **die-stallwache.vercel.app**.
+→ der Livestream erscheint auf **stallwache.vercel.app**.
 
 ## ⚠️ Sicherheit (wichtig)
 

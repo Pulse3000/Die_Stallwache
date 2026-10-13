@@ -62,8 +62,8 @@ else
   read -r -p "  Quelle [1]: " QUELLE
   QUELLE="${QUELLE:-1}"
   if [ "$QUELLE" = "1" ]; then
-    read -r -p "  Webapp-Adresse [https://die-stallwache.vercel.app]: " APP_URL
-    APP_URL="${APP_URL:-https://die-stallwache.vercel.app}"
+    read -r -p "  Webapp-Adresse [https://stallwache.vercel.app]: " APP_URL
+    APP_URL="${APP_URL:-https://stallwache.vercel.app}"
     read -r -p "  Kamera-Name (futterwache|stallbox) [futterwache]: " KAMERA
     KAMERA="${KAMERA:-futterwache}"
     read -r -s -p "  Webapp-Passwort (STALLBLICK_PASSWORT): " APP_PASS; echo

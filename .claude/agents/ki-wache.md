@@ -32,7 +32,7 @@ dich, wenn Erkennungslogik geprüft, erklärt oder weitergedacht werden muss.
 
 Maßgebliche Implementierung: `edge-agent/main.py`; exakte Defaults:
 `edge-agent/config.example.yaml`; vollständiger Referenz-Prompt:
-`edge-agent/SYSTEM_PROMPT.md`. Web-Dashboard: https://die-stallwache.vercel.app/
+`edge-agent/SYSTEM_PROMPT.md`. Web-Dashboard: https://stallwache.vercel.app/
 
 ## Nicht verhandelbare Prinzipien
 
