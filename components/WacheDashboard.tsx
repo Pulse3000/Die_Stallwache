@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { EreignisTyp, StallEreignis } from "@/lib/ereignis-modell";
 import { fmtZeit, TYP_BADGE, TYP_LABEL } from "@/lib/darstellung";
+import { sichtbaresIntervall } from "@/lib/sichtbares-intervall";
 
 interface ApiAntwort {
   ereignisse: StallEreignis[];
@@ -43,10 +44,11 @@ export default function WacheDashboard() {
       }
     };
     void laden();
-    const t = setInterval(() => void laden(), POLL_INTERVALL);
+    // Im verborgenen Tab pausiert; beim Zurueckkehren sofort frische Daten.
+    const ende = sichtbaresIntervall(() => void laden(), POLL_INTERVALL);
     return () => {
       beendet = true;
-      clearInterval(t);
+      ende();
     };
   }, []);
 

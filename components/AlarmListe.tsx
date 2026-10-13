@@ -7,6 +7,7 @@ import { useEinstellungen } from "@/lib/einstellungen";
 import type { EreignisTyp, StallEreignis } from "@/lib/ereignis-modell";
 import { gepufferteEreignisse, aktion, merkeEreignisse } from "@/lib/offline";
 import { fmtRelativ, fmtZeit, TYP_BADGE, TYP_LABEL, TYP_RAND } from "@/lib/darstellung";
+import { sichtbaresIntervall } from "@/lib/sichtbares-intervall";
 
 /**
  * Aktivitaetsprotokoll: alle Ereignisse eines Zeitraums, filterbar, mit
@@ -104,10 +105,11 @@ export default function AlarmListe() {
       }
     };
     void laden();
-    const t = setInterval(() => void laden(), einstellungen.abrufSekunden * 1000);
+    // Im verborgenen Tab pausiert; beim Zurueckkehren sofort frische Daten.
+    const ende = sichtbaresIntervall(() => void laden(), einstellungen.abrufSekunden * 1000);
     return () => {
       beendet = true;
-      clearInterval(t);
+      ende();
     };
     // `typen` haengt eindeutig an `abfrage` – daher reicht der Schluessel.
     // eslint-disable-next-line react-hooks/exhaustive-deps

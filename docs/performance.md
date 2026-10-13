@@ -82,3 +82,66 @@ API-Aufruf (begrenztes Kontingent).
 
 Nicht gemessen sind Bytes echter Videostreams (lokal ohne Kameras); der Effekt
 folgt daraus, dass pausierte Kacheln keine Segmente laden.
+
+## Antwortzeit (TTFB) und Region
+
+`vercel.json` setzte keine Region: Die Functions liefen in `iad1` (USA-
+Ostküste), Hof und Nutzer sind in Deutschland. Jeder API-Aufruf (Ereignisse,
+Stream-URLs, Tapo-Durchleitung, Tuya) machte den Weg über den Atlantik.
+
+7. **Functions in Frankfurt:** `"regions": ["fra1"]` in `vercel.json`.
+
+**Messung** mit `tests/messen-ttfb.sh` vom **Stall-Rechner (Deutschland)** aus,
+je 15 (nachher 3 Durchläufe, zuletzt 30) Abrufe, jeder Abruf mit neuer
+Verbindung (TCP + TLS inklusive); `/api/events` mit Login-Cookie, sonst
+antwortet schon die Middleware am Rand und die Function wird nicht gemessen:
+
+| Pfad | vorher (Edge→Function) | nachher | Δ |
+| --- | --- | --- | --- |
+| `/api/events` | 326 ms (fra1→**iad1**) | 218 / 229 / 210,5 ms (fra1→**fra1**) | **−30 bis −35 %** |
+| `/login` | 317 ms (fra1→**iad1**) | 235 / 220 / 223 ms | −26 bis −31 % |
+| `/manifest.webmanifest` (statisch, Kontrolle) | 198 ms | 176 / 180 / 179,5 ms | −9 bis −11 % (Netzrauschen) |
+
+Der statische Pfad ändert sich nicht durch die Function-Region; er zeigt das
+Netz-Grundrauschen zwischen den Messläufen (~±10 %). Den Region-Effekt trennt
+der **Aufschlag der Function über dem statischen Pfad**: `/api/events`
+**128 ms → 31–49 ms** (−62 bis −76 %).
+
+Gemessen von einer Umgebung in den USA (Rand `iad1`) wäre derselbe Wechsel
+**scheinbar schlechter**: Der Messpunkt entscheidet. Deshalb vom Hof aus messen.
+
+## Polling nur bei sichtbarem Tab
+
+Fünf Komponenten fragen die API im Takt von 15-60 s ab (`WacheDashboard` 15 s,
+`AlarmListe` konfigurierbar 20 s, `TabLeiste` 60 s, `GeraeteSteuerung` 60 s –
+sie ruft bei jedem Takt die Tuya-Cloud). Ein Handy mit der App im Hintergrund
+oder ausgeschaltetem Bildschirm hat davon nichts, kostet aber Function-
+Aufrufe, Mobilfunk und Tuya-Kontingent.
+
+8. **`sichtbaresIntervall()`** (`lib/sichtbares-intervall.ts`) ersetzt
+   `setInterval` in diesen vier Komponenten: Tab verborgen → keine Abrufe;
+   wieder sichtbar → sofort ein Abruf (frische Daten), danach wieder im Takt.
+   Kein Eingriff in Offline-/Service-Worker-Verhalten.
+
+**Messung** (`tests/e2e/polling.mjs`, Chromium mit simulierter Uhr, Abrufe
+gezählt, Service Worker blockiert): Tab **10 Minuten verborgen**
+
+| Seite | vorher | nachher |
+| --- | --- | --- |
+| `/wache` | 50 Abrufe | **0** |
+| `/steuerung` (je Abruf 1 Tuya-Aufruf) | 20 Abrufe | **0** |
+
+Beim Zurückkehren lädt jede Seite sofort neu. Unit-Tests:
+`tests/sichtbares-intervall.test.ts` (Takt, Pause, Rückkehr, kein doppelter
+Timer, Aufräumen, Server ohne `document`).
+
+## Messen
+
+```bash
+# TTFB (vom Hof aus; Cookie = Session nach dem Login)
+COOKIE='stallblick_session=...' bash tests/messen-ttfb.sh 15
+
+# Browser-Prüfungen (Build + Server in 2. Terminal: npm run build && npm start -- -p 3102)
+node tests/e2e/pausiert.mjs     # Streams nur bei Sicht
+node tests/e2e/polling.mjs      # Polling nur bei sichtbarem Tab
+```
