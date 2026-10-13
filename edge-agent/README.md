@@ -113,6 +113,9 @@ sudo systemctl enable --now stallblick-agent
    # Ergebnis: runs/pose/train/weights/best.pt herunterladen
    ```
 
+   Fertige Vorlagen: `training/stall.yaml` (Klassen/Keypoints passend zu
+   `config.yaml`) und `training/colab_training.py` (Colab-Zellen).
+
 5. **`best.pt` auf den Stall-Rechner kopieren** und in `config.yaml` unter
    `modell.pfad` eintragen → Agent wechselt automatisch in den Analyse-Modus.
 6. **Fehlalarme nachtrainieren:** falsch erkannte Bilder zurück in CVAT als
