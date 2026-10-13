@@ -56,3 +56,39 @@ NEXT_PUBLIC_BRIDGE_TYPE=mediamtx                          # weglassen/= go2rtc f
 `NEXT_PUBLIC_GO2RTC_URL` funktioniert als Alt-Name weiterhin (Alias für
 `NEXT_PUBLIC_BRIDGE_URL`), damit bestehende Deployments nicht angepasst
 werden müssen.
+
+## Fernzugriff ohne Tailscale-App (Stallwache/Tapo)
+
+Standardmäßig sieht man das Tapo-Bild in der Webapp nur mit aktiver
+Tailscale-App, weil go2rtc nur im Tailnet erreichbar ist. Für den Zugriff von
+jedem Gerät (mit App-Login) geht das Video über die Webapp:
+
+```
+Handy ──(Login)──▶ Webapp (Vercel) ──Token──▶ Funnel ──▶ fern-proxy.py ──▶ go2rtc ──▶ Tapo
+```
+
+* **`fern-proxy.py`** (nur Python-Standardbibliothek) ist das Einzige, was
+  öffentlich wird. Es lässt nur das HLS der Stallwache durch (SD-Stream, Quelle
+  fest eingestellt), verlangt den geheimen Header `x-stallwache-token` und
+  antwortet sonst 403/404. go2rtc selbst bleibt im Tailnet: seine API könnte
+  Befehle auf dem Stall-Rechner ausführen und darf nie ins Netz.
+* **Webapp** (`lib/fern.ts`, `/api/stallwache/fern/…`): holt das HLS mit dem
+  Schlüssel und reicht es hinter dem App-Login weiter. Ohne aktiven Login
+  (`STALLBLICK_PASSWORT`) verweigert sie den Dienst (fail-closed). Ist der
+  Stall-Rechner nicht erreichbar, fällt die Kachel auf die Bridge (Tailscale)
+  zurück.
+
+**Einrichtung** auf dem Stall-Rechner (einmalig):
+
+```bash
+cd ~/Die_Stallwache/bridge && bash fern-einrichten.sh
+```
+
+Das Skript startet den Proxy als Dienst, schaltet `tailscale funnel` auf Port
+8443 nur für den Proxy, prüft 403/404/200 und gibt drei Werte für Vercel aus
+(`STALLWACHE_FERN_URL`, `STALLWACHE_FERN_TOKEN`, `NEXT_PUBLIC_STALLWACHE_FERN=1`).
+Danach in Vercel eintragen und neu deployen. Voraussetzung: HTTPS und Funnel
+sind in der Tailscale-Verwaltung für das Gerät erlaubt.
+
+**Abschalten:** `NEXT_PUBLIC_STALLWACHE_FERN` und die beiden `STALLWACHE_FERN_*`
+in Vercel entfernen (neu deployen) und `sudo tailscale funnel --https=8443 off`.

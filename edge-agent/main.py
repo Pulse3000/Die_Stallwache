@@ -30,6 +30,7 @@ import json
 import logging
 import math
 import queue
+import sys
 import threading
 import time
 import urllib.parse
@@ -41,6 +42,11 @@ import cv2
 import numpy as np
 import requests
 import yaml
+
+# Geschwistermodul freeze_watchdog.py auch dann finden, wenn main.py per runpy
+# (Docker) oder aus dem Testlader geladen wird.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from freeze_watchdog import FreezeWatchdog, baue_watchdog  # noqa: E402
 
 log = logging.getLogger("stallblick-agent")
 
@@ -1115,6 +1121,37 @@ class Notifier:
 
 
 # --------------------------------------------------------------------------
+# Kamerabild-Pruefung (Freeze-Watchdog)
+# --------------------------------------------------------------------------
+
+def pruefe_kamerabild(
+    wd: FreezeWatchdog | None, frame: np.ndarray, notifier: "Notifier"
+) -> bool:
+    """Schickt einen Frame durch den Freeze-Watchdog (eingefroren / Streifen).
+
+    Bei einem Ereignis geht genau EINE Meldung raus (Telegram + Dashboard
+    + MQTT ueber ``Notifier.wichtig``); Einmaligkeit pro Episode stellt der
+    Watchdog selbst sicher. Rueckgabe True = Kamera defekt -> Aufrufer
+    speichert keine Trainingsbilder und analysiert nicht. Ein Fehler im
+    Watchdog oder beim Melden blockiert die Analyse nie (-> False).
+    """
+    if wd is None:
+        return False
+    try:
+        ereignis = wd.pruefe(frame)
+        defekt = bool(wd.defekt)
+    except Exception:  # noqa: BLE001 – Watchdog darf die Analyse nie blockieren
+        log.exception("Freeze-Watchdog gestoert – Analyse laeuft weiter")
+        return False
+    if ereignis:
+        try:
+            notifier.wichtig(ereignis["nachricht"])
+        except Exception:  # noqa: BLE001
+            log.exception("Watchdog-Meldung konnte nicht gesendet werden")
+    return defekt
+
+
+# --------------------------------------------------------------------------
 # Hauptschleife
 # --------------------------------------------------------------------------
 
@@ -1137,6 +1174,18 @@ def main() -> None:
     notifier.feedback.archiv = archiv
 
     frame_puffer: deque[np.ndarray] = deque(maxlen=8)  # Verlauf fuer Bildserien
+
+    # Freeze-Watchdog je Kamera dieser Agent-Instanz (stream.kamera, z. B.
+    # stallwache oder futterwache – die Futterwache laeuft als eigene
+    # Instanz mit eigener config.yaml und bekommt so ihren eigenen Watchdog).
+    wd = baue_watchdog(cfg, notifier.kamera, engine.aktiv)
+    if wd:
+        log.info(
+            "Freeze-Watchdog aktiv (%s): Alarm nach %d %s",
+            wd.kamera,
+            wd.frames_bis_alarm,
+            "Frames" if engine.aktiv else "Trainingsbildern",
+        )
 
     if engine.aktiv:
         notifier.status("Edge-Agent gestartet – Analyse-Modus aktiv")
@@ -1162,6 +1211,11 @@ def main() -> None:
                 # Silent Mode: regelmaessig Trainingsbilder sichern.
                 if time.time() - letzte_aufnahme >= intervall:
                     letzte_aufnahme = time.time()
+                    # Geprueft wird jedes Bild, das gespeichert wuerde: so
+                    # entspricht „5 Bilder" 5 x Aufnahmeintervall (nicht 5 s).
+                    # Defekte Kamera -> kein Trainingsbild (Muell im Datensatz).
+                    if pruefe_kamerabild(wd, frame, notifier):
+                        continue
                     name = ordner / f"{time.strftime('%Y%m%d-%H%M%S')}.jpg"
                     cv2.imwrite(str(name), frame)
                     log.info("Trainingsbild gespeichert: %s", name)
@@ -1174,6 +1228,11 @@ def main() -> None:
                         )
                         if ok:
                             archiv.sichere("silent", [jpg.tobytes()])
+                continue
+
+            # Jeder Frame durch den Watchdog; defekte Kamera -> keine Analyse
+            # (ein eingefrorenes Bild wuerde sonst alte Befunde „weiterzaehlen").
+            if pruefe_kamerabild(wd, frame, notifier):
                 continue
 
             frame_puffer.append(frame)

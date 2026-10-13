@@ -124,6 +124,19 @@ mqtt:
   # Ereignisse erscheinen als JSON unter <basis_topic>/<kamera>/<typ>
   basis_topic: stallblick
 
+watchdog:
+  # Freeze-Watchdog: erkennt eingefrorene und gestoerte (Streifen) Kamerabilder.
+  # Genau EINE Meldung beim Ausfall (Telegram + Dashboard) und eine bei
+  # Erholung. Solange die Kamera defekt ist, werden keine Trainingsbilder
+  # gespeichert und nichts analysiert. Je Kamera ein Watchdog: Die
+  # Futterwache laeuft als eigene Agent-Instanz (stream.kamera: futterwache).
+  aktiv: true
+  # Anzahl gleicher/gestoerter Bilder in Folge bis zur Meldung. Leer lassen:
+  #   Silent Mode   5   (geprueft wird jedes gespeicherte Trainingsbild, also
+  #                      5 x silent_mode.intervall_sekunden, z. B. 10 min)
+  #   Analyse-Modus 300 (jeder Frame bei ~1 FPS, also ~5 min)
+  frames_bis_alarm:
+
 silent_mode:
   # Ohne Modell werden regelmaessig Bilder fuer das spaetere Training gesammelt.
   ordner: ./aufnahmen
