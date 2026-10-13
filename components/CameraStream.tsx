@@ -18,6 +18,11 @@ export type CameraRole = "haupt" | "vorschau";
 interface Props {
   camera: CameraConfig;
   role: CameraRole;
+  /**
+   * Kachel nicht im Bild / Tab verborgen (lib/pausiert.ts): keine Verbindung
+   * halten, kein Snapshot-Polling – spart Daten, Akku und Tuya-Aufrufe.
+   */
+  pausiert?: boolean;
   /** Meldet Statuswechsel nach oben (Header, Statusblock, Ereignisse). */
   onState: (id: CameraConfig["id"], state: CameraState) => void;
 }
@@ -50,7 +55,7 @@ const PREVIEW_INITIAL_DELAY = 600;
  * Der Rollenwechsel bindet nur die Medienquelle im selben Container um;
  * die Komponente bleibt gemountet, es gibt keinen Seiten-Neuaufbau.
  */
-export default function CameraStream({ camera, role, onState }: Props) {
+export default function CameraStream({ camera, role, pausiert = false, onState }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const whepResourceUrlRef = useRef<string | null>(null);
@@ -116,6 +121,16 @@ export default function CameraStream({ camera, role, onState }: Props) {
     // Kamera ist bedienbar, wenn Bridge konfiguriert ODER Tuya moeglich ist.
     if (!isConfigured && !istTuya) {
       report("offline");
+      return () => {
+        disposedRef.current = true;
+      };
+    }
+
+    if (pausiert) {
+      // Nicht sichtbar: Verbindung schliessen und nichts nachladen. Beim
+      // Fortsetzen verbindet sich die Kachel frisch („laedt", nicht „instabil").
+      teardownLive();
+      wasLiveRef.current = false;
       return () => {
         disposedRef.current = true;
       };
@@ -211,7 +226,14 @@ export default function CameraStream({ camera, role, onState }: Props) {
       onFatal: () => void,
     ) => {
       if (HlsJs.isSupported()) {
-        const hls = new HlsJs({ lowLatencyMode: true, liveSyncDuration: 2 });
+        // Live-Bild: kurzer Puffer, kein Rueckpuffer (vier Player gleichzeitig).
+        const hls = new HlsJs({
+          lowLatencyMode: true,
+          liveSyncDuration: 2,
+          maxBufferLength: 8,
+          maxMaxBufferLength: 12,
+          backBufferLength: 0,
+        });
         hlsRef.current = hls;
         hls.loadSource(url);
         hls.attachMedia(video);
@@ -335,13 +357,13 @@ export default function CameraStream({ camera, role, onState }: Props) {
       disposedRef.current = true;
       teardownLive();
     };
-    // camera.id/.streamName sind konstant pro Instanz – nur die Rolle wechselt.
+    // camera.id/.streamName sind konstant pro Instanz – nur Rolle/Pause wechseln.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role]);
+  }, [role, pausiert]);
 
   const onSnapLoad = () => {
     setSnapVisible(true);
-    if (role === "vorschau" && !disposedRef.current) {
+    if (role === "vorschau" && !pausiert && !disposedRef.current) {
       if (stateRef.current !== "online") {
         stateRef.current = "online";
         onStateRef.current(camera.id, "online");
@@ -355,7 +377,7 @@ export default function CameraStream({ camera, role, onState }: Props) {
   };
 
   const onSnapError = () => {
-    if (role === "vorschau" && !disposedRef.current) {
+    if (role === "vorschau" && !pausiert && !disposedRef.current) {
       if (stateRef.current !== "offline") {
         stateRef.current = "offline";
         onStateRef.current(camera.id, "offline");
