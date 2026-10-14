@@ -220,6 +220,13 @@ export interface EreignisAntwort {
   ereignisse: StallEreignis[];
   letzterKontakt: string | null;
   quelle: "edge-agent" | "demo";
+  /**
+   * Woher die Liste stammt: "kv" = dauerhafter Store erfolgreich gelesen,
+   * "instanz" = nur der Puffer DIESER Serverless-Instanz. Im zweiten Fall
+   * koennen Ereignisse anderer Instanzen oder von vor einem Neustart fehlen —
+   * die Statusabfrage darf dann nie „OK" sagen.
+   */
+  speicher: "kv" | "instanz";
 }
 
 export async function getEreignisse(): Promise<EreignisAntwort> {
@@ -228,8 +235,13 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
     ["GET", KV_KONTAKT],
     ["HGETALL", KV_QUITTIERT],
   ]);
-  if (kv) {
-    const roh = Array.isArray(kv[0]?.result) ? (kv[0].result as string[]) : [];
+  // Als „gelesen" gilt KV nur, wenn LRANGE wirklich eine Liste lieferte.
+  // Upstash meldet Fehler einzelner Befehle mit HTTP 200 und {error} statt
+  // {result} — das wie eine leere Liste zu behandeln, ergaebe in der
+  // Statusabfrage ein falsches „OK".
+  const kvGelesen = kv !== null && Array.isArray(kv[0]?.result);
+  if (kv && kvGelesen) {
+    const roh = kv[0].result as string[];
     // HGETALL liefert ein flaches Array [feld1, wert1, feld2, wert2, …].
     const quittiert = new Map<string, string>();
     const hgetallRoh = Array.isArray(kv[2]?.result)
@@ -254,6 +266,7 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
         letzterKontakt:
           typeof kv[1]?.result === "string" ? kv[1].result : null,
         quelle: "edge-agent",
+        speicher: "kv",
       };
     }
   }
@@ -263,9 +276,17 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
       ereignisse: store.ereignisse,
       letzterKontakt: store.letzterKontakt,
       quelle: "edge-agent",
+      speicher: "instanz",
     };
   }
-  return { ereignisse: demoEreignisse(), letzterKontakt: null, quelle: "demo" };
+  // KV gelesen und leer = wirklich nichts gespeichert; ohne KV weiss diese
+  // Instanz nur, dass SIE nichts gesehen hat.
+  return {
+    ereignisse: demoEreignisse(),
+    letzterKontakt: null,
+    quelle: "demo",
+    speicher: kvGelesen ? "kv" : "instanz",
+  };
 }
 
 /** Ergaenzt Felder, die aeltere (vor dem Bild-Update geschriebene) Eintraege nicht haben. */

@@ -31,7 +31,7 @@ können. Entwurf und Übernahme: Orchestrator (14.10.2026).
 | Die Austreibung trägt **keine Kuh-ID** — Fruchtblase/Kälberfüße sind Objekte, kein Teil eines Kuh-Tracks (`edge-agent/main.py`, `LogicEngine.bewerte`) | Austreibung und Eskalation zählen für die **Kamera (Bucht)**, nicht für eine Kuh. Die Kuh-Liste darunter kann `OK` zeigen, während die Bucht `KRITISCH` ist — das ist korrekt, nicht widersprüchlich |
 | Die Eskalation kommt heute mit `kuhId: "Eskalation"` an (Markierung statt Tier) | wird als Kamera-Ereignis gewertet, nie als Kuh |
 | Die App kennt nur **gesendete** Alarme, nicht den internen Cooldown-Zustand des Agenten | Cooldown-Ende = letzter Alarm je (Kuh, Typ) + `STATUS_COOLDOWN_MINUTEN` (muss `telegram.cooldown_minuten` des Agenten entsprechen, Default beide 15). Rein informativ |
-| Ohne KV-Store liest jede Serverless-Instanz nur ihren eigenen Puffer | Datenlage wird als `instanz` ausgewiesen; eine frische Instanz ohne Lebenszeichen antwortet `UNBEKANNT`, nicht `OK` |
+| Ohne KV-Store (oder bei einem KV-Lesefehler) liest jede Serverless-Instanz nur ihren eigenen Puffer. Ein Alarm, der auf einer anderen Instanz oder vor einem Redeploy einging, fehlt dort — das Lebenszeichen kommt trotzdem an | Antwortfeld `speicher: "instanz"`; dann gibt es **höchstens `UNBEKANNT`, nie `OK`** (Grund: „keine dauerhafte Ereignisablage“). Echte Befunde (`WARNUNG`/`KRITISCH`) bleiben sichtbar, mit Hinweis. **Folge: Bis der KV-Store verknüpft ist, sagt die Statusabfrage nie `OK`** — ehrlich, und ein weiterer Grund für die Roadmap-Zeile „Ereignis-Persistenz“. Befund `qa-waechter` (14.10.2026): vorher meldete eine frische Instanz nach Redeploy `OK`, obwohl 1 min zuvor eine unquittierte Austreibung eingegangen war |
 | Ältere Agenten senden kein Lebenszeichen je Kamera | Rückfall auf den globalen `letzterKontakt`; Modus und Bildzustand sind dann unbekannt → höchstens `UNBEKANNT`, nie `OK` |
 | Video verlässt den Hof nicht | Die Statusabfrage liefert Text und Ereignis-Metadaten, keine Bilder (die bleiben unter `/api/events/<id>/bild/<n>` hinter der Session) |
 
@@ -53,7 +53,8 @@ Auswertungsfenster: **12 h** (Parameter `stunden`, 1–72).
   (`KRITISCH` > `WARNUNG` > `UNBEKANNT` > `OK`).
 - **Datenlage aktuell** heißt: Lebenszeichen der Kamera jünger als
   `STATUS_LEBENSZEICHEN_MAX_MINUTEN` (Default **15** = drei verpasste
-  5-Minuten-Lebenszeichen), Modus `analyse`, Bild vorhanden. Demo-Daten
+  5-Minuten-Lebenszeichen), Modus `analyse`, Bild vorhanden **und**
+  Ereignisliste aus dem dauerhaften Store (`speicher: "kv"`). Demo-Daten
   sind nie aktuell.
 
 ### Lebenszeichen (Erweiterung des Ingest-Vertrags, abwärtskompatibel)
@@ -96,7 +97,7 @@ Status lesen darf, darf keine Ereignisse einspeisen.
 | --- | --- |
 | Header `x-status-token` korrekt | 200 |
 | Header gesetzt, aber falsch | 401 |
-| Header gesetzt, `STATUS_READ_TOKEN` nicht konfiguriert | 503 |
+| Header gesetzt, `STATUS_READ_TOKEN` nicht konfiguriert oder gleich `EDGE_INGEST_TOKEN` | 503 |
 | kein Header | App-Session wie jede andere Route (Middleware) |
 
 `kuh` vergleicht die Nummer exakt (`42` trifft „Kuh #42“, nicht „Kuh #420“).
@@ -107,8 +108,9 @@ Status lesen darf, darf keine Ereignisse einspeisen.
 | --- | --- |
 | OK | „Stallwache: OK – keine offenen Alarme in den letzten 12 h. Analyse läuft, letztes Lebenszeichen 16:02.“ |
 | kein Lebenszeichen | „Stallwache: UNBEKANNT – letztes Lebenszeichen 15:10 (vor 52 min). Keine Aussage über die Tiere möglich.“ |
-| Silent Mode | „Stallwache: UNBEKANNT – Silent Mode (Datensammlung), Tiere werden noch nicht analysiert.“ |
-| Kamera blind | „Stallwache: UNBEKANNT – Kamera liefert kein Bild.“ |
+| Silent Mode | „Stallwache: UNBEKANNT – Silent Mode (Datensammlung), Tiere werden noch nicht analysiert. Keine Aussage über die Tiere möglich.“ |
+| Kamera blind | „Stallwache: UNBEKANNT – Kamera liefert kein Bild. Keine Aussage über die Tiere möglich.“ |
+| ohne KV-Store | „Stallwache: UNBEKANNT – keine dauerhafte Ereignisablage (KV-Store fehlt oder nicht erreichbar) – Alarme anderer App-Instanzen oder von vor einem Neustart wären hier nicht sichtbar. Keine Aussage über die Tiere möglich.“ |
 | Demo | „Noch kein Edge-Agent verbunden – angezeigt werden Demo-Daten, kein Stallzustand.“ |
 | Kalbeverdacht | „Kuh #42: WARNUNG – Kalbeverdacht 02:14, offen (regelbasiert, Verdacht ohne Objekt-Evidenz). Folgemeldungen gleicher Art gebündelt bis 02:29.“ |
 | Austreibung | „Stallwache: KRITISCH – Austreibung 03:12, offen (modellbasiert, Konfidenz 87 %).“ |
@@ -131,6 +133,8 @@ Automatisiert (`tests/stall-status.test.ts`, `edge-agent/tests/test_lebenszeiche
 12. `kuh=42` trifft „Kuh #42“, nicht „Kuh #420“.
 13. Kamera-Filter liefert nur die gewünschte Kamera.
 14. Altes Lebenszeichen ohne Kamera (nur globaler Kontakt) → höchstens `UNBEKANNT`.
+14a. `speicher: "instanz"` (kein KV, Lesefehler, Instanzwechsel nach Redeploy) → nie `OK`; offene Alarme bleiben `WARNUNG`/`KRITISCH` mit Hinweis.
+14b. `STATUS_READ_TOKEN` gleich `EDGE_INGEST_TOKEN` → 503.
 15. Agent: Lebenszeichen enthält Kamera, Modus und Bildzustand; Intervall wird eingehalten; ein Netzfehler wirft nicht und blockiert nicht; `lebenszeichen_minuten: 0` sendet nichts; ohne Dashboard-URL/Token sendet er nichts.
 
 Am realen System (Beweispflicht, offen):
@@ -148,9 +152,10 @@ Am realen System (Beweispflicht, offen):
    geändert wird, `STATUS_COOLDOWN_MINUTEN` aber nicht. Folge: falsche
    Info-Zeile, kein falscher Alarm. Gegenmaßnahme: beide in der Doku
    nebeneinander nennen.
-2. **Instanzpuffer ohne KV**: Status kann zwischen Instanzen springen
-   (`UNBEKANNT` ↔ `OK`). Ehrlich, aber unruhig — der KV-Store (Roadmap P1)
-   behebt es.
+2. **Ohne KV nie `OK`**: Bis der KV-Store verknüpft ist, antwortet die
+   Statusabfrage bei ruhigem Stall immer `UNBEKANNT`. Das ist gewollt (ein
+   Instanzpuffer kann Alarme verlieren), macht die Abfrage aber erst mit
+   KV-Store wirklich nützlich — Roadmap P1 „Ereignis-Persistenz“.
 3. **Lebenszeichen liefert den Offline-Puffer nicht nach.** Gepufferte Alarme
    gehen weiterhin erst mit dem nächsten Alarm raus. Bewusst getrennt, weil
    Puffer-Zugriff aus zwei Threads eine Sperre bräuchte, die den Hauptpfad

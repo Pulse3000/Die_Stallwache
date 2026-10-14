@@ -64,6 +64,7 @@ function status(
       quelle: "edge-agent",
       letzterKontakt: vor(2),
       lebenszeichen,
+      speicher: "kv",
       ...eingabe,
     },
     { jetzt: JETZT, ...optionen },
@@ -87,6 +88,28 @@ test("1b: Agent meldet sich per Lebenszeichen, aber noch ohne Ereignis -> keine 
   assert.equal(s.quelle, "edge-agent");
   assert.equal(s.stufe, "OK");
   assert.equal(s.kameras[0].kuehe.length, 0);
+});
+
+test("1c: Instanzwechsel ohne KV — Lebenszeichen da, Alarme verloren -> nie OK", () => {
+  // Befund qa-waechter: Austreibung auf Instanz A, Redeploy, naechstes
+  // Lebenszeichen landet auf frischer Instanz B -> frueher faelschlich OK.
+  const s = status([], undefined, {}, { quelle: "demo", letzterKontakt: null, speicher: "instanz" });
+  assert.equal(s.stufe, "UNBEKANNT");
+  assert.equal(s.speicher, "instanz");
+  assert.match(s.kameras[0].text, /keine dauerhafte Ereignisablage/);
+});
+
+test("1d: ohne KV nie OK, auch mit Ereignissen im Instanzpuffer", () => {
+  const ruhig = status([ereignis("info", 5, { nachricht: "Edge-Agent gestartet" })], undefined, {}, {
+    speicher: "instanz",
+  });
+  assert.equal(ruhig.stufe, "UNBEKANNT");
+  // Echte Befunde bleiben sichtbar — mit Hinweis
+  const alarm = status([ereignis("austreibung", 3, { konfidenz: 0.9 })], undefined, {}, {
+    speicher: "instanz",
+  });
+  assert.equal(alarm.stufe, "KRITISCH");
+  assert.match(alarm.kameras[0].text, /Achtung: keine dauerhafte Ereignisablage/);
 });
 
 test("2: aktuelles Lebenszeichen, Analyse, Bild, keine Alarme -> OK", () => {

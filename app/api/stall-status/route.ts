@@ -32,6 +32,13 @@ export async function GET(req: NextRequest) {
         { status: 503 },
       );
     }
+    if (soll === process.env.EDGE_INGEST_TOKEN?.trim()) {
+      // Ein Lese-Token, das zugleich einspeisen darf, waere kein Lese-Token.
+      return NextResponse.json(
+        { fehler: "STATUS_READ_TOKEN muss sich von EDGE_INGEST_TOKEN unterscheiden." },
+        { status: 503 },
+      );
+    }
     if (!tokenGleich(gegeben, soll)) {
       return NextResponse.json({ fehler: "Ungültiger Token." }, { status: 401 });
     }
@@ -50,6 +57,7 @@ export async function GET(req: NextRequest) {
       quelle: alle.quelle,
       letzterKontakt: alle.letzterKontakt,
       lebenszeichen,
+      speicher: alle.speicher,
     },
     {
       stunden: zahl(p.get("stunden") ?? undefined, STANDARD_FENSTER_STUNDEN),

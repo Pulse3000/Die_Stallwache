@@ -39,14 +39,17 @@ export async function GET(req: NextRequest) {
     return Number.isFinite(n) && n > 0 ? n : undefined;
   };
 
-  const antwort = await getGefilterteEreignisse({
+  const { ereignisse, letzterKontakt, quelle } = await getGefilterteEreignisse({
     typen: typen.length > 0 ? typen : undefined,
     stunden: zahl("stunden"),
     kuhId: p.get("kuh")?.trim() || undefined,
     limit: zahl("limit"),
   });
 
-  return NextResponse.json(antwort, {
+  // Feste Feldliste: Diese Antwort spiegeln auch fremde Clients (Android-
+  // App „Der Stallblick"). Interne Felder wie `speicher` bleiben draussen,
+  // damit ein strenger Parser dort nie an einem neuen Schluessel scheitert.
+  return NextResponse.json({ ereignisse, letzterKontakt, quelle }, {
     headers: { "Cache-Control": "no-store" },
   });
 }
