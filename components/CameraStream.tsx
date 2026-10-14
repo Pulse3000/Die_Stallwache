@@ -104,6 +104,17 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
       if (url) fetch(url, { method: "DELETE" }).catch(() => {});
     };
 
+    // Muss VOR teardownLive stehen: teardownLive meldet den Listener ab und
+    // laeuft schon in den Zweigen „pausiert" und „vorschau" — eine spaeter
+    // deklarierte const waere dort noch nicht initialisiert (TDZ ->
+    // ReferenceError, das ganze Dashboard faellt aus).
+    const markLive = () => {
+      attemptsRef.current = 0;
+      wasLiveRef.current = true;
+      setVideoLive(true);
+      report("online");
+    };
+
     const teardownLive = () => {
       clearTimer();
       if (webrtcWatchdogRef.current) clearTimeout(webrtcWatchdogRef.current);
@@ -186,13 +197,6 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
     }
 
     // ---- Haupt-Modus: Live-Stream mit hoechster Prioritaet ----
-    const markLive = () => {
-      attemptsRef.current = 0;
-      wasLiveRef.current = true;
-      setVideoLive(true);
-      report("online");
-    };
-
     const scheduleReconnect = () => {
       if (disposedRef.current) return;
       setVideoLive(false);

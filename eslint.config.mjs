@@ -14,6 +14,12 @@ const eslintConfig = [
       "bridge/**", // Shell/Docker, kein JS
     ],
   },
+  {
+    // Eigenstaendige Cloud-Functions-Pakete (Node 20, CommonJS ohne
+    // "type": "module") — require() ist dort die vorgesehene Ladeart.
+    files: ["cloud-functions/**/*.js"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
 ];
 
 export default eslintConfig;
