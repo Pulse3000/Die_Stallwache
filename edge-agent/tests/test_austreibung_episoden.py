@@ -107,24 +107,39 @@ takt = [a for a in alle if a.kuh_id is None]
 # Beginn + Erinnerungen bei 15/30/45, Eskalation 60, Erinnerungen 75/90
 p.check("5: Takt Beginn+15/30/45, Eskalation, 75/90", len(takt) == 6)
 
-# --- 6. 30 min ohne Erkennung -> neue Episode, sofort, Uhr neu -------------
+# --- 6. 30 min BEOBACHTET ohne Erkennung -> neue Episode, sofort, Uhr neu ---
 l6 = logik()
 bild(l6, [blase()], 0)
-genau_30 = bild(l6, [blase()], 30 * MIN)   # Pause genau 30 min: Grenze inklusive
-p.check("6: 30 min Pause noch dieselbe Episode (Erinnerung, kein Neubeginn)",
-        l6.episode_nr == 1 and len(genau_30) == 1 and "läuft weiter seit 30 min" in genau_30[0].nachricht)
-p.check("6: Folgebilder ohne Erkennung still", laufe(l6, 30 * MIN + 1, 61 * MIN, objekte=[], schritt=60) == [])
-neu = bild(l6, [blase()], 61 * MIN)
-p.check("6: nach > 30 min Pause neue Episode, sofort", len(neu) == 1 and neu[0].episode == 2)
+p.check("6: 29:59 min beobachtet ohne Erkennung -> Episode laeuft",
+        laufe(l6, 1, 30 * MIN, objekte=[]) == [] and l6.austreibung_zuletzt is not None)
+p.check("6: 30:01 min beobachtet -> Episode beendet",
+        laufe(l6, 30 * MIN + 1, 30 * MIN + 1, objekte=[]) == [] and l6.austreibung_zuletzt is None)
+neu = bild(l6, [blase()], 31 * MIN)
+p.check("6: danach neue Episode, sofort", len(neu) == 1 and neu[0].episode == 2)
 p.check("6: Text 'erkannt', nicht 'laeuft weiter'", "Austreibungsphase!" in neu[0].nachricht)
 p.check("6: Eskalations-Uhr neu", l6.austreibung_start == UHR[0] and not l6.eskaliert)
 
-# --- 7. Fall (c): Stream 90 min weg, dann Erkennung ------------------------
+# --- 7. Blindzeit zaehlt nicht als Abwesenheit (Recall vor Praezision) -----
+# Geburt laeuft 0–50 min, Stream 45 min weg, Blase danach weiter sichtbar:
+# dieselbe Episode, die Eskalation kommt sofort statt 60 min spaeter.
 l7 = logik()
-laufe(l7, 0, 20 * MIN, schritt=60)            # alte Episode laeuft 20 min
-nach_ausfall = bild(l7, [blase()], 110 * MIN)  # kein bewerte() dazwischen
-p.check("7: nach Stream-Ausfall Episodenbeginn", len(nach_ausfall) == 1 and nach_ausfall[0].episode == 2)
-p.check("7: KEINE falsche Eskalation", all(a.kuh_id != "Eskalation" for a in nach_ausfall))
+laufe(l7, 0, 50 * MIN, schritt=1)
+nach_ausfall = bild(l7, [blase()], 95 * MIN)   # kein bewerte() dazwischen
+p.check("7: nach Stream-Ausfall dieselbe Episode", l7.episode_nr == 1)
+p.check("7: Eskalation sofort nach dem Ausfall (seit 95 min)",
+        len(nach_ausfall) == 1 and nach_ausfall[0].kuh_id == "Eskalation" and "seit 95 Minuten" in nach_ausfall[0].nachricht)
+# Ausfall, danach Bilder OHNE Erkennung: erst 30 min Beobachtung beenden die Episode
+l7b = logik()
+bild(l7b, [blase()], 0)
+bild(l7b, [], 120 * MIN)                        # erstes Bild nach 2 h Blindzeit
+p.check("7: Blindzeit beendet die Episode nicht", l7b.austreibung_zuletzt is not None)
+laufe(l7b, 120 * MIN + 1, 150 * MIN + 2, objekte=[])
+p.check("7: 30 min Beobachtung danach beenden sie", l7b.austreibung_zuletzt is None)
+# Uhr springt vorwaerts: zaehlt hoechstens als eine Bildluecke
+l7c = logik()
+bild(l7c, [blase()], 0)
+bild(l7c, [], 10_000 * MIN)
+p.check("7: Uhrensprung zaehlt hoechstens 10 s Abwesenheit", l7c.abwesend_s <= 10)
 
 # --- 8. Fall (b): Fehlalarm, Pause >= 60 s, echte Austreibung -> sofort ----
 l8 = logik()
