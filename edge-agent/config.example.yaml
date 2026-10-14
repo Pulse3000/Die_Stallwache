@@ -63,6 +63,10 @@ logik:
   override_konfidenz: 0.80     # Fruchtblase/Fuesse ab dieser Konfidenz -> Sofort-Alarm
   brunst_min_dauer_s: 4        # Aufsprung muss so lange anhalten (filtert Spielverhalten)
   eskalation_minuten: 60       # Austreibung ohne Fortschritt nach dieser Zeit -> Kontroll-Alarm
+  # Erinnerungstakt waehrend einer laufenden Austreibung ("laeuft weiter seit
+  # N min"), solange Fruchtblase/Fuesse sichtbar sind. Leer = wie
+  # telegram.cooldown_minuten. Austreibung laeuft NIE durch den Cooldown.
+  austreibung_erinnerung_minuten:
   # Wach-Modus: ~14 Tage vor dem Kalbetermin aktivieren. Senkt die Schwellen
   # (frueherer Kalbeverdacht, kuerzere Brunst-Mindestdauer) - danach wieder aus,
   # damit der Alltag ruhig bleibt.

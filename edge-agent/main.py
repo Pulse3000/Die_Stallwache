@@ -16,6 +16,9 @@ Erkennungslogik (siehe config.yaml):
      rollierenden 30-Minuten-Fensters (filtert Koten/Fliegenabwehr).
   2. Austreibung:    Fruchtblase (amniotic_sac) oder Kaelberfuesse (calf_legs)
      mit Konfidenz > 0.8 -> Sofort-Alarm, Zeitfilter wird uebersprungen.
+     Takt je Episode statt Cooldown: Erinnerung alle 15 min, solange
+     sichtbar; Eskalation nach 60 min (docs/austreibung-episoden-
+     spezifikation.md).
   3. Brunstverdacht: Aufsprungverhalten (zwei Kuh-Boxen ueberlappen, eine
      deutlich oberhalb) ueber mehrere Sekunden.
 
@@ -458,6 +461,20 @@ class Alarm:
     nachricht: str
     konfidenz: float | None
     box: tuple[float, float, float, float] | None
+    # True = Takt bestimmt die LogicEngine, der Notifier-Cooldown gilt nicht
+    # (Austreibung, Eskalation).
+    sofort: bool = False
+    # Austreibungs-Episode, zu der die Meldung gehoert (Fehlalarm-Feedback).
+    episode: int | None = None
+
+
+# Austreibungs-Episode endet nach so langer Zeit ohne Erkennung (Geburt
+# abgeschlossen oder Fehlerkennung vorbei).
+EPISODE_ENDE_S = 1800
+# Nach einem „Fehlalarm"-Votum meldet die naechste Erkennung sofort neu —
+# aber nur, wenn das Objekt mindestens so lange weg war. Verhindert die
+# Schleife Dauer-Fehlerkennung -> Tipp -> Sofortmeldung -> Tipp ...
+NEUMELDUNG_LUECKE_S = 60
 
 
 @dataclass
@@ -467,10 +484,16 @@ class LogicEngine:
     puffer: dict[int, deque] = field(default_factory=lambda: defaultdict(deque))
     # laufende Aufsprung-Kandidaten: (id_oben, id_unten) -> startzeit
     brunst_paare: dict[tuple[int, int], float] = field(default_factory=dict)
-    # Beginn der Austreibungsphase (erste Fruchtblasen-/Fuesse-Erkennung)
+    # Austreibungs-Episode (docs/austreibung-episoden-spezifikation.md):
+    # Beginn (erste Fruchtblasen-/Fuesse-Erkennung), letzte Erkennung,
+    # letzte Meldung (Beginn/Erinnerung/Eskalation), laufende Nummer.
     austreibung_start: float | None = None
     austreibung_zuletzt: float | None = None
+    austreibung_gemeldet: float | None = None
+    episode_nr: int = 0
     eskaliert: bool = False
+    # Landwirt hat eine Meldung dieser Episode als Fehlalarm markiert.
+    neu_nach_fehlalarm: bool = False
 
     def __post_init__(self):
         lg = self.cfg["logik"]
@@ -480,6 +503,12 @@ class LogicEngine:
         self.override_konf = float(lg["override_konfidenz"])
         self.brunst_dauer = float(lg["brunst_min_dauer_s"])
         self.eskalation_s = float(lg.get("eskalation_minuten", 60)) * 60
+        # Erinnerungstakt der Austreibung; leer = bisheriger Cooldown, damit
+        # sich fuer bestehende Konfigurationen nichts aendert.
+        erinnerung = lg.get("austreibung_erinnerung_minuten") or (
+            (self.cfg.get("telegram") or {}).get("cooldown_minuten", 15)
+        )
+        self.erinnerung_s = max(1.0, float(erinnerung)) * 60
         self.min_stichprobe = 20  # so viele Frames noetig, bevor der Filter urteilt
         # Wach-Modus (kurz vor Kalbetermin): empfindlichere Schwellen nur dann,
         # wenn der Landwirt ihn bewusst scharfschaltet.
@@ -495,51 +524,22 @@ class LogicEngine:
         jetzt = time.time()
         alarme: list[Alarm] = []
 
-        # 1) Harter Override: Fruchtblase / Kaelberfuesse
-        for o in objekte:
-            if o.konfidenz >= self.override_konf:
-                self.austreibung_start = self.austreibung_start or jetzt
-                self.austreibung_zuletzt = jetzt
-                alarme.append(
-                    Alarm(
-                        "austreibung",
-                        None,
-                        f"{'Fruchtblase' if o.klasse == 'amniotic_sac' else 'Kälberfüße'} "
-                        f"erkannt (Konfidenz {o.konfidenz:.0%}) – Austreibungsphase!",
-                        o.konfidenz,
-                        o.box,
-                    )
-                )
-                # Eskalation (Komplikationsverdacht): Austreibung laeuft, aber
-                # nach eskalation_minuten sind immer noch Fruchtblase/Fuesse
-                # sichtbar -> Geburt macht keinen Fortschritt, Kontrolle noetig.
-                if (
-                    not self.eskaliert
-                    and jetzt - self.austreibung_start >= self.eskalation_s
-                ):
-                    self.eskaliert = True
-                    alarme.append(
-                        Alarm(
-                            "austreibung",
-                            "Eskalation",
-                            f"⚠️ KEIN GEBURTSFORTSCHRITT: Austreibungsphase läuft "
-                            f"seit {(jetzt - self.austreibung_start) / 60:.0f} Minuten, "
-                            f"{'Fruchtblase' if o.klasse == 'amniotic_sac' else 'Kälberfüße'} "
-                            "weiterhin sichtbar – bitte sofort kontrollieren!",
-                            o.konfidenz,
-                            o.box,
-                        )
-                    )
-
-        # Austreibungs-Episode beenden, wenn 30 min keine Erkennung mehr kam
-        # (Geburt abgeschlossen) -> naechste Kalbung startet frisch.
+        # 1) Harter Override: Fruchtblase / Kaelberfuesse. Den Takt bestimmt
+        # allein die Episode, nicht der Notifier-Cooldown.
+        #
+        # Episode zuerst beenden, wenn 30 min keine Erkennung kam — VOR der
+        # Auswertung dieses Bilds. Sonst erbte nach einem langen Stream-
+        # Ausfall die neue Kalbung die Uhr der alten und meldete sofort
+        # „kein Geburtsfortschritt".
         if (
             self.austreibung_zuletzt is not None
-            and jetzt - self.austreibung_zuletzt > 1800
+            and jetzt - self.austreibung_zuletzt > EPISODE_ENDE_S
         ):
-            self.austreibung_start = None
-            self.austreibung_zuletzt = None
-            self.eskaliert = False
+            self._beende_episode()
+        treffer = [o for o in objekte if o.konfidenz >= self.override_konf]
+        if treffer:
+            # Blase und Fuesse im selben Bild = eine Meldung.
+            alarme.extend(self._austreibung(max(treffer, key=lambda o: o.konfidenz), jetzt))
 
         # 2) Statistischer Zeitfilter pro Kuh (Schwanzwinkel)
         for kuh in kuehe:
@@ -568,6 +568,80 @@ class LogicEngine:
         # 3) Brunst: Aufsprung = zwei Boxen ueberlappen, eine deutlich oberhalb
         alarme.extend(self._brunst(kuehe, jetzt))
         return alarme
+
+    def _austreibung(self, o: ObjektErkennung, jetzt: float) -> list[Alarm]:
+        """Austreibungs-Takt: Sofort-Meldung bei Episodenbeginn, Erinnerung
+        im Takt, Eskalation einmal pro Episode, Neumeldung nach Fehlalarm."""
+        objekt = "Fruchtblase" if o.klasse == "amniotic_sac" else "Kälberfüße"
+        letzte_erkennung = self.austreibung_zuletzt
+        self.austreibung_zuletzt = jetzt
+
+        def meldung(kuh_id: str | None, text: str) -> Alarm:
+            self.austreibung_gemeldet = jetzt
+            return Alarm(
+                "austreibung", kuh_id, text, o.konfidenz, o.box,
+                sofort=True, episode=self.episode_nr,
+            )
+
+        if letzte_erkennung is None:
+            self.episode_nr += 1
+            self.austreibung_start = jetzt
+            self.eskaliert = False
+            self.neu_nach_fehlalarm = False
+            return [meldung(None, f"{objekt} erkannt (Konfidenz {o.konfidenz:.0%}) – Austreibungsphase!")]
+
+        # Eskalation (Komplikationsverdacht): Austreibung laeuft, aber nach
+        # eskalation_minuten sind immer noch Fruchtblase/Fuesse sichtbar ->
+        # Geburt macht keinen Fortschritt, Kontrolle noetig. Ersetzt im selben
+        # Bild die Erinnerung. Ein Fehlalarm-Votum verschiebt sie nie.
+        dauer_s = jetzt - self.austreibung_start
+        if not self.eskaliert and dauer_s >= self.eskalation_s:
+            self.eskaliert = True
+            return [meldung(
+                "Eskalation",
+                f"⚠️ KEIN GEBURTSFORTSCHRITT: Austreibungsphase läuft "
+                f"seit {dauer_s / 60:.0f} Minuten, {objekt} "
+                "weiterhin sichtbar – bitte sofort kontrollieren!",
+            )]
+
+        if self.neu_nach_fehlalarm and jetzt - letzte_erkennung >= NEUMELDUNG_LUECKE_S:
+            self.neu_nach_fehlalarm = False
+            return [meldung(
+                None,
+                f"{objekt} erneut erkannt (Konfidenz {o.konfidenz:.0%}) – die vorige "
+                "Meldung wurde als Fehlalarm markiert, bitte prüfen!",
+            )]
+
+        if jetzt - self.austreibung_gemeldet >= self.erinnerung_s:
+            return [meldung(
+                None,
+                f"Austreibung läuft weiter seit {dauer_s / 60:.0f} min – {objekt} "
+                f"weiterhin sichtbar (Konfidenz {o.konfidenz:.0%}).",
+            )]
+        return []
+
+    def _beende_episode(self) -> None:
+        self.austreibung_start = None
+        self.austreibung_zuletzt = None
+        self.austreibung_gemeldet = None
+        self.eskaliert = False
+        self.neu_nach_fehlalarm = False
+
+    def fehlalarm_gemeldet(self, typ: str, episode: int | None) -> None:
+        """Rueckmeldung „❌ Fehlalarm" aus der Feedback-Schleife. Betrifft nur
+        eine Meldung der LAUFENDEN Austreibungs-Episode: Die naechste
+        Erkennung nach einer Pause meldet dann sofort neu (Fall: echte
+        Austreibung kurz nach einem Fehlalarm). Erinnerung und Eskalation
+        laufen unveraendert weiter — ein versehentlicher Tipp macht nie
+        stiller als ohne Feedback."""
+        if (
+            typ == "austreibung"
+            and episode is not None
+            and episode == self.episode_nr
+            and self.austreibung_zuletzt is not None
+        ):
+            self.neu_nach_fehlalarm = True
+            log.info("Austreibungs-Episode %d als Fehlalarm markiert", episode)
 
     def _brunst(self, kuehe: list[KuhBeobachtung], jetzt: float) -> list[Alarm]:
         alarme: list[Alarm] = []
@@ -728,6 +802,8 @@ class FeedbackSchleife:
         self.ordner = Path(tg.get("fehlalarm_ordner") or "./aufnahmen/fehlalarme")
         self.zaehler: dict[str, int] = {"treffer": 0, "fehlalarm": 0}
         self._offen: dict[str, tuple[str, list[bytes]]] = {}
+        # Austreibungs-Episode je Feedback-ID (nur Austreibungs-Alarme).
+        self._episode: dict[str, int] = {}
         self._reihenfolge: deque[str] = deque()
         self._naechste_id = 0
         self._offset = 0
@@ -735,6 +811,9 @@ class FeedbackSchleife:
         # Wird von main() gesetzt, sobald das Archiv steht. Bewusst optional:
         # Ohne Archiv laeuft die Feedback-Schleife unveraendert weiter.
         self.archiv: DatensatzArchiv | None = None
+        # Von main() gesetzt: (typ, episode) eines als Fehlalarm markierten
+        # Alarms an die LogicEngine (Austreibungs-Takt).
+        self.bei_fehlalarm = None
 
     def registriere(self, alarm: Alarm, bilder: list[bytes]) -> dict | None:
         """Merkt die (unannotierten) Alarm-Bilder fuer spaeteres Feedback und
@@ -744,9 +823,13 @@ class FeedbackSchleife:
         fid = str(self._naechste_id)
         self._naechste_id += 1
         self._offen[fid] = (alarm.typ, [b for b in bilder if b])
+        if alarm.episode is not None:
+            self._episode[fid] = alarm.episode
         self._reihenfolge.append(fid)
         while len(self._reihenfolge) > self.MAX_OFFEN:
-            self._offen.pop(self._reihenfolge.popleft(), None)
+            alt = self._reihenfolge.popleft()
+            self._offen.pop(alt, None)
+            self._episode.pop(alt, None)
         return {
             "inline_keyboard": [[
                 {"text": "✅ Treffer", "callback_data": f"fb:{fid}:treffer"},
@@ -792,8 +875,14 @@ class FeedbackSchleife:
                 fid, urteil = teile[1], teile[2]
                 self.zaehler[urteil] += 1
                 eintrag = self._offen.pop(fid, None)
+                episode = self._episode.pop(fid, None)
                 if urteil == "fehlalarm":
                     anzahl = self._speichere(fid, eintrag)
+                    if eintrag and self.bei_fehlalarm is not None:
+                        try:
+                            self.bei_fehlalarm(eintrag[0], episode)
+                        except Exception:  # noqa: BLE001 – Feedback laeuft weiter
+                            log.exception("Fehlalarm-Rueckmeldung an die Logik gescheitert")
                     antwort = (
                         f"Danke – {anzahl} Bild(er) fürs Nachtraining gespeichert."
                         if anzahl
@@ -848,7 +937,9 @@ class FeedbackSchleife:
 
 
 class Notifier:
-    """Versendet Alarme; Cooldown pro (Kuh, Typ) verhindert Spam."""
+    """Versendet Alarme; Cooldown pro (Kuh, Typ) verhindert Spam bei Kalbe-
+    und Brunstverdacht. Austreibung/Eskalation (``alarm.sofort``) takten in
+    der LogicEngine und gehen immer raus."""
 
     def __init__(self, cfg: dict):
         tg = cfg.get("telegram") or {}
@@ -911,7 +1002,7 @@ class Notifier:
         die Bildserie – macht Fehlalarme am Handy sofort erkennbar."""
         schluessel = (alarm.kuh_id, alarm.typ)
         jetzt = time.time()
-        if jetzt - self._zuletzt.get(schluessel, 0) < self.cooldown_s:
+        if not alarm.sofort and jetzt - self._zuletzt.get(schluessel, 0) < self.cooldown_s:
             return
         self._zuletzt[schluessel] = jetzt
         self._zaehler[alarm.typ] += 1
@@ -1266,6 +1357,8 @@ def main() -> None:
     # laeuft und Silent-Mode-Bilder wie Hard Negatives denselben Weg nehmen.
     archiv = DatensatzArchiv(cfg)
     notifier.feedback.archiv = archiv
+    # „❌ Fehlalarm" auf eine Austreibung -> naechste Erkennung meldet sofort.
+    notifier.feedback.bei_fehlalarm = logik.fehlalarm_gemeldet
 
     frame_puffer: deque[np.ndarray] = deque(maxlen=8)  # Verlauf fuer Bildserien
 

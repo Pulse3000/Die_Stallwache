@@ -131,7 +131,8 @@ sudo systemctl enable --now stallblick-agent
 | **Austreibung** | `amniotic_sac` oder `calf_legs` mit **> 80 %** Konfidenz | **Sofort-Alarm**, Zeitfilter übersprungen |
 | **Eskalation** | Austreibung läuft, aber nach **60 min** (konfigurierbar) sind weiterhin Fruchtblase/Füße sichtbar → kein Geburtsfortschritt | **dringender Kontroll-Alarm** (Komplikationsverdacht, Lely-Zeta-Prinzip) |
 | **Brunstverdacht** | Aufsprung: zwei Kuh-Boxen überlappen (IoU > 0.15), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert Spielverhalten) | Telegram + Dashboard |
-| Anti-Spam | **15 Min Cooldown** pro Kuh-ID und Alarmtyp | – |
+| Anti-Spam | **15 Min Cooldown** pro Kuh-ID und Alarmtyp — nur Kalbe-/Brunstverdacht | – |
+| Austreibungs-Takt | je **Episode** statt Cooldown: Sofort-Meldung bei Beginn, Erinnerung „läuft weiter seit N min" alle 15 min, solange sichtbar; nach „❌ Fehlalarm" meldet die nächste Erkennung nach ≥ 60 s Pause sofort neu (`docs/austreibung-episoden-spezifikation.md`) | eine laufende Geburt meldet sich, bis sie vorbei ist — nie verzögert durch einen pauschalen Cooldown |
 | Bildserie | Jeder Alarm sendet die **letzten 4 Frames als Telegram-Album** (`bildserie_frames`) | Fehlalarm-Triage direkt am Handy |
 | Wach-Modus | `logik.wach_modus: true` ~14 Tage vor Kalbetermin: halbierte Schwellen, frühere Verdachtsalarme | erhöhte Wachsamkeit nur, wenn bewusst scharfgeschaltet |
 | MQTT (optional) | `mqtt.host` setzen → jedes Ereignis als JSON unter `stallblick/<kamera>/<typ>` | stiller Zusatzausgang für Home Assistant/Node-RED; Telegram bleibt primär |
