@@ -220,6 +220,13 @@ export interface EreignisAntwort {
   ereignisse: StallEreignis[];
   letzterKontakt: string | null;
   quelle: "edge-agent" | "demo";
+  /**
+   * Woher die Liste stammt: "kv" = dauerhafter Store erfolgreich gelesen,
+   * "instanz" = nur der Puffer DIESER Serverless-Instanz. Im zweiten Fall
+   * koennen Ereignisse anderer Instanzen oder von vor einem Neustart fehlen —
+   * die Statusabfrage darf dann nie „OK" sagen.
+   */
+  speicher: "kv" | "instanz";
 }
 
 export async function getEreignisse(): Promise<EreignisAntwort> {
@@ -254,6 +261,7 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
         letzterKontakt:
           typeof kv[1]?.result === "string" ? kv[1].result : null,
         quelle: "edge-agent",
+        speicher: "kv",
       };
     }
   }
@@ -263,9 +271,17 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
       ereignisse: store.ereignisse,
       letzterKontakt: store.letzterKontakt,
       quelle: "edge-agent",
+      speicher: "instanz",
     };
   }
-  return { ereignisse: demoEreignisse(), letzterKontakt: null, quelle: "demo" };
+  // KV gelesen und leer = wirklich nichts gespeichert; ohne KV weiss diese
+  // Instanz nur, dass SIE nichts gesehen hat.
+  return {
+    ereignisse: demoEreignisse(),
+    letzterKontakt: null,
+    quelle: "demo",
+    speicher: kv ? "kv" : "instanz",
+  };
 }
 
 /** Ergaenzt Felder, die aeltere (vor dem Bild-Update geschriebene) Eintraege nicht haben. */

@@ -38,6 +38,12 @@ export interface StatusEingabe {
   letzterKontakt: string | null;
   /** Lebenszeichen je Kamera. */
   lebenszeichen: Record<string, Lebenszeichen>;
+  /**
+   * "kv" = Ereignisliste aus dem dauerhaften Store; "instanz" = nur der
+   * Puffer dieser Serverless-Instanz (kein KV oder Lesefehler). Dann koennen
+   * Alarme fehlen — es gibt hoechstens UNBEKANNT, nie OK.
+   */
+  speicher: "kv" | "instanz";
 }
 
 export interface StatusOptionen {
@@ -106,6 +112,7 @@ export interface StallStatus {
   fensterStunden: number;
   stufe: Stufe;
   quelle: "edge-agent" | "demo";
+  speicher: "kv" | "instanz";
   kameras: KameraStatus[];
   text: string;
 }
@@ -190,6 +197,7 @@ export function baueStallStatus(
       fensterStunden: stunden,
       stufe: "UNBEKANNT",
       quelle: "demo",
+      speicher: eingabe.speicher,
       kameras: [],
       text:
         "Noch kein Edge-Agent verbunden – angezeigt werden Demo-Daten, kein Stallzustand.",
@@ -224,6 +232,7 @@ export function baueStallStatus(
     const datenlage = bewerteDatenlage(
       eingabe.lebenszeichen[kamera] ?? null,
       eingabe.letzterKontakt,
+      eingabe.speicher,
       jetzt,
       maxAlterMs,
       uhr,
@@ -297,6 +306,7 @@ export function baueStallStatus(
     fensterStunden: stunden,
     stufe: kameras.length > 0 ? hoechste(kameras.map((k) => k.stufe)) : "UNBEKANNT",
     quelle: eingabe.quelle,
+    speicher: eingabe.speicher,
     kameras,
     text: zeilen.join("\n"),
   };
@@ -305,6 +315,7 @@ export function baueStallStatus(
 function bewerteDatenlage(
   lz: Lebenszeichen | null,
   letzterKontakt: string | null,
+  speicher: "kv" | "instanz",
   jetzt: number,
   maxAlterMs: number,
   uhr: (iso: string) => string,
@@ -336,6 +347,12 @@ function bewerteDatenlage(
     grund = "Kamera liefert kein Bild";
   } else if (lz.bild !== true) {
     grund = "Bildzustand der Kamera unbekannt";
+  } else if (speicher !== "kv") {
+    // Ohne dauerhaften Store sieht diese Instanz nur ihre eigenen
+    // Ereignisse: Ein Alarm, der auf einer anderen Instanz oder vor einem
+    // Redeploy eingegangen ist, fehlt hier — „OK" waere dann gelogen.
+    grund =
+      "keine dauerhafte Ereignisablage (KV-Store fehlt oder nicht erreichbar) – Alarme anderer App-Instanzen oder von vor einem Neustart wären hier nicht sichtbar";
   }
   return { aktuell: grund === null, quelle: "kamera", lebenszeichen: lz, grund };
 }
