@@ -803,23 +803,45 @@ class Versandkanal:
         ).start()
 
     def auftrag(self, fn, *args, prio: bool = False, **kwargs) -> None:
-        """Reiht einen Auftrag ein. Kehrt sofort zurueck, wirft nie."""
+        """Reiht einen Auftrag ein. Kehrt sofort zurueck, wirft nie.
+
+        Dringende Auftraege (prio=True) ueberholen wartende Routine-Auftraege
+        (untereinander bleibt die Reihenfolge). Bei Ueberlauf faellt der
+        aelteste Routine-Auftrag heraus; warten nur dringende, wird ein neuer
+        Routine-Auftrag selbst verworfen — ein dringender nie fuer Routine."""
         with self._cv:
             if len(self._auftraege) >= self.max_auftraege:
                 opfer = next(
-                    (i for i, a in enumerate(self._auftraege) if not a[0]), 0
+                    (i for i, a in enumerate(self._auftraege) if not a[0]), None
                 )
+                self.verworfen += 1
+                if opfer is None and not prio:
+                    log.warning(
+                        "Versand %s ueberlastet – neuer Routine-Auftrag verworfen (%d)",
+                        self.name,
+                        self.verworfen,
+                    )
+                    return
+                if opfer is None:
+                    opfer = 0  # nur dringende: der aelteste dringende weicht
                 war_dringend = self._auftraege[opfer][0]
                 del self._auftraege[opfer]
                 self._offen -= 1
-                self.verworfen += 1
                 log.warning(
                     "Versand %s ueberlastet – aeltester %sAuftrag verworfen (%d)",
                     self.name,
                     "DRINGENDER " if war_dringend else "",
                     self.verworfen,
                 )
-            self._auftraege.append((prio, fn, args, kwargs))
+            eintrag = (prio, fn, args, kwargs)
+            if prio:
+                vor = next(
+                    (i for i, a in enumerate(self._auftraege) if not a[0]),
+                    len(self._auftraege),
+                )
+                self._auftraege.insert(vor, eintrag)
+            else:
+                self._auftraege.append(eintrag)
             self._offen += 1
             self._cv.notify_all()
 
@@ -988,7 +1010,8 @@ class FeedbackSchleife:
             self._eingang.put(ergebnis)
 
     def _netz(self, fn, *args) -> None:
-        """Netzaufruf ueber den Kanal (nicht blockierend) oder direkt."""
+        """Netz- oder Plattenaufruf ueber den Kanal (nicht blockierend) oder
+        direkt (ohne Kanal, wie bisher)."""
         if self._kanal is not None:
             self._kanal.auftrag(fn, *args)
         else:
@@ -1011,7 +1034,10 @@ class FeedbackSchleife:
                 eintrag = self._offen.pop(fid, None)
                 episode = self._episode.pop(fid, None)
                 if urteil == "fehlalarm":
-                    anzahl = self._speichere(fid, eintrag)
+                    # Schreiben im Hintergrund — die Platte (SD-Karte) darf die
+                    # Analyse so wenig aufhalten wie das Netz.
+                    anzahl = len(eintrag[1]) if eintrag else 0
+                    self._netz(self._speichere, fid, eintrag)
                     if eintrag and self.bei_fehlalarm is not None:
                         try:
                             self.bei_fehlalarm(eintrag[0], episode)
@@ -1448,7 +1474,7 @@ class Notifier:
 
     def _puffer_sichern(self, eintraege: list[dict], version: int) -> None:
         """Schreibt den Puffer atomar zurueck (erst temporaer, dann ersetzen).
-        Nur aus dem Dashboard-Thread aufrufen (ein Schreiber)."""
+        Nur aus dem Sicherungs-Thread aufrufen (ein Schreiber)."""
         if version == self._puffer_gesichert:
             return
         try:
@@ -1551,9 +1577,25 @@ class Notifier:
                 if signal:
                     self._outbox_signal.task_done()
 
+    @staticmethod
+    def _ist_app_ablehnung(r) -> bool:
+        """400 mit der JSON-Antwort der App ({fehler} bzw. {ergebnisse}) —
+        nicht die eines Proxys oder Captive-Portals."""
+        try:
+            koerper = r.json()
+        except Exception:  # noqa: BLE001 – HTML, leer, kaputt
+            return False
+        return isinstance(koerper, dict) and (
+            "fehler" in koerper or "ergebnisse" in koerper
+        )
+
     def _sende_stapel(self, teil: list[dict]) -> str:
-        """Ein POST. Ergebnis: "ok", "abgelehnt" (400/413: dieser Stapel wird
-        so nie angenommen) oder "fehler" (Netz, 401, 5xx: spaeter erneut)."""
+        """Ein POST. Ergebnis:
+        "ok";
+        "zu_gross" (413: Anfrage zu gross — teilen bzw. ohne Bilder senden);
+        "abgelehnt" (400 von der App selbst: so nie annehmbar);
+        "fehler" (Netz, 401, 5xx, fremde 400: spaeter erneut, nichts verwerfen).
+        """
         try:
             r = requests.post(
                 self.db_url,
@@ -1568,7 +1610,9 @@ class Notifier:
             status = int(getattr(r, "status_code", 200) or 200)
         except (TypeError, ValueError):
             status = 200
-        if status in (400, 413):
+        if status == 413:
+            return "zu_gross"
+        if status == 400 and self._ist_app_ablehnung(r):
             return "abgelehnt"
         try:
             r.raise_for_status()
@@ -1602,49 +1646,51 @@ class Notifier:
     def _nachliefern(self) -> bool:
         """Sendet alles Ausstehende in Teilstapeln.
 
-        - Austreibung/Eskalation zuerst: Ein frischer Alarm haengt nie hinter
-          einem Rueckstau.
+        - Vor JEDEM Teilstapel wird die Outbox neu gelesen und Austreibung/
+          Eskalation vorgezogen: Ein frischer Alarm wartet hoechstens auf den
+          gerade laufenden Teilstapel, nie auf den ganzen Rueckstau.
         - Nach Fehlschlaegen erst mit EINEM Ereignis tasten, statt jedes Mal
-          den ganzen Rueckstau ueber den schwachen Uplink zu schieben.
-        - Lehnt der Server einen Stapel dauerhaft ab (400/413), einzeln
-          senden; ein einzelner abgelehnter Eintrag geht ohne Bilder raus oder
-          wird verworfen und protokolliert — er blockiert nie die Schlange.
-        - Entfernt wird nur, was angenommen wurde: Was waehrenddessen dazukam
-          oder verdraengt wurde, wird weder doppelt gesendet noch verloren.
+          den Rueckstau ueber den schwachen Uplink zu schieben.
+        - 413 (zu gross): einzeln senden, ein einzelner Eintrag notfalls ohne
+          Bilder. 400 der App selbst: einzeln; ein einzeln abgelehnter Eintrag
+          geht ohne Bilder raus oder wird verworfen und protokolliert — er
+          blockiert nie die Schlange. Fremde 400 (Proxy) gelten als Fehler:
+          nichts wird verworfen.
+        - Entfernt wird nur, was angenommen wurde (Objekt-Identitaet).
         """
-        with self._puffer_lock:
-            stapel = list(self._puffer)
-        if not stapel:
-            return True
-        reihe = [e for e in stapel if e.get("typ") == "austreibung"] + [
-            e for e in stapel if e.get("typ") != "austreibung"
-        ]
         tasten = self._db_fehler_in_folge > 0
         einzeln: set[int] = set()
         geliefert = 0
-        while reihe:
+        while True:
+            with self._puffer_lock:
+                stapel = list(self._puffer)
+            if not stapel:
+                break
+            reihe = [e for e in stapel if e.get("typ") == "austreibung"] + [
+                e for e in stapel if e.get("typ") != "austreibung"
+            ]
             max_anzahl = 1 if (tasten or id(reihe[0]) in einzeln) else self.MAX_STAPEL
             teil = self._teilstapel(reihe, max_anzahl)
-            reihe = reihe[len(teil):]
             ergebnis = self._sende_stapel(teil)
-            if ergebnis == "abgelehnt" and len(teil) > 1:
+            if ergebnis in ("abgelehnt", "zu_gross") and len(teil) > 1:
                 einzeln.update(id(e) for e in teil)
-                reihe = teil + reihe
                 continue
-            if ergebnis == "abgelehnt":
+            if ergebnis in ("abgelehnt", "zu_gross"):
                 e = teil[0]
+                grund = ergebnis
                 if e.get("bilder"):
                     ohne = {k: v for k, v in e.items() if k != "bilder"}
                     ergebnis = self._sende_stapel([ohne])
                     if ergebnis == "ok":
                         log.warning(
-                            "Ereignis ohne Bilder nachgeliefert (mit Bildern abgelehnt): %s %s",
+                            "Ereignis ohne Bilder nachgeliefert (mit Bildern %s): %s %s",
+                            grund,
                             e.get("typ"),
                             e.get("zeit"),
                         )
                 if ergebnis == "abgelehnt":
                     log.error(
-                        "Ereignis vom Server dauerhaft abgelehnt – verworfen, damit es "
+                        "Ereignis von der App dauerhaft abgelehnt – verworfen, damit es "
                         "die Nachlieferung nicht blockiert: %s %s %s",
                         e.get("typ"),
                         e.get("zeit"),
@@ -1652,6 +1698,10 @@ class Notifier:
                     )
                     self._entferne(teil)
                     continue
+                if ergebnis == "zu_gross":
+                    # Selbst ohne Bilder zu gross: kann nur von aussen kommen
+                    # (Proxy) — nichts verwerfen, spaeter erneut.
+                    ergebnis = "fehler"
             if ergebnis == "ok":
                 self._entferne(teil)
                 geliefert += len(teil)

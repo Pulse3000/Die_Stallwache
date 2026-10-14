@@ -43,6 +43,8 @@ class Netz:
         self.get_ergebnis: list = []
         # Optional: Server-Nachbau, liefert den HTTP-Status je Anfrage.
         self.status = None
+        # 400 kommt von einem Proxy (HTML) statt von der App (JSON {fehler}).
+        self.fremde_400 = False
 
     def post(self, url, **kw):
         if self.sperre is not None:
@@ -59,8 +61,17 @@ class Netz:
             if code >= 400:
                 raise m.requests.RequestException(f"HTTP {code}")
 
+        fremd = self.fremde_400
+
+        def koerper():
+            if code == 400 and fremd:
+                raise ValueError("kein JSON (Proxy-Fehlerseite)")
+            if code == 400:
+                return {"fehler": "Unbekannter typ"}
+            return {"result": []}
+
         return type("R", (), {"status_code": code, "raise_for_status": staticmethod(pruefen),
-                              "json": staticmethod(lambda: {"result": []})})()
+                              "json": staticmethod(koerper)})()
 
     def get(self, url, **kw):
         if self.haengen_s:
@@ -408,5 +419,79 @@ p.check(f"18: dringender Auftrag ueberlebt den Ueberlauf ({lauf18})", "AUSTREIBU
 # --- 19. Feedback hat einen eigenen Kanal -----------------------------------
 n19 = notifier()
 p.check("19: Feedback konkurriert nicht mit Alarmen", n19.feedback._kanal is not n19._tg)
+
+# --- 20. Fremde 400 (Proxy) verwirft nichts --------------------------------
+netz = neues_netz()
+netz.status = lambda url, kw: 400
+netz.fremde_400 = True
+n20 = notifier()
+n20._dashboard(alarm("Fruchtblase erkannt"), None)
+n20.warte()
+p.check("20: Proxy-400 -> Austreibung bleibt in der Outbox", len(n20._puffer) == 1)
+p.check("20: als Fehler gezaehlt (Backoff), nicht verworfen", n20._db_fehler_in_folge >= 1)
+
+# --- 21. Neue Austreibung ueberholt den laufenden Rueckstau ----------------
+netz = neues_netz()
+netz.ausfall = True
+n21 = notifier()
+for i in range(120):
+    n21.status(f"S{i}")
+n21.warte()
+netz.ausfall = False
+n21._db_fehler_in_folge = 0         # kein Tasten: direkt in Teilstapeln
+netz.sperre = threading.Event()
+n21._outbox_signal.put(None)
+time.sleep(0.2)                     # erster Teilstapel (50) haengt im POST
+n21._dashboard(alarm("Fruchtblase erkannt"), None)
+netz.sperre.set()
+n21.warte(10)
+posts21 = [kw["json"]["ereignisse"] for _, kw in netz.an("/api/events")]
+p.check("21: zweite Anfrage beginnt mit der neuen Austreibung",
+        len(posts21) >= 2 and posts21[1][0]["typ"] == "austreibung")
+p.check("21: alles geliefert, nichts doppelt",
+        sum(len(x) for x in posts21) == 121 and not n21._puffer)
+
+# --- 22. Dringende ueberholen Routine; Routine verdraengt nie Dringendes ---
+k22 = m.Versandkanal("prio-test-2", 2)
+frei22 = threading.Event()
+lauf22: list[str] = []
+k22.auftrag(lambda: (frei22.wait(5), lauf22.append("laufend")))
+time.sleep(0.1)
+k22.auftrag(lauf22.append, "routine-alt")
+k22.auftrag(lauf22.append, "AUSTREIBUNG-1", prio=True)   # voll: routine-alt weicht
+k22.auftrag(lauf22.append, "AUSTREIBUNG-2", prio=True)   # voll, nur dringende: aelteste dringende weicht
+k22.auftrag(lauf22.append, "routine-neu")                # nur dringende wartend -> neue Routine verworfen
+frei22.set()
+k22.warte()
+p.check(f"22: Routine verdraengt nie einen dringenden Auftrag ({lauf22})",
+        "routine-neu" not in lauf22 and "AUSTREIBUNG-2" in lauf22)
+k22b = m.Versandkanal("prio-test-3", 10)
+frei22b = threading.Event()
+lauf22b: list[str] = []
+k22b.auftrag(lambda: (frei22b.wait(5), lauf22b.append("laufend")))
+time.sleep(0.1)
+k22b.auftrag(lauf22b.append, "kalbeverdacht")
+k22b.auftrag(lauf22b.append, "AUSTREIBUNG", prio=True)
+frei22b.set()
+k22b.warte()
+p.check(f"22: dringender Auftrag ueberholt wartende Routine ({lauf22b})",
+        lauf22b == ["laufend", "AUSTREIBUNG", "kalbeverdacht"])
+
+# --- 23. Fehlalarm-Votum wartet nicht auf die Platte -----------------------
+netz = neues_netz()
+k23 = m.Versandkanal("feedback-platte", 10)
+fb23 = m.FeedbackSchleife(
+    {"telegram": {"token": "T", "chat_id": "C", "fehlalarm_ordner": str(TMP / "fb23")}},
+    kanal=k23,
+)
+fid23 = fb23.registriere(m.Alarm("kalbeverdacht", "Kuh #1", "x", None, None), [b"a", b"b"])[
+    "inline_keyboard"][0][1]["callback_data"].split(":")[1]
+langsam = []
+fb23._speichere = lambda fid, eintrag: (time.sleep(2), langsam.append(fid))
+dauer = gestempelt(lambda: fb23.verarbeite(
+    [{"update_id": 1, "callback_query": {"id": "q", "data": f"fb:{fid23}:fehlalarm"}}]))
+p.check(f"23: Votum blockiert nicht bei langsamer Platte ({dauer:.3f} s)", dauer < 0.3)
+k23.warte(10)
+p.check("23: Bilder im Hintergrund gespeichert", langsam == [fid23])
 
 sys.exit(p.bericht())

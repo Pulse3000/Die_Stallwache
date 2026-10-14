@@ -32,9 +32,12 @@ einer ruhigen Nacht also gar nicht.
 
 ## 1. Grundsatz
 
-1. **Die Analyseschleife wartet nie auf das Netz.** Im Hauptthread bleibt
-   nur CPU-Arbeit im Millisekundenbereich: Bilder kodieren, Ereignis bauen,
-   in eine Warteschlange legen.
+1. **Die Analyseschleife wartet nie auf das Netz und nie auf die Platte.**
+   Im Hauptthread bleibt nur CPU-Arbeit im Millisekundenbereich: Bilder
+   kodieren, Ereignis bauen, in eine Warteschlange legen. Auch die
+   Hard-Negative-Bilder eines „❌ Fehlalarm“-Votums schreibt der
+   Feedback-Kanal; vorher hielt ein Votum die Analyse auf einer langsamen
+   SD-Karte mehrere Sekunden an.
 2. **Je Kanal ein Versand-Thread.** Telegram-Alarme, Telegram-Feedback
    und das Dashboard bekommen je einen eigenen Worker. Ein hängendes
    Telegram hält die App-Meldung (und damit den Push aufs Handy) nicht auf,
@@ -54,8 +57,8 @@ einer ruhigen Nacht also gar nicht.
 | # | Regel |
 | --- | --- |
 | 1 | `melde()`, `wichtig()`, `status()` und `digest_tick()` kehren ohne Netzzugriff zurück. Telegram-Aufträge gehen in die Telegram-Warteschlange, Dashboard-Ereignisse in die Outbox |
-| 2 | Telegram-Warteschlange begrenzt auf 50 Aufträge. Bei Überlauf fällt der älteste **nicht dringende** Auftrag heraus (Log + Zähler). Austreibung, Eskalation und Systemwarnungen (`prio=True`) werden nie zugunsten von Routine verdrängt. Feedback-Abruf und -Antworten laufen über einen eigenen Kanal |
-| 3 | Outbox in **Teilstapeln** (höchstens 50 Einträge und 3 MB, die Server-Grenzen sind 100 und 4,5 MB). **Austreibung/Eskalation zuerst**, danach der Rest in Reihenfolge. Nach einem Fehlschlag wird erst mit **einem** Ereignis getastet. Lehnt der Server einen Stapel dauerhaft ab (400/413), werden die Einträge einzeln geschickt. Ein einzeln abgelehnter Eintrag geht ohne Bilder raus oder wird verworfen und protokolliert. Kein Eintrag blockiert je die Schlange. Entfernt wird nur Angenommenes, über die Objekt-Identität und nicht über die Position |
+| 2 | Telegram-Warteschlange begrenzt auf 50 Aufträge. Austreibung, Eskalation und Systemwarnungen (`prio=True`) **überholen** wartende Routine-Aufträge; untereinander bleibt die Reihenfolge. Bei Überlauf fällt der älteste Routine-Auftrag heraus. Warten nur dringende, wird ein **neuer Routine-Auftrag** verworfen. Ein dringender Auftrag weicht nie für Routine, nur für einen neueren dringenden. Feedback-Abruf, -Antworten und Hard-Negative-Speicherung laufen über einen eigenen Kanal |
+| 3 | Outbox in **Teilstapeln** (höchstens 50 Einträge und 3 MB, die Server-Grenzen sind 100 und 4,5 MB). Vor **jedem** Teilstapel wird die Outbox neu gelesen und **Austreibung/Eskalation vorgezogen**: Ein frischer Alarm wartet höchstens auf den gerade laufenden Teilstapel. Nach einem Fehlschlag wird erst mit **einem** Ereignis getastet. **413** (zu groß): Die Einträge gehen einzeln raus, ein einzelner notfalls ohne Bilder; verworfen wird bei 413 nie. **400 der App selbst** (JSON `{fehler}`/`{ergebnisse}`): Die Einträge gehen einzeln raus. Ein einzeln abgelehnter Eintrag geht ohne Bilder raus oder wird verworfen und protokolliert. **Fremde 400** (Proxy, Captive-Portal ohne App-JSON) gelten als Fehler, verworfen wird nichts. Kein Eintrag blockiert je die Schlange. Entfernt wird nur Angenommenes, über die Objekt-Identität und nicht über die Position |
 | 4 | **Nachlieferung ohne neuen Alarm:** Steht etwas aus, versucht der Worker nach 60 s erneut. Nach weiteren Fehlschlägen verdoppelt sich der Abstand bis 15 min. Ein neues Ereignis löst immer sofort einen Versuch aus. Das schließt den Roadmap-Punkt „Offline-Puffer nachliefern“ |
 | 5 | Plattensicherung der Outbox in einem **eigenen Sicherungs-Thread** (ein Schreiber), bei jeder Änderung, nie durch das Netz aufgehalten. Der Hauptthread schreibt nie die Pufferdatei (bei 200 Einträgen mit Bildern bis zu ~80 MB) |
 | 5a | `dashboard.puffer_max` < 1 wird auf 1 angehoben, mit Warnung. Sonst würde jedes Ereignis schon beim Einreihen verworfen. Jede Verdrängung durch die Obergrenze wird protokolliert |
@@ -104,12 +107,16 @@ Automatisiert (`edge-agent/tests/test_versand.py`):
 18. Ein Überlauf verdrängt nie einen dringenden Auftrag.
 19. Feedback und Alarme laufen über getrennte Kanäle.
 20. Bestehende Suites (Offline-Puffer, Feedback, Episoden, Einbindung) bleiben grün; geänderte Tests warten nur explizit auf den Versand bzw. erlauben das Tasten nach einem Fehlschlag.
-21. Mutationsprobe: 8 gezielte Fehler (ohne Sperre, Antworten synchron, keine Sicherung, ohne Teilstapel, ohne Vorrang, Priorität ignoriert, ohne Tasten, Ablehnung endlos) werden von je mindestens einem Test erkannt.
+21. Fremde 400 (Proxy-Fehlerseite ohne App-JSON) verwerfen nichts, die Austreibung bleibt in der Outbox.
+22. Eine Austreibung, die während eines laufenden Rückstau-Teilstapels eintrifft, führt die nächste Anfrage an.
+23. Ein dringender Auftrag überholt wartende Routine. Warten nur dringende, wird eine neue Routine verworfen, kein dringender.
+24. Ein „❌ Fehlalarm“-Votum kehrt sofort zurück, auch wenn das Speichern der Bilder 2 s dauert.
+25. Mutationsprobe: 13 gezielte Fehler werden von je mindestens einem Test erkannt. Geprüft: ohne Sperre, Antworten synchron, keine Sicherung, ohne Teilstapel, ohne Vorrang, Priorität ignoriert, ohne Tasten, Ablehnung endlos, kein Neulesen je Teilstapel, Routine verdrängt Dringendes, kein Überholen, jede 400 verwerfen, Platte synchron.
 
 Am realen Agenten (Beweispflicht, offen):
 
-22. Uplink im Stall trennen, Fruchtblasen-Testbild zeigen. Die Analyse läuft weiter, Log-Zeitstempel der Frames ohne Lücken > 2 s.
-23. Uplink zurück → gepufferte Meldung erscheint binnen 60 s in der App, ohne neuen Alarm (nach längerem Ausfall spätestens nach dem aktuellen Backoff, höchstens 15 min, oder sofort mit dem nächsten Ereignis).
+26. Uplink im Stall trennen, Fruchtblasen-Testbild zeigen. Die Analyse läuft weiter, Log-Zeitstempel der Frames ohne Lücken > 2 s.
+27. Uplink zurück → gepufferte Meldung erscheint binnen 60 s in der App, ohne neuen Alarm (nach längerem Ausfall spätestens nach dem aktuellen Backoff, höchstens 15 min, oder sofort mit dem nächsten Ereignis).
 
 ## 5. Risiken
 
@@ -138,10 +145,20 @@ Am realen Agenten (Beweispflicht, offen):
    Die Kette braucht dafür eine Client-ID je Ereignis oder eine
    Bestätigung aus dem Dashboard-Thread. Beim Umsetzen der Kette klären;
    das ist eine Vertragsänderung am Ingest.
-5. **Verworfene Einträge:** Ein Eintrag, den der Server auch ohne Bilder
-   ablehnt, wird verworfen. Das trifft nur Einträge, die nie angenommen
-   würden (z. B. unbekannter Typ). Ohne Verwerfen würden sie jede spätere
-   Meldung blockieren, den Befund dazu gab es schon vor dem Umbau.
+5. **Verworfene Einträge:** Verworfen wird nur ein Eintrag, den die **App
+   selbst** auch ohne Bilder mit 400 ablehnt (ihre JSON-Antwort, z. B. bei
+   unbekanntem Typ). Ohne Verwerfen würde er jede spätere Meldung
+   blockieren; den Befund dazu gab es schon vor dem Umbau. Fremde 400 und
+   jede 413 verwerfen nichts.
+6. **Timeouts in den Workern bleiben lang** (POST 30 s, Telegram 30 + 20 s,
+   `getUpdates` 10 s). Das ist der Rest des Vertragsworts „kurzer Timeout“.
+   Die Analyse betrifft das nicht mehr. Hängt ein Kanal, arbeitet er seine
+   Aufträge aber nacheinander ab; eine Austreibung überholt dabei die
+   wartende Routine (Regel 2). Gegenüber dem alten Stand ist das nicht
+   schlechter: Dort blockierte jede Sendung sogar die Erkennung.
+7. **Bereits vorher so:** Antwortet ein Captive-Portal mit 200 und HTML,
+   gilt das als zugestellt. Bei vollem Puffer (200) wird der älteste
+   Eintrag verdrängt, auch eine Austreibung; das wird jetzt protokolliert.
 
 ## 6. Ergebnis der adversarialen Prüfung (14.10.2026)
 
@@ -158,7 +175,22 @@ eigenen Skeptiker gegengeprüft. Bestätigt und behoben:
 | `puffer_max: 0` schaltete App-Meldungen still ab | niedrig | Regel 5a |
 
 Dazu kamen nachgeschärfte Tests (Abruf-Sperre, Hauptthread, nicht blockierende
-Antworten) und die Mutationsprobe (Kriterium 21). Verworfen wurde der
+Antworten) und die Mutationsprobe (Kriterium 25).
+
+**Abnahme `qa-waechter`, 1. Lauf: KEINE FREIGABE** wegen drei kleiner, nicht
+dokumentierter Fälle. Alle drei sind behoben (Kriterien 21–23):
+
+1. Eine neue Austreibung wartete bis zum Ende des laufenden
+   Rückstau-Durchlaufs.
+2. Warteten nur dringende Aufträge, konnte ein neuer Routine-Auftrag einen
+   dringenden verdrängen.
+3. Eine Proxy-400 verwarf eine Austreibung.
+
+Dazu kommt ein Rest aus dem alten Stand: Das Hard-Negative-Schreiben beim
+Votum lief im Hauptthread (Kriterium 24). Gemessen hat er auch: Die
+Hauptschleife lief mit 300 Frames ohne Iteration über 0,5 s, obwohl jede
+Anfrage 3 s hing (#72: Lücken bis 6 s). Im Stresstest kamen 1492 von 1492
+Ereignissen an, keins verloren, keins doppelt. Verworfen wurde der
 Befund „GIL-Blockade beim Serialisieren“: Gemessen wurden 0,3 s bei 80 MB,
 eine Fehlfunktion folgt daraus nicht. Mit den Teilstapeln sind es jetzt
 höchstens 3 MB je Serialisierung.
