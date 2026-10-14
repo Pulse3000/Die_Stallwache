@@ -21,7 +21,7 @@ Wo das konkret schadet:
 | --- | --- | --- |
 | **(a) zweite Kuh** kalbt in derselben Kamera, während die erste Austreibung noch läuft | erst nach Ablauf der 15 min gemeldet | bis 15 min Verzögerung; der Landwirt ist aber meist schon wegen Kuh 1 unterwegs |
 | **(b) echter Befund kurz nach einem Fehlalarm**: 02:00 Fehlalarm, Landwirt prüft die Bildserie, tippt „❌ Fehlalarm“, schläft weiter; 02:10 beginnt die echte Austreibung | gemeldet frühestens 02:15 | bis 15 min Verzögerung, **und der Landwirt liegt im Bett** — der teuerste Fall |
-| **(c) Stream war > 30 min weg** | Ob die Episode endet, hängt davon ab, ob das *erste* Bild nach dem Ausfall eine Erkennung zeigt (dann läuft sie weiter, ggf. sofort Eskalation) oder nicht (dann ist sie beendet, obwohl nichts beobachtet wurde) | uneinheitlich; Blindzeit zählt mal als Abwesenheit, mal nicht |
+| (c) Stream war > 30 min weg | Das erste Bild nach dem Ausfall entscheidet: Blase/Füße sichtbar → Episode läuft weiter (ggf. sofort Eskalation), sonst endet sie | **kein Defekt** — beide möglichen Fehler gehen in Recall-Richtung. Zwei „Verbesserungen“ wurden in der QA verworfen, siehe Regel 4 |
 
 ## 1. Widerspruch zur eigenen Aufgabenstellung
 
@@ -50,7 +50,7 @@ Cooldown des `Notifier` (der sie nicht kennt).
 | 1 | **Episodenbeginn → Sofort-Meldung.** Erste Erkennung ≥ `override_konfidenz` ohne offene Episode | unverändert schnell, jetzt unabhängig vom Notifier-Cooldown |
 | 2 | **Erinnerung im Takt.** Solange die Episode läuft und erkannt wird: alle `austreibung_erinnerung_minuten` eine Meldung „Austreibung läuft weiter seit N min“ | ersetzt den bisherigen Cooldown-Takt mit gleichem Default (15 min) und sagt jetzt, *seit wann* |
 | 3 | **Eskalation** einmal pro Episode nach `eskalation_minuten` (60), im selben Bild ersetzt sie die Erinnerung | unverändert, umgeht den Notifier-Cooldown jetzt ausdrücklich statt über einen Hilfsschlüssel |
-| 4 | **Episodenende** erst nach 30 min **beobachteter** Abwesenheit: Nur analysierte Bilder ohne Erkennung zählen (je Bild höchstens 10 s Lücke). Blindzeit — Stream weg, Kamera defekt, Uhrensprung — zählt nicht | macht Fall (c) einheitlich, in Recall-Richtung (siehe unten) |
+| 4 | **Episodenende wie bisher:** Ein Bild ohne Erkennung, und die letzte Erkennung liegt mehr als 30 min zurück (Wanduhr) | **bewusst unverändert** (siehe unten) |
 | 5 | **„❌ Fehlalarm“ auf eine Meldung der laufenden Episode** → die nächste Erkennung nach mindestens **60 s** ohne Erkennung meldet **sofort** („erneut erkannt“), statt auf die nächste Erinnerung zu warten | behebt Fall (b) |
 | 6 | **Zweite Kuh**: Erkennung räumlich bei einer anderen Kuh als die laufende Episode → eigene Episode, Sofort-Meldung | **blockiert** (Abschnitt 4) |
 
@@ -68,16 +68,26 @@ Weitere Festlegungen:
   Kontroll-Alarm höchstens etwas früher, nie später.
 - Ein Fehlalarm-Votum zu einer **beendeten** Episode ist wirkungslos (die
   neue Episode meldet ohnehin sofort).
-- **Regel 4, Korrektur nach QA (14.10.2026):** Die erste Fassung beendete
-  die Episode nach 30 min *Wanduhr* ohne Erkennung, auch über einen
-  Stream-Ausfall hinweg. Der `qa-waechter` zeigte, was das kostet: Geburt
-  läuft 0–50 min, Stream 45 min weg, Blase danach weiter sichtbar → neue
-  Episode, Eskalation erst bei 155 statt 95 min. Ohne Bild ist nicht zu
-  unterscheiden, ob dieselbe Geburt weiterlief. Recall vor Präzision:
-  Blindzeit beendet keine Episode. Preis: Beginnt nach einem langen
-  Ausfall tatsächlich eine *neue* Geburt, kann sofort die Eskalation statt
-  der Beginn-Meldung kommen — ein Kontrollgang zu viel, kein verpasstes
-  Kalb.
+- **Regel 4 — zwei verworfene Versuche (QA `qa-waechter`, 14.10.2026).**
+  Das alte Episodenende sah „uneinheitlich“ aus und wurde zweimal
+  „verbessert“. Beide Male fand die Prüfung einen Fall, in dem eine
+  Eskalation später oder gar nicht mehr kam:
+  1. *Episodenende vor der Bildauswertung prüfen* (Stream-Ausfall beendet
+     die Episode immer): Geburt läuft 0–50 min, Stream 45 min weg, Blase
+     danach weiter sichtbar → neue Episode, Eskalation erst bei 155 statt
+     95 min (QA-Fall 5c).
+  2. *Nur beobachtete Abwesenheit zählt* (Blindzeit beendet nie): Geburt 1
+     eskaliert bei 60, Stream 75–200 weg, Geburt 2 ab 205 staut → dieselbe,
+     schon eskalierte Episode, **Geburt 2 eskaliert nie** (5h). Dazu hing
+     das Episodenende an der Bildrate: bei 1 Bild/20 s erst nach ~60 min
+     (5i).
+
+  Die alte Regel — das erste Bild nach dem Ausfall entscheidet — deckt 5c,
+  5h und 5i ab. Ihr einziger Fehler (nach langem Ausfall beginnt wirklich
+  eine neue Geburt, das erste Bild zeigt sie schon → sofort Eskalation statt
+  Beginn-Meldung) geht in Recall-Richtung: ein Kontrollgang zu viel, kein
+  verpasstes Kalb. Lehre: Episodengrenzen nicht ohne Adversarial-Vergleich
+  gegen den alten Stand ändern.
 - Die 60-s-Lücke in Regel 5 verhindert die Schleife „Dauer-Fehlerkennung →
   Tipp → sofort neue Meldung → Tipp …“: Solange das Fehlobjekt ohne Pause im
   Bild bleibt, läuft nur der normale Erinnerungstakt.
@@ -90,9 +100,8 @@ Weitere Festlegungen:
 
 Fest im Code (unverändert bzw. neu, ohne Schalter):
 
-- Episodenende nach 30 min beobachteter Abwesenheit (`EPISODE_ENDE_S`,
-  wie bisher 30 min, jetzt benannt), höchstens 10 s je Bildlücke
-  (`MAX_BILDLUECKE_S`)
+- Episodenende: Bild ohne Erkennung, letzte Erkennung > 30 min her
+  (`EPISODE_ENDE_S`, Verhalten wie bisher, jetzt benannt)
 - Lücke für die Neumeldung nach Fehlalarm 60 s
   (`NEUMELDUNG_LUECKE_S`)
 
@@ -142,8 +151,8 @@ Automatisiert (`edge-agent/tests/test_austreibung_episoden.py`):
 3. Nach 15 min weiter erkannt → eine Erinnerung mit „seit 15 min“.
 4. Blase und Füße im selben Bild → eine Meldung, höchste Konfidenz.
 5. Eskalation genau einmal nach 60 min, im selben Bild keine Erinnerung.
-6. 30 min **beobachtet** ohne Erkennung → Episode beendet; nächste Erkennung = neue Episode, sofortige Meldung, Eskalations-Uhr neu.
-7. Blindzeit: Geburt 0–50 min, 45 min kein `bewerte`-Aufruf, Blase weiter sichtbar → dieselbe Episode, Eskalation sofort („seit 95 Minuten“). Erstes Bild nach 2 h ohne Erkennung beendet die Episode nicht; erst 30 min Beobachtung danach. Ein Uhrensprung zählt höchstens 10 s.
+6. Bild ohne Erkennung 30:01 min nach der letzten Erkennung → Episode beendet; nächste Erkennung = neue Episode, sofortige Meldung, Eskalations-Uhr neu.
+7. Stream-Ausfall (QA-Fälle): **5c** Geburt 0–50 min, 45 min kein `bewerte`-Aufruf, Blase im ersten Bild → dieselbe Episode, Eskalation sofort („seit 95 Minuten“). **5h** Geburt 1 eskaliert bei 60, Ausfall 75–200, erstes Bild leer → Episode beendet; Geburt 2 ab 205 bekommt Sofort-Meldung und eigene Eskalation bei 265. **5i** 1 Bild/20 s: Episodenende nach 30 min Wanduhr, Geburt 2 ab 110 eskaliert bei 170.
 8. Fall (b): Fehlalarm-Votum zur laufenden Episode, 60 s ohne Erkennung, dann Erkennung → sofort „erneut erkannt“.
 9. Fehlalarm-Votum, Objekt bleibt ohne Pause im Bild → keine Sofort-Meldung, Erinnerung im normalen Takt.
 10. Fehlalarm-Votum verschiebt die Eskalation nicht.

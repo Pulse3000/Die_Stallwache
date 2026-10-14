@@ -468,15 +468,14 @@ class Alarm:
     episode: int | None = None
 
 
-# Austreibungs-Episode endet nach so langer BEOBACHTETER Zeit ohne Erkennung
-# (Geburt abgeschlossen oder Fehlerkennung vorbei). Blindzeit — Stream weg,
-# Kamera defekt — zaehlt nicht: Ohne Bild ist nicht zu unterscheiden, ob die
-# Geburt weiterlief, und eine verschluckte Eskalation kostet im Zweifel ein
-# Kalb, eine unnoetige nur einen Kontrollgang.
+# Austreibungs-Episode endet, wenn ein Bild OHNE Erkennung kommt und die
+# letzte Erkennung laenger als das her ist (Geburt abgeschlossen oder
+# Fehlerkennung vorbei). Nach einem Stream-Ausfall entscheidet also das erste
+# Bild: Zeigt es Blase/Fuesse, laeuft die Episode weiter (ggf. sofort
+# Eskalation), sonst endet sie. Bewusst so belassen — beide moeglichen
+# Fehler gehen in Recall-Richtung (docs/austreibung-episoden-spezifikation.md,
+# Regel 4).
 EPISODE_ENDE_S = 1800
-# Mehr als diese Bildluecke zaehlt nicht als Beobachtung (bei ~1 FPS sind es
-# normal 1 s; groessere Luecken sind Stream-Ausfall oder Uhrensprung).
-MAX_BILDLUECKE_S = 10
 # Nach einem „Fehlalarm"-Votum meldet die naechste Erkennung sofort neu —
 # aber nur, wenn das Objekt mindestens so lange weg war. Verhindert die
 # Schleife Dauer-Fehlerkennung -> Tipp -> Sofortmeldung -> Tipp ...
@@ -500,10 +499,6 @@ class LogicEngine:
     eskaliert: bool = False
     # Landwirt hat eine Meldung dieser Episode als Fehlalarm markiert.
     neu_nach_fehlalarm: bool = False
-    # Beobachtete Zeit ohne Erkennung in der laufenden Episode und Zeitpunkt
-    # des letzten bewerte()-Aufrufs (Grundlage der Bildluecke).
-    abwesend_s: float = 0.0
-    letzter_aufruf: float | None = None
 
     def __post_init__(self):
         lg = self.cfg["logik"]
@@ -536,21 +531,15 @@ class LogicEngine:
 
         # 1) Harter Override: Fruchtblase / Kaelberfuesse. Den Takt bestimmt
         # allein die Episode, nicht der Notifier-Cooldown.
-        luecke = (
-            0.0
-            if self.letzter_aufruf is None
-            else min(max(0.0, jetzt - self.letzter_aufruf), MAX_BILDLUECKE_S)
-        )
-        self.letzter_aufruf = jetzt
         treffer = [o for o in objekte if o.konfidenz >= self.override_konf]
         if treffer:
             # Blase und Fuesse im selben Bild = eine Meldung.
             alarme.extend(self._austreibung(max(treffer, key=lambda o: o.konfidenz), jetzt))
-        elif self.austreibung_zuletzt is not None:
-            # Episode endet erst nach 30 min BEOBACHTETER Abwesenheit.
-            self.abwesend_s += luecke
-            if self.abwesend_s > EPISODE_ENDE_S:
-                self._beende_episode()
+        elif (
+            self.austreibung_zuletzt is not None
+            and jetzt - self.austreibung_zuletzt > EPISODE_ENDE_S
+        ):
+            self._beende_episode()
 
         # 2) Statistischer Zeitfilter pro Kuh (Schwanzwinkel)
         for kuh in kuehe:
@@ -586,7 +575,6 @@ class LogicEngine:
         objekt = "Fruchtblase" if o.klasse == "amniotic_sac" else "Kälberfüße"
         letzte_erkennung = self.austreibung_zuletzt
         self.austreibung_zuletzt = jetzt
-        self.abwesend_s = 0.0
 
         def meldung(kuh_id: str | None, text: str) -> Alarm:
             self.austreibung_gemeldet = jetzt
@@ -638,7 +626,6 @@ class LogicEngine:
         self.austreibung_gemeldet = None
         self.eskaliert = False
         self.neu_nach_fehlalarm = False
-        self.abwesend_s = 0.0
 
     def fehlalarm_gemeldet(self, typ: str, episode: int | None) -> None:
         """Rueckmeldung „❌ Fehlalarm" aus der Feedback-Schleife. Betrifft nur

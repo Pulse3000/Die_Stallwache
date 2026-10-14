@@ -107,39 +107,50 @@ takt = [a for a in alle if a.kuh_id is None]
 # Beginn + Erinnerungen bei 15/30/45, Eskalation 60, Erinnerungen 75/90
 p.check("5: Takt Beginn+15/30/45, Eskalation, 75/90", len(takt) == 6)
 
-# --- 6. 30 min BEOBACHTET ohne Erkennung -> neue Episode, sofort, Uhr neu ---
+# --- 6. Bild ohne Erkennung > 30 min nach der letzten -> Episode endet ----
 l6 = logik()
 bild(l6, [blase()], 0)
-p.check("6: 29:59 min beobachtet ohne Erkennung -> Episode laeuft",
-        laufe(l6, 1, 30 * MIN, objekte=[]) == [] and l6.austreibung_zuletzt is not None)
-p.check("6: 30:01 min beobachtet -> Episode beendet",
-        laufe(l6, 30 * MIN + 1, 30 * MIN + 1, objekte=[]) == [] and l6.austreibung_zuletzt is None)
+p.check("6: 30:00 min ohne Erkennung -> Episode laeuft",
+        laufe(l6, 60, 30 * MIN, objekte=[], schritt=60) == [] and l6.austreibung_zuletzt is not None)
+p.check("6: Bild bei 30:01 ohne Erkennung -> Episode beendet",
+        bild(l6, [], 30 * MIN + 1) == [] and l6.austreibung_zuletzt is None)
 neu = bild(l6, [blase()], 31 * MIN)
 p.check("6: danach neue Episode, sofort", len(neu) == 1 and neu[0].episode == 2)
 p.check("6: Text 'erkannt', nicht 'laeuft weiter'", "Austreibungsphase!" in neu[0].nachricht)
 p.check("6: Eskalations-Uhr neu", l6.austreibung_start == UHR[0] and not l6.eskaliert)
 
-# --- 7. Blindzeit zaehlt nicht als Abwesenheit (Recall vor Praezision) -----
-# Geburt laeuft 0–50 min, Stream 45 min weg, Blase danach weiter sichtbar:
-# dieselbe Episode, die Eskalation kommt sofort statt 60 min spaeter.
+# --- 7. Stream-Ausfall: das erste Bild danach entscheidet (Recall-Richtung) --
+# 5c: Geburt laeuft 0–50 min, Stream 45 min weg, Blase danach weiter
+# sichtbar -> dieselbe Episode, Eskalation sofort (nicht 60 min spaeter).
 l7 = logik()
-laufe(l7, 0, 50 * MIN, schritt=1)
+laufe(l7, 0, 50 * MIN, schritt=10)
 nach_ausfall = bild(l7, [blase()], 95 * MIN)   # kein bewerte() dazwischen
-p.check("7: nach Stream-Ausfall dieselbe Episode", l7.episode_nr == 1)
-p.check("7: Eskalation sofort nach dem Ausfall (seit 95 min)",
+p.check("7/5c: Blase im ersten Bild nach Ausfall -> dieselbe Episode", l7.episode_nr == 1)
+p.check("7/5c: Eskalation sofort (seit 95 min)",
         len(nach_ausfall) == 1 and nach_ausfall[0].kuh_id == "Eskalation" and "seit 95 Minuten" in nach_ausfall[0].nachricht)
-# Ausfall, danach Bilder OHNE Erkennung: erst 30 min Beobachtung beenden die Episode
-l7b = logik()
-bild(l7b, [blase()], 0)
-bild(l7b, [], 120 * MIN)                        # erstes Bild nach 2 h Blindzeit
-p.check("7: Blindzeit beendet die Episode nicht", l7b.austreibung_zuletzt is not None)
-laufe(l7b, 120 * MIN + 1, 150 * MIN + 2, objekte=[])
-p.check("7: 30 min Beobachtung danach beenden sie", l7b.austreibung_zuletzt is None)
-# Uhr springt vorwaerts: zaehlt hoechstens als eine Bildluecke
-l7c = logik()
-bild(l7c, [blase()], 0)
-bild(l7c, [], 10_000 * MIN)
-p.check("7: Uhrensprung zaehlt hoechstens 10 s Abwesenheit", l7c.abwesend_s <= 10)
+
+# 5h: Geburt 1 (0–70, eskaliert bei 60), Stream 75–200 weg, Geburt 2 ab 205
+# staut -> Geburt 2 bekommt ihre EIGENE Eskalation (bei 265).
+l7h = logik()
+esk_h = [a for a in laufe(l7h, 0, 70 * MIN, schritt=10) if a.kuh_id == "Eskalation"]
+p.check("7/5h: Geburt 1 eskaliert bei 60", len(esk_h) == 1)
+laufe(l7h, 70 * MIN + 10, 75 * MIN, objekte=[], schritt=10)
+bild(l7h, [], 200 * MIN)                        # erstes Bild nach Ausfall: leer
+p.check("7/5h: leeres erstes Bild nach Ausfall beendet Episode 1", l7h.austreibung_zuletzt is None)
+geburt2 = laufe(l7h, 205 * MIN, 270 * MIN, schritt=10)
+esk2 = [a for a in geburt2 if a.kuh_id == "Eskalation"]
+p.check("7/5h: Geburt 2 = neue Episode mit Sofort-Meldung bei 205",
+        geburt2 and geburt2[0].episode == 2 and "Austreibungsphase!" in geburt2[0].nachricht)
+p.check("7/5h: Geburt 2 eskaliert bei 265", len(esk2) == 1 and "seit 60 Minuten" in esk2[0].nachricht)
+
+# 5i: langsamer Agent (1 Bild / 20 s) — Episodenende haengt an der Wanduhr,
+# nicht an der Bildrate: Geburt 2 ab 110 eskaliert bei 170.
+l7i = logik()
+laufe(l7i, 0, 70 * MIN, schritt=20)
+laufe(l7i, 70 * MIN + 20, 105 * MIN, objekte=[], schritt=20)
+p.check("7/5i: Episode nach 30 min Wanduhr beendet (1 Bild/20 s)", l7i.austreibung_zuletzt is None)
+esk_i = [a for a in laufe(l7i, 110 * MIN, 175 * MIN, schritt=20) if a.kuh_id == "Eskalation"]
+p.check("7/5i: Geburt 2 eskaliert bei 170", len(esk_i) == 1 and "seit 60 Minuten" in esk_i[0].nachricht)
 
 # --- 8. Fall (b): Fehlalarm, Pause >= 60 s, echte Austreibung -> sofort ----
 l8 = logik()

@@ -74,7 +74,7 @@ blinzelt — ohne 45.000 € auszugeben und ohne einen Sensor im Pansen.*
 | --- | --- | --- |
 | **Kalbeverdacht** | Schwanzwinkel > **45°** (Vektor `spine_end→tail_base` gegen `tail_base→tail_tip`, via `atan2`) in **> 20 %** der Frames eines rollierenden **30-Minuten-Fensters** (`collections.deque`) | Alarm (Telegram + Dashboard) |
 | **Austreibung** | `amniotic_sac` oder `calf_legs` mit Konfidenz **> 0.80** | **Sofort-Alarm**, Zeitfilter wird übersprungen |
-| **Eskalation** | Austreibung läuft, aber nach **60 min** ist weiterhin Fruchtblase/Füße sichtbar (kein Geburtsfortschritt) | **dringender Kontroll-Alarm** (Komplikationsverdacht); feuert nur einmal pro Episode; Episode setzt sich nach 30 min **beobachtet** ohne Erkennung zurück (Blindzeit bei Stream-Ausfall zählt nicht); umgeht bewusst den Cooldown |
+| **Eskalation** | Austreibung läuft, aber nach **60 min** ist weiterhin Fruchtblase/Füße sichtbar (kein Geburtsfortschritt) | **dringender Kontroll-Alarm** (Komplikationsverdacht); feuert nur einmal pro Episode; Episode setzt sich nach 30 min ohne Erkennung zurück; umgeht bewusst den Cooldown |
 | **Austreibungs-Takt** | je Episode statt Cooldown: Sofort-Meldung bei Beginn, Erinnerung „läuft weiter seit N min" alle 15 min (`logik.austreibung_erinnerung_minuten`, leer = Cooldown-Wert), solange sichtbar; nach „❌ Fehlalarm" meldet die nächste Erkennung nach ≥ 60 s Pause sofort neu | Erinnerung und Eskalation werden durch ein Fehlalarm-Votum nie verschoben (`docs/austreibung-episoden-spezifikation.md`) |
 | **Brunstverdacht** | Aufsprung: zwei Kuh-Boxen überlappen (IoU > 0.15), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert kurzes Spielverhalten) | Alarm (Telegram + Dashboard) |
 
