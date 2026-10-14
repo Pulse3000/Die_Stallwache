@@ -30,6 +30,7 @@ import {
   type EreignisTyp,
   type StallEreignis,
 } from "@/lib/ereignis-modell";
+import type { AgentModus, Lebenszeichen } from "@/lib/stall-status";
 
 export { ALARM_TYPEN, EREIGNIS_TYPEN };
 export type { EreignisTyp, StallEreignis };
@@ -49,6 +50,8 @@ interface EventStore {
   letzterKontakt: string | null;
   /** Fallback-Bildspeicher: Schluessel "<ereignisId>:<index>" -> Base64-JPEG. */
   bilder: Map<string, string>;
+  /** Lebenszeichen je Kamera (Statusabfrage). */
+  lebenszeichen: Map<string, Lebenszeichen>;
 }
 
 // globalThis, damit der Puffer Hot-Reloads/Re-Imports derselben Instanz uebersteht.
@@ -56,9 +59,11 @@ const store: EventStore = ((globalThis as Record<string, unknown>).__kiwache ??=
   ereignisse: [],
   letzterKontakt: null,
   bilder: new Map<string, string>(),
+  lebenszeichen: new Map<string, Lebenszeichen>(),
 }) as EventStore;
-// Aeltere Instanzen dieses Objekts kannten `bilder` noch nicht.
+// Aeltere Instanzen dieses Objekts kannten `bilder`/`lebenszeichen` noch nicht.
 store.bilder ??= new Map<string, string>();
+store.lebenszeichen ??= new Map<string, Lebenszeichen>();
 
 // ---------------------------------------------------------------------------
 // Vercel KV / Upstash Redis ueber die REST-API (bewusst ohne Zusatzpaket).
@@ -72,6 +77,8 @@ const KV_LISTE = "kiwache:ereignisse";
 const KV_KONTAKT = "kiwache:kontakt";
 /** Hash-Schluessel: field = ereignis-ID, value = ISO-Zeitstempel der Quittierung. */
 const KV_QUITTIERT = "kiwache:quittiert";
+/** Hash-Schluessel: field = Kamera, value = JSON {zeit, modus, bild}. */
+const KV_LEBENSZEICHEN = "kiwache:lebenszeichen";
 const kvBildSchluessel = (id: string, index: number) =>
   `kiwache:bild:${id}:${index}`;
 
@@ -165,11 +172,48 @@ export async function addEreignis(
   return voll;
 }
 
-/** Meldet den Edge-Agenten als lebendig, ohne ein Ereignis zu erzeugen. */
-export async function meldeKontakt(): Promise<void> {
+/**
+ * Meldet den Edge-Agenten als lebendig, ohne ein Ereignis zu erzeugen.
+ * Mit `kamera` (neuere Agenten) zusaetzlich Modus und Bildzustand dieser
+ * Kamera — Grundlage dafuer, dass die Statusabfrage „OK" sagen darf.
+ */
+export async function meldeKontakt(
+  kamera?: { kamera: string; modus: AgentModus | null; bild: boolean | null },
+): Promise<void> {
   const jetzt = new Date().toISOString();
   store.letzterKontakt = jetzt;
-  await kvPipeline([["SET", KV_KONTAKT, jetzt]]);
+  const befehle: (string | number)[][] = [["SET", KV_KONTAKT, jetzt]];
+  if (kamera) {
+    const lz: Lebenszeichen = { zeit: jetzt, modus: kamera.modus, bild: kamera.bild };
+    store.lebenszeichen.set(kamera.kamera, lz);
+    befehle.push(["HSET", KV_LEBENSZEICHEN, kamera.kamera, JSON.stringify(lz)]);
+  }
+  await kvPipeline(befehle);
+}
+
+/** Lebenszeichen je Kamera. Reihenfolge: KV (dauerhaft) -> Instanz-Puffer. */
+export async function getLebenszeichen(): Promise<Record<string, Lebenszeichen>> {
+  const ergebnis: Record<string, Lebenszeichen> = Object.fromEntries(
+    store.lebenszeichen,
+  );
+  const kv = await kvPipeline([["HGETALL", KV_LEBENSZEICHEN]]);
+  const roh = Array.isArray(kv?.[0]?.result) ? (kv[0].result as string[]) : [];
+  for (let i = 0; i + 1 < roh.length; i += 2) {
+    try {
+      const lz = JSON.parse(roh[i + 1]) as Lebenszeichen;
+      const vorhanden = ergebnis[roh[i]];
+      // Der juengere Eintrag gewinnt (Instanz kann frischer sein als KV).
+      if (
+        typeof lz?.zeit === "string" &&
+        (!vorhanden || Date.parse(lz.zeit) > Date.parse(vorhanden.zeit))
+      ) {
+        ergebnis[roh[i]] = lz;
+      }
+    } catch {
+      // korrupten Einzeleintrag ueberspringen
+    }
+  }
+  return ergebnis;
 }
 
 export interface EreignisAntwort {

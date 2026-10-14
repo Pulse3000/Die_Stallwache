@@ -230,6 +230,7 @@ Futterwache) setzen – fertig. Die App ist als PWA installierbar (Homescreen).
 | `lib/pubsub.ts` | Spiegelung jedes Ereignisses in die bestehende GCP-Architektur |
 | `lib/config.ts` | Kamera- & Bridge-Konfiguration (go2rtc/MediaMTX) aus Umgebungsvariablen |
 | `app/wache/` + `app/api/events/` | **KI-Wache**: Detailsicht & Ingest-API (persistiert automatisch, sobald ein Vercel-KV-Store verknüpft ist) |
+| `lib/stall-status.ts` + `app/api/stall-status/` | **Statusabfrage** „Status in der Stallwache?" → OK/WARNUNG/KRITISCH/UNBEKANNT je Kamera und Kuh; Session oder Lese-Token `STATUS_READ_TOKEN` (Spezifikation: `docs/statusabfrage-spezifikation.md`) |
 | `edge-agent/` | Python-Agent (YOLO-Pose + ByteTrack): Kalbe-/Brunsterkennung, Totmann, Feedback-Schleife; `setup.sh` = Ein-Befehl-Einrichtung |
 | `edge-agent/tests/` | Offline-Testsuite (77 Checks, pures Python ohne Installation) |
 | `bridge/` | go2rtc (Default) + Cloudflare Tunnel; `bridge/termux/` = Android-Weg, `bridge/mediamtx/` = WHEP-Alternative |

@@ -127,6 +127,10 @@ Wehen von Alltag. Diesen Filter niemals durch Einzelbild-Trigger ersetzen.
   Telegram-Nachricht raus („das dritte Auge ist blind"), plus genau eine
   Entwarnung bei Rückkehr — Schweigen darf nie fälschlich „alles ruhig"
   bedeuten. Läuft modellunabhängig, auch im Silent Mode.
+- **Lebenszeichen** (`dashboard.lebenszeichen_minuten`, Default 5): Agent
+  lebt, Modus (`analyse`/`silent`), Kamera liefert Bild — im Hintergrund,
+  10 s Timeout. Grundlage der Statusabfrage `GET /api/stall-status`: ohne
+  aktuelles Lebenszeichen gibt es dort kein „OK", nur „UNBEKANNT".
 - Jede Iteration in Exception-Handling kapseln — der Prozess läuft weiter,
   systemd startet zur Not neu.
 - Telegram-/Dashboard-/MQTT-Ausfälle dürfen die Analyse NIE blockieren.
