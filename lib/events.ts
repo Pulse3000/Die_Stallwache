@@ -235,8 +235,13 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
     ["GET", KV_KONTAKT],
     ["HGETALL", KV_QUITTIERT],
   ]);
-  if (kv) {
-    const roh = Array.isArray(kv[0]?.result) ? (kv[0].result as string[]) : [];
+  // Als „gelesen" gilt KV nur, wenn LRANGE wirklich eine Liste lieferte.
+  // Upstash meldet Fehler einzelner Befehle mit HTTP 200 und {error} statt
+  // {result} — das wie eine leere Liste zu behandeln, ergaebe in der
+  // Statusabfrage ein falsches „OK".
+  const kvGelesen = kv !== null && Array.isArray(kv[0]?.result);
+  if (kv && kvGelesen) {
+    const roh = kv[0].result as string[];
     // HGETALL liefert ein flaches Array [feld1, wert1, feld2, wert2, …].
     const quittiert = new Map<string, string>();
     const hgetallRoh = Array.isArray(kv[2]?.result)
@@ -280,7 +285,7 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
     ereignisse: demoEreignisse(),
     letzterKontakt: null,
     quelle: "demo",
-    speicher: kv ? "kv" : "instanz",
+    speicher: kvGelesen ? "kv" : "instanz",
   };
 }
 
