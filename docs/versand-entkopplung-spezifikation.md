@@ -35,14 +35,16 @@ einer ruhigen Nacht also gar nicht.
 1. **Die Analyseschleife wartet nie auf das Netz.** Im Hauptthread bleibt
    nur CPU-Arbeit im Millisekundenbereich: Bilder kodieren, Ereignis bauen,
    in eine Warteschlange legen.
-2. **Je Kanal ein Versand-Thread.** Telegram und Dashboard bekommen je einen
-   eigenen Worker. Ein hängendes Telegram hält die App-Meldung (und damit
-   den Push aufs Handy) nicht auf, und umgekehrt. Innerhalb eines Kanals
-   bleibt die Reihenfolge erhalten.
-3. **Dashboard als Outbox.** Jedes Ereignis kommt zuerst in die Outbox. Der
-   Worker sichert sie auf die Platte, bevor er sendet, und entfernt nur, was
-   der Server angenommen hat. Kein Alarm geht verloren, auch nicht bei einem
-   Neustart mitten im Senden.
+2. **Je Kanal ein Versand-Thread.** Telegram-Alarme, Telegram-Feedback
+   und das Dashboard bekommen je einen eigenen Worker. Ein hängendes
+   Telegram hält die App-Meldung (und damit den Push aufs Handy) nicht auf,
+   und umgekehrt. Button-Antworten konkurrieren nie mit Alarmen. Innerhalb
+   eines Kanals bleibt die Reihenfolge erhalten.
+3. **Dashboard als Outbox.** Jedes Ereignis kommt zuerst in die Outbox. Ein
+   eigener Sicherungs-Thread schreibt sie bei jeder Änderung auf die Platte,
+   unabhängig vom Netz. Der Dashboard-Thread entfernt nur, was der Server
+   angenommen hat. Kein Alarm geht verloren, auch nicht bei einem Neustart
+   mitten im Senden.
 4. **Zustand der Logik bleibt im Hauptthread.** Feedback-Antworten von
    Telegram holt der Worker ab, *verarbeitet* werden sie im Hauptthread
    (sie greifen über `bei_fehlalarm` in die `LogicEngine`).
@@ -52,10 +54,11 @@ einer ruhigen Nacht also gar nicht.
 | # | Regel |
 | --- | --- |
 | 1 | `melde()`, `wichtig()`, `status()` und `digest_tick()` kehren ohne Netzzugriff zurück. Telegram-Aufträge gehen in die Telegram-Warteschlange, Dashboard-Ereignisse in die Outbox |
-| 2 | Telegram-Warteschlange begrenzt auf 50 Aufträge. Bei Überlauf fällt der **älteste** heraus (Log + Zähler). Bei so langem Ausfall ist der neueste Alarm der wichtigste, und die App-Meldung kommt über die Outbox trotzdem an |
-| 3 | Outbox: Der Worker sendet alles Ausstehende als **einen** Stapel (wie bisher). Bei Erfolg entfernt er genau die gesendeten Einträge, über die Objekt-Identität und nicht über die Position. Was währenddessen dazukam, bleibt stehen |
-| 4 | **Nachlieferung ohne neuen Alarm:** Steht etwas aus, versucht der Worker alle 60 s erneut zu senden. Das schließt den Roadmap-Punkt „Offline-Puffer nachliefern“ |
-| 5 | Plattensicherung der Outbox **nur im Worker** (ein Schreiber), immer *vor* dem Senden. Der Hauptthread schreibt nie die ganze Pufferdatei (bei 200 Einträgen mit Bildern bis zu ~80 MB) |
+| 2 | Telegram-Warteschlange begrenzt auf 50 Aufträge. Bei Überlauf fällt der älteste **nicht dringende** Auftrag heraus (Log + Zähler). Austreibung, Eskalation und Systemwarnungen (`prio=True`) werden nie zugunsten von Routine verdrängt. Feedback-Abruf und -Antworten laufen über einen eigenen Kanal |
+| 3 | Outbox in **Teilstapeln** (höchstens 50 Einträge und 3 MB, die Server-Grenzen sind 100 und 4,5 MB). **Austreibung/Eskalation zuerst**, danach der Rest in Reihenfolge. Nach einem Fehlschlag wird erst mit **einem** Ereignis getastet. Lehnt der Server einen Stapel dauerhaft ab (400/413), werden die Einträge einzeln geschickt. Ein einzeln abgelehnter Eintrag geht ohne Bilder raus oder wird verworfen und protokolliert. Kein Eintrag blockiert je die Schlange. Entfernt wird nur Angenommenes, über die Objekt-Identität und nicht über die Position |
+| 4 | **Nachlieferung ohne neuen Alarm:** Steht etwas aus, versucht der Worker nach 60 s erneut. Nach weiteren Fehlschlägen verdoppelt sich der Abstand bis 15 min. Ein neues Ereignis löst immer sofort einen Versuch aus. Das schließt den Roadmap-Punkt „Offline-Puffer nachliefern“ |
+| 5 | Plattensicherung der Outbox in einem **eigenen Sicherungs-Thread** (ein Schreiber), bei jeder Änderung, nie durch das Netz aufgehalten. Der Hauptthread schreibt nie die Pufferdatei (bei 200 Einträgen mit Bildern bis zu ~80 MB) |
+| 5a | `dashboard.puffer_max` < 1 wird auf 1 angehoben, mit Warnung. Sonst würde jedes Ereignis schon beim Einreihen verworfen. Jede Verdrängung durch die Obergrenze wird protokolliert |
 | 6 | Feedback-Abruf: höchstens **ein** Abruf gleichzeitig. Der nächste wird erst angestoßen, wenn das Ergebnis des vorigen im Hauptthread verarbeitet ist (kein Doppel-Votum durch denselben Offset). Hängt ein Abruf länger als 120 s oder fällt er aus der Warteschlange, wird die Sperre freigegeben |
 | 7 | Ein Fehler in einem Auftrag beendet den Worker nie |
 | 8 | Ohne zugeordneten Kanal (Tests, Einzelbetrieb) arbeitet die `FeedbackSchleife` wie bisher synchron |
@@ -72,8 +75,9 @@ Unverändert bleiben:
 
 Keine neuen Schalter. Fest im Code:
 
-- `TELEGRAM_WARTESCHLANGE_MAX = 50`
-- `NACHLIEFER_INTERVALL_S = 60`
+- `TELEGRAM_WARTESCHLANGE_MAX = 50` (Feedback-Kanal ebenfalls 50)
+- `NACHLIEFER_INTERVALL_S = 60`, `NACHLIEFER_MAX_S = 900`
+- `MAX_STAPEL = 50`, `MAX_STAPEL_BYTES = 3_000_000`
 - `ABRUF_SPERRE_MAX_S = 120`
 
 ## 4. Abnahmekriterien
@@ -90,26 +94,71 @@ Automatisiert (`edge-agent/tests/test_versand.py`):
 8. Feedback-Antworten (`answerCallbackQuery`, Buttons entfernen) laufen über den Kanal.
 9. `digest_tick()` und `wichtig()` blockieren nicht.
 10. Ein Auftrag, der wirft, stoppt den Worker nicht.
-11. Bestehende Suites (Offline-Puffer, Feedback, Episoden, Einbindung) bleiben grün; geänderte Tests warten nur explizit auf den Versand.
+11. Rückstau von 136 Ereignissen, davon 6 mit je ~1,2 MB Bildern, gegen einen Server-Nachbau mit den echten Grenzen (100 Einträge, 4,5 MB): Alles kommt an, keins doppelt, kein Stapel abgelehnt.
+12. Hinter 60 gepufferten Routinemeldungen enthält die erste Anfrage nach dem Ausfall die Austreibung.
+13. Bei 401 wird nach dem ersten Fehlschlag nur noch ein Ereignis je Versuch geschickt; nichts wird verworfen.
+14. Backoff 60, 60, 120, 240, 480, 900, 900 s.
+15. Ein dauerhaft abgelehnter Eintrag wird verworfen, ein zu großer geht ohne Bilder raus, die gesunden kommen an.
+16. Hängt ein POST, ist ein neuer Alarm trotzdem binnen 2 s auf der Platte.
+17. `puffer_max: 0` schaltet die App-Meldung nicht still ab.
+18. Ein Überlauf verdrängt nie einen dringenden Auftrag.
+19. Feedback und Alarme laufen über getrennte Kanäle.
+20. Bestehende Suites (Offline-Puffer, Feedback, Episoden, Einbindung) bleiben grün; geänderte Tests warten nur explizit auf den Versand bzw. erlauben das Tasten nach einem Fehlschlag.
+21. Mutationsprobe: 8 gezielte Fehler (ohne Sperre, Antworten synchron, keine Sicherung, ohne Teilstapel, ohne Vorrang, Priorität ignoriert, ohne Tasten, Ablehnung endlos) werden von je mindestens einem Test erkannt.
 
 Am realen Agenten (Beweispflicht, offen):
 
-12. Uplink im Stall trennen, Fruchtblasen-Testbild zeigen. Die Analyse läuft weiter, Log-Zeitstempel der Frames ohne Lücken > 2 s.
-13. Uplink zurück → gepufferte Meldung erscheint binnen 60 s in der App, ohne neuen Alarm.
+22. Uplink im Stall trennen, Fruchtblasen-Testbild zeigen. Die Analyse läuft weiter, Log-Zeitstempel der Frames ohne Lücken > 2 s.
+23. Uplink zurück → gepufferte Meldung erscheint binnen 60 s in der App, ohne neuen Alarm (nach längerem Ausfall spätestens nach dem aktuellen Backoff, höchstens 15 min, oder sofort mit dem nächsten Ereignis).
 
 ## 5. Risiken
 
 1. **Prozessende mit vollen Warteschlangen** (SIGTERM, Stromausfall):
    - Ausstehende Telegram-Nachrichten gehen verloren. Bisher ging in
      diesem Fall nur die gerade laufende verloren.
-   - Outbox-Einträge, die noch nicht gesichert waren, gehen verloren. Das
-     Fenster dafür ist wenige Millisekunden lang; bisher waren es bis zu
-     30 s, weil erst nach dem Fehlschlag gesichert wurde.
+   - Outbox-Einträge, die der Sicherungs-Thread noch nicht geschrieben hat,
+     gehen verloren. Das Fenster ist so lang wie ein Schreibvorgang
+     (Millisekunden bis wenige Sekunden bei vollem Puffer auf einer
+     SD-Karte), nie so lang wie ein hängender POST. Bisher waren es bis zu
+     30 s, weil erst nach dem Fehlschlag gesichert wurde. *Korrektur nach
+     der Prüfung:* Die erste Fassung sicherte im Dashboard-Thread vor dem
+     Senden. Ein neuer Alarm wartete dann auf das Ende eines hängenden POST,
+     also 30 s oder länger.
 2. **Doppelte Ereignisse bei verlorener Antwort.** Kommt der Stapel beim
    Server an, die Antwort aber nicht zurück, sendet der Worker ihn erneut
    (at-least-once, wie bisher). Abhilfe wäre eine Client-ID je Ereignis; das
    ist eine Vertragsänderung und ein eigener Schritt.
-3. **Mehr Threads** (Telegram, Dashboard, Lebenszeichen, Archiv): Alle sind
-   Daemon-Threads, die je eine Warteschlange abarbeiten. Gemeinsamen
-   Zustand gibt es nur bei Outbox und Feedback-Eingang, beide mit Lock bzw.
-   `queue.Queue`.
+3. **Mehr Threads** (Telegram, Telegram-Feedback, Dashboard, Sicherung,
+   Lebenszeichen, Archiv): Alle sind Daemon-Threads, die je eine
+   Warteschlange abarbeiten. Gemeinsamen Zustand gibt es nur bei Outbox und
+   Feedback-Eingang, beide mit Lock bzw. `queue.Queue`.
+4. **Schnittstelle zur Eskalationskette** (`eskalationskette-spezifikation.md`
+   §3.1/§9): Die Spezifikation erwartet, dass `_dashboard()` synchron die
+   Server-ID des Ereignisses zurückgibt. Mit der Outbox geht das nicht mehr.
+   Die Kette braucht dafür eine Client-ID je Ereignis oder eine
+   Bestätigung aus dem Dashboard-Thread. Beim Umsetzen der Kette klären;
+   das ist eine Vertragsänderung am Ingest.
+5. **Verworfene Einträge:** Ein Eintrag, den der Server auch ohne Bilder
+   ablehnt, wird verworfen. Das trifft nur Einträge, die nie angenommen
+   würden (z. B. unbekannter Typ). Ohne Verwerfen würden sie jede spätere
+   Meldung blockieren, den Befund dazu gab es schon vor dem Umbau.
+
+## 6. Ergebnis der adversarialen Prüfung (14.10.2026)
+
+Vier unabhängige Prüfer (Nebenläufigkeit, Alarmverlust, Blockieren,
+Regression) haben den ersten Stand geprüft. Jeder Befund wurde von einem
+eigenen Skeptiker gegengeprüft. Bestätigt und behoben:
+
+| Befund | Schwere | Behebung |
+| --- | --- | --- |
+| Ein Rückstau über den Server-Grenzen (100 Einträge, 4,5 MB, mit Bildern schon 5–12 Alarme) blockierte App und Push **dauerhaft**, auch über Neustarts. Das bestand schon vor dem Umbau, der 60-s-Takt verschärfte es | hoch | Regel 3 (Teilstapel, Vorrang, Ablehnung auflösen) |
+| Ein vom Server abgelehnter Stapel wurde jede Minute komplett neu hochgeladen | mittel | Regeln 3 und 4 (Tasten, Backoff) |
+| Neuer Alarm lag während eines hängenden POST nur im RAM | niedrig | Regel 5 (Sicherungs-Thread) |
+| Feedback-Antworten konnten Alarme aus der Warteschlange verdrängen | niedrig | Regel 2 (eigener Kanal, Vorrang) |
+| `puffer_max: 0` schaltete App-Meldungen still ab | niedrig | Regel 5a |
+
+Dazu kamen nachgeschärfte Tests (Abruf-Sperre, Hauptthread, nicht blockierende
+Antworten) und die Mutationsprobe (Kriterium 21). Verworfen wurde der
+Befund „GIL-Blockade beim Serialisieren“: Gemessen wurden 0,3 s bei 80 MB,
+eine Fehlfunktion folgt daraus nicht. Mit den Teilstapeln sind es jetzt
+höchstens 3 MB je Serialisierung.

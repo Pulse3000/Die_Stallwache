@@ -78,15 +78,19 @@ netz_an()
 gesendet.clear()
 n2._dashboard(alarm2, None)
 n2.warte()
-p.check("genau eine Anfrage", len(gesendet) == 1)
+# Nach einem Fehlschlag tastet der Versand erst mit EINEM Ereignis
+# (docs/versand-entkopplung-spezifikation.md, Regel 3), danach der Rest.
+p.check("hoechstens zwei Anfragen (tasten, dann Rest)", 1 <= len(gesendet) <= 2)
 
 koerper = gesendet[0][1]["json"]
 p.check("als Stapel gesendet", "ereignisse" in koerper)
-p.check("beide Ereignisse im Stapel", len(koerper["ereignisse"]) == 2)
-p.check("Reihenfolge: gepuffertes zuerst", koerper["ereignisse"][0]["typ"] == "austreibung")
+alle = [e for _, kw in gesendet for e in kw["json"]["ereignisse"]]
+p.check("beide Ereignisse nachgeliefert, keins doppelt", len(alle) == 2)
+p.check("Reihenfolge: gepuffertes zuerst", alle[0]["typ"] == "austreibung")
+p.check("Originalzeitstempel des gepufferten erhalten", alle[0]["zeit"] == gespeichert["zeit"])
 p.check(
     "Ingest-Token im Header",
-    gesendet[0][1]["headers"]["x-ingest-token"] == "T",
+    all(kw["headers"]["x-ingest-token"] == "T" for _, kw in gesendet),
 )
 p.check("Puffer nach Erfolg leer", len(n2._puffer) == 0)
 p.check("Pufferdatei nach Erfolg entfernt", not puffer.exists())

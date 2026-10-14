@@ -41,6 +41,8 @@ class Netz:
         self.sperre: threading.Event | None = None
         self.ausfall = False
         self.get_ergebnis: list = []
+        # Optional: Server-Nachbau, liefert den HTTP-Status je Anfrage.
+        self.status = None
 
     def post(self, url, **kw):
         if self.sperre is not None:
@@ -49,9 +51,16 @@ class Netz:
             time.sleep(self.haengen_s)
         if self.ausfall:
             raise m.requests.RequestException("kein Netz")
+        code = self.status(url, kw) if self.status else 200
         with self.lock:
-            self.aufrufe.append((url, kw))
-        return ANTWORT
+            self.aufrufe.append((url, {**kw, "_status": code}))
+
+        def pruefen():
+            if code >= 400:
+                raise m.requests.RequestException(f"HTTP {code}")
+
+        return type("R", (), {"status_code": code, "raise_for_status": staticmethod(pruefen),
+                              "json": staticmethod(lambda: {"result": []})})()
 
     def get(self, url, **kw):
         if self.haengen_s:
@@ -197,19 +206,28 @@ fb = m.FeedbackSchleife(
 fid = fb.registriere(m.Alarm("kalbeverdacht", "Kuh #3", "x", None, None), [b"roh"])[
     "inline_keyboard"][0][1]["callback_data"].split(":")[1]
 netz.get_ergebnis = [{"update_id": 5, "callback_query": {"id": "q", "data": f"fb:{fid}:fehlalarm"}}]
-p.check("7: tick() kehrt sofort zurueck", gestempelt(lambda: fb.tick(0.0)) < 0.3)
-p.check("7: zweiter tick waehrend des Abrufs ebenfalls sofort", gestempelt(lambda: fb.tick(11.0)) < 0.3)
+threads_rueckmeldung: list[str] = []
+fb.bei_fehlalarm = lambda typ, ep: threads_rueckmeldung.append(threading.current_thread().name)
+p.check("7: tick() stoesst Abruf an und kehrt sofort zurueck", gestempelt(lambda: fb.tick(11.0)) < 0.3)
+time.sleep(0.1)                     # Abruf laeuft jetzt (haengt 1 s)
+p.check("7: tick() waehrend des Abrufs sofort", gestempelt(lambda: fb.tick(22.0)) < 0.3)
+p.check("7: kein zweiter Abruf, solange der erste laeuft", fb._abruf_seit == 11.0)
 kanal7.warte()
 p.check("7: hoechstens ein Abruf gleichzeitig", len(netz.an("getUpdates")) == 1)
-fb.tick(12.0)
-p.check("7: Ergebnis im Hauptthread verarbeitet", fb.zaehler["fehlalarm"] == 1 and fb._offset == 6)
+fb.tick(22.5)
+p.check("7: Ergebnis verarbeitet", fb.zaehler["fehlalarm"] == 1 and fb._offset == 6)
+p.check("7: Rueckmeldung an die Logik im Hauptthread",
+        threads_rueckmeldung == [threading.main_thread().name])
 fb.verarbeite(netz.get_ergebnis)
 p.check("7: dasselbe Update nie doppelt gezaehlt", fb.zaehler["fehlalarm"] == 1)
-fb.tick(23.0)
+fb.tick(33.0)
 kanal7.warte()
 p.check("7: naechster Abruf mit neuem Offset",
         netz.an("getUpdates")[-1][1]["params"]["offset"] == 6)
-fb.tick(24.0)                       # Ergebnis abholen, Sperre frei
+fb.tick(33.5)                       # Ergebnis abholen, ggf. naechster Abruf
+kanal7.warte()
+fb.tick(33.6)                       # alles abgeholt, kein Abruf mehr unterwegs
+p.check("7: Sperre frei, nichts unterwegs", fb._abruf_seit is None and kanal7.warte(0.1))
 fb._abruf_seit = 30.0               # Abruf, der nie zurueckkommt
 vorher = len(netz.an("getUpdates"))
 fb.tick(100.0)
@@ -221,6 +239,17 @@ p.check("7: nach 120 s freigegeben, neuer Abruf", len(netz.an("getUpdates")) == 
 
 # --- 8. Feedback-Antworten laufen ueber den Kanal --------------------------
 p.check("8: answerCallbackQuery ueber den Kanal gesendet", len(netz.an("answerCallbackQuery")) >= 1)
+netz.haengen_s = 2.0
+fid8 = fb.registriere(m.Alarm("brunstverdacht", "Kuh #9", "x", None, None), [b"r"])[
+    "inline_keyboard"][0][0]["callback_data"].split(":")[1]
+dauer = gestempelt(lambda: fb.verarbeite(
+    [{"update_id": 50, "callback_query": {"id": "q8", "data": f"fb:{fid8}:treffer",
+                                          "message": {"message_id": 3, "chat": {"id": "C"}}}}]))
+p.check(f"8: verarbeite() blockiert nicht bei haengender Antwort ({dauer:.3f} s)", dauer < 0.3)
+fb.verarbeite([{"update_id": 51, "callback_query": {"id": "q9", "data": f"fb:{fid8}:treffer",
+                                                    "message": {"message_id": 3, "chat": {"id": "C"}}}}])
+kanal7.warte(10)
+p.check("8: Buttons nur beim ersten Votum entfernt", len(netz.an("editMessageReplyMarkup")) == 1)
 
 # --- 9. digest_tick() und wichtig() blockieren nicht ------------------------
 netz = neues_netz()
@@ -240,5 +269,144 @@ kanal10.auftrag(lambda: 1 / 0)
 kanal10.auftrag(nach_fehler.append, "weiter")
 kanal10.warte()
 p.check("10: Worker laeuft nach Ausnahme weiter", nach_fehler == ["weiter"])
+
+# --- 11. Teilstapel unter den Server-Grenzen (100 Eintraege, 4,5 MB) -------
+def server_grenzen(url, kw):
+    ev = kw["json"]["ereignisse"]
+    if len(ev) > 100:
+        return 400
+    if len(m.json.dumps(kw["json"])) > 4_500_000:
+        return 413
+    return 201
+
+
+netz = neues_netz()
+netz.ausfall = True
+n11 = notifier()
+for i in range(130):
+    n11.status(f"S{i}")
+for i in range(6):                  # 6 Alarme mit je ~1,2 MB Bildern
+    n11._dashboard(m.Alarm("kalbeverdacht", f"Kuh #{i}", f"K{i}", None, None),
+                   [b"x" * 300_000, b"y" * 300_000, b"z" * 300_000])
+n11.warte()
+netz.ausfall = False
+netz.status = server_grenzen
+n11._outbox_signal.put(None)        # naechster Versuch (sonst nach Backoff)
+n11.warte(20)
+posts = netz.an("/api/events")
+alle11 = [e["nachricht"] for _, kw in posts for e in kw["json"]["ereignisse"]]
+p.check(f"11: alles nachgeliefert ({len(alle11)}/136), keins doppelt",
+        len(alle11) == 136 and len(set(alle11)) == 136 and not n11._puffer)
+p.check("11: jeder Teilstapel <= 50 Eintraege und < 4,5 MB",
+        all(len(kw["json"]["ereignisse"]) <= 50 and len(m.json.dumps(kw["json"])) < 4_500_000 for _, kw in posts))
+p.check("11: kein Stapel vom Server abgelehnt", all(kw["_status"] < 400 for _, kw in posts))
+
+# --- 12. Austreibung zuerst, auch hinter einem Rueckstau --------------------
+netz = neues_netz()
+netz.ausfall = True
+n12 = notifier()
+for i in range(60):
+    n12.status(f"S{i}")
+n12._dashboard(alarm("Fruchtblase erkannt"), None)
+n12.warte()
+netz.ausfall = False
+n12._outbox_signal.put(None)
+n12.warte(10)
+erster = netz.an("/api/events")[0][1]["json"]["ereignisse"]
+p.check("12: erste Anfrage nach dem Ausfall enthaelt die Austreibung",
+        erster[0]["typ"] == "austreibung")
+
+# --- 13. Nach Fehlschlag tasten: nur ein Ereignis je Versuch ---------------
+netz = neues_netz()
+netz.status = lambda url, kw: 401
+n13 = notifier()
+for i in range(20):
+    n13.status(f"S{i}")
+n13.warte()
+for _ in range(3):
+    n13._outbox_signal.put(None)
+    n13.warte()
+groessen = [len(kw["json"]["ereignisse"]) for _, kw in netz.an("/api/events")]
+p.check(f"13: nach erstem Fehlschlag nur noch Einzel-Versuche ({groessen[:6]}...)",
+        all(g == 1 for g in groessen[1:]))
+p.check("13: nichts verworfen bei 401", len(n13._puffer) == 20)
+
+# --- 14. Backoff: 60 s, 120 s, ... hoechstens 900 s -------------------------
+n14 = notifier()
+werte = []
+for f in range(0, 8):
+    n14._db_fehler_in_folge = f
+    werte.append(n14._wartezeit())
+p.check(f"14: Backoff {werte}", werte == [60, 60, 120, 240, 480, 900, 900, 900])
+
+# --- 15. Dauerhaft abgelehnter Eintrag blockiert nie die Schlange ----------
+def server_giftig(url, kw):
+    ev = kw["json"]["ereignisse"]
+    if any(e["nachricht"] == "GIFT" for e in ev):
+        return 400
+    if any(e["nachricht"] == "GROSS" and e.get("bilder") for e in ev):
+        return 413
+    return 201
+
+
+netz = neues_netz()
+netz.ausfall = True
+n15 = notifier()
+n15.status("vorher")
+n15.status("GIFT")
+n15._dashboard(m.Alarm("kalbeverdacht", "Kuh #1", "GROSS", None, None), [b"b" * 1000])
+n15.status("nachher")
+n15.warte()
+netz.ausfall = False
+netz.status = server_giftig
+n15._outbox_signal.put(None)
+n15.warte(10)
+angenommen = [e for _, kw in netz.an("/api/events") if kw["_status"] < 400 for e in kw["json"]["ereignisse"]]
+namen = [e["nachricht"] for e in angenommen]
+p.check(f"15: gesunde Eintraege geliefert ({namen})", {"vorher", "nachher"} <= set(namen))
+p.check("15: zu grosser Eintrag ohne Bilder geliefert",
+        any(e["nachricht"] == "GROSS" and "bilder" not in e for e in angenommen))
+p.check("15: dauerhaft abgelehnter Eintrag verworfen, Outbox leer", "GIFT" not in namen and not n15._puffer)
+
+# --- 16. Neuer Alarm wird gesichert, waehrend ein POST haengt --------------
+netz = neues_netz()
+netz.sperre = threading.Event()
+n16 = notifier()
+n16.status("A")
+time.sleep(0.2)                     # [A] haengt im POST
+n16._dashboard(alarm("Fruchtblase erkannt"), None)
+frist = time.monotonic() + 2
+gesichert = False
+while time.monotonic() < frist and not gesichert:
+    if n16._puffer_datei.exists():
+        gesichert = "Fruchtblase erkannt" in n16._puffer_datei.read_text("utf-8")
+    time.sleep(0.02)
+p.check("16: Alarm binnen 2 s auf der Platte, obwohl der POST haengt", gesichert)
+netz.sperre.set()
+n16.warte(10)
+
+# --- 17. puffer_max 0 schaltet die App-Meldung nicht still ab --------------
+netz = neues_netz()
+n17 = notifier(puffer_max=0)
+n17.status("trotzdem senden")
+n17.warte()
+p.check("17: puffer_max 0 -> Ereignis wird trotzdem gesendet", len(netz.an("/api/events")) == 1)
+
+# --- 18. Ueberlauf verdraengt nie einen dringenden Auftrag ------------------
+k18 = m.Versandkanal("prio-test", 3)
+frei18 = threading.Event()
+lauf18: list[str] = []
+k18.auftrag(lambda: (frei18.wait(5), lauf18.append("laufend")))
+time.sleep(0.1)
+k18.auftrag(lauf18.append, "AUSTREIBUNG", prio=True)
+for i in range(6):
+    k18.auftrag(lauf18.append, f"routine{i}")
+frei18.set()
+k18.warte()
+p.check(f"18: dringender Auftrag ueberlebt den Ueberlauf ({lauf18})", "AUSTREIBUNG" in lauf18)
+
+# --- 19. Feedback hat einen eigenen Kanal -----------------------------------
+n19 = notifier()
+p.check("19: Feedback konkurriert nicht mit Alarmen", n19.feedback._kanal is not n19._tg)
 
 sys.exit(p.bericht())

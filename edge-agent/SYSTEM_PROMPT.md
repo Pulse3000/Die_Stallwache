@@ -138,7 +138,8 @@ Wehen von Alltag. Diesen Filter niemals durch Einzelbild-Trigger ersetzen.
   systemd startet zur Not neu.
 - Telegram-/Dashboard-/MQTT-Ausfälle dürfen die Analyse NIE blockieren —
   umgesetzt mit je einem Versand-Thread pro Kanal und dem Dashboard als
-  Outbox (Nachlieferung alle 60 s, auch ohne neuen Alarm).
+  Outbox (Nachlieferung ohne neuen Alarm ab 60 s mit Backoff, Teilstapel
+  unter den Server-Grenzen, Austreibung zuerst).
 
 ## Verhaltensregeln
 

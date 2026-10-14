@@ -180,8 +180,9 @@ python3 edge-agent/tests/alle_tests.py
   24/7 weiter, `systemd` startet ihn zur Not neu.
 * Telegram-/Dashboard-Ausfälle blockieren die Analyse nicht: Je Kanal ein
   eigener Versand-Thread, das Dashboard als Outbox (vor dem Senden auf die
-  Platte gesichert, gepufferte Alarme gehen alle 60 s nach, auch ohne neuen
-  Alarm). Feedback-Abruf ebenfalls entkoppelt
+  Platte gesichert, gepufferte Alarme gehen ohne neuen Alarm nach — ab 60 s,
+  bei Dauerausfall mit Backoff bis 15 min, in Teilstapeln unter den
+  Server-Grenzen, Austreibung zuerst). Feedback-Abruf ebenfalls entkoppelt
   (`docs/versand-entkopplung-spezifikation.md`).
 * **Lebenszeichen** (`dashboard.lebenszeichen_minuten`, Default 5): Der
   Agent meldet der App im Hintergrund, dass er lebt, in welchem Modus er
