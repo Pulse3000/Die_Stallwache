@@ -778,6 +778,69 @@ class DatensatzArchiv:
 # Alarmierung: Telegram + Stallblick-Dashboard (Vercel)
 # --------------------------------------------------------------------------
 
+class Versandkanal:
+    """Ein Versand-Thread mit begrenzter Warteschlange (Spezifikation
+    docs/versand-entkopplung-spezifikation.md).
+
+    Die Analyseschleife darf nie auf das Netz warten: Ein haengender POST
+    (WLAN verschluckt Pakete, Timeout laeuft voll aus) hielt sonst pro Alarm
+    bis zu 80 s die Bildauswertung an. Auftraege werden hier nur eingereiht;
+    der Thread arbeitet sie in Reihenfolge ab. Laeuft die Warteschlange
+    ueber, faellt der AELTESTE Auftrag heraus — bei so langem Ausfall ist der
+    neueste Alarm der wichtigste. Ein Fehler in einem Auftrag beendet den
+    Thread nie.
+    """
+
+    def __init__(self, name: str, max_auftraege: int):
+        self.name = name
+        self.verworfen = 0
+        self._queue: queue.Queue = queue.Queue(maxsize=max_auftraege)
+        self._lock = threading.Lock()
+        threading.Thread(
+            target=self._arbeite, name=f"versand-{name}", daemon=True
+        ).start()
+
+    def auftrag(self, fn, *args, **kwargs) -> None:
+        """Reiht einen Auftrag ein. Kehrt sofort zurueck, wirft nie."""
+        eintrag = (fn, args, kwargs)
+        with self._lock:
+            while True:
+                try:
+                    self._queue.put_nowait(eintrag)
+                    return
+                except queue.Full:
+                    try:
+                        self._queue.get_nowait()
+                        self._queue.task_done()
+                        self.verworfen += 1
+                        log.warning(
+                            "Versand %s ueberlastet – aeltester Auftrag verworfen (%d)",
+                            self.name,
+                            self.verworfen,
+                        )
+                    except queue.Empty:
+                        pass
+
+    def _arbeite(self) -> None:
+        while True:
+            fn, args, kwargs = self._queue.get()
+            try:
+                fn(*args, **kwargs)
+            except Exception:  # noqa: BLE001 – der Worker darf nie sterben
+                log.exception("Versand %s: Auftrag fehlgeschlagen", self.name)
+            finally:
+                self._queue.task_done()
+
+    def warte(self, timeout: float = 5.0) -> bool:
+        """Wartet, bis alle Auftraege erledigt sind (Tests, Diagnose)."""
+        ende = time.monotonic() + timeout
+        while self._queue.unfinished_tasks:
+            if time.monotonic() > ende:
+                return False
+            time.sleep(0.01)
+        return True
+
+
 class FeedbackSchleife:
     """Ein-Tipp-Feedback: Inline-Buttons „Treffer/Fehlalarm" unter jedem Alarm.
 
@@ -790,9 +853,17 @@ class FeedbackSchleife:
     """
 
     MAX_OFFEN = 20         # nur die juengsten Alarme bleiben abstimmbar (RAM)
-    POLL_INTERVALL_S = 10  # getUpdates-Kurz-Poll; blockiert die 1-FPS-Schleife nicht
+    POLL_INTERVALL_S = 10  # getUpdates-Kurz-Poll
+    # Haengt ein Abruf laenger (oder fiel er aus der Warteschlange), wird die
+    # Sperre freigegeben — sonst waere das Feedback bis zum Neustart taub.
+    ABRUF_SPERRE_MAX_S = 120
 
-    def __init__(self, cfg: dict):
+    def __init__(self, cfg: dict, kanal: Versandkanal | None = None):
+        # Mit Kanal laufen Abruf und Antworten im Versand-Thread; ohne Kanal
+        # (Tests, Einzelbetrieb) synchron wie bisher.
+        self._kanal = kanal
+        self._eingang: queue.Queue = queue.Queue()
+        self._abruf_seit: float | None = None
         tg = cfg.get("telegram") or {}
         self.token = (tg.get("token") or "").strip()
         self.chat = str(tg.get("chat_id") or "").strip()
@@ -841,10 +912,18 @@ class FeedbackSchleife:
         """Pro Hauptschleifen-Iteration aufrufen: holt alle POLL_INTERVALL_S
         die Button-Antworten ab (Kurz-Poll ohne Warten). Der Bot darf dafuer
         keinen Telegram-Webhook nutzen (getUpdates und Webhook schliessen
-        sich aus)."""
+        sich aus).
+
+        Mit Kanal blockiert tick() nie: Der Abruf laeuft im Versand-Thread,
+        VERARBEITET wird hier im Hauptthread (bei_fehlalarm greift in die
+        LogicEngine). Hoechstens ein Abruf gleichzeitig — der naechste erst,
+        wenn das Ergebnis des vorigen verarbeitet ist."""
         if not self.aktiv:
             return
         t = time.time() if jetzt is None else jetzt
+        if self._kanal is not None:
+            self._tick_entkoppelt(t)
+            return
         if t - self._letzter_poll < self.POLL_INTERVALL_S:
             return
         self._letzter_poll = t
@@ -863,9 +942,61 @@ class FeedbackSchleife:
         except requests.RequestException as e:
             log.warning("Feedback-Abruf fehlgeschlagen: %s", e)
 
+    def _tick_entkoppelt(self, t: float) -> None:
+        while True:
+            try:
+                updates = self._eingang.get_nowait()
+            except queue.Empty:
+                break
+            self._abruf_seit = None
+            self.verarbeite(updates)
+        if self._abruf_seit is not None:
+            if t - self._abruf_seit < self.ABRUF_SPERRE_MAX_S:
+                return
+            log.warning("Feedback-Abruf haengt – Sperre freigegeben")
+            self._abruf_seit = None
+        if t - self._letzter_poll < self.POLL_INTERVALL_S:
+            return
+        self._letzter_poll = t
+        self._abruf_seit = t
+        self._kanal.auftrag(self._abrufen, self._offset)
+
+    def _abrufen(self, offset: int) -> None:
+        """Laeuft im Versand-Thread. Legt IMMER ein Ergebnis ab (notfalls
+        leer), damit die Sperre im Hauptthread wieder frei wird."""
+        ergebnis: list[dict] = []
+        try:
+            r = requests.get(
+                f"https://api.telegram.org/bot{self.token}/getUpdates",
+                params={
+                    "offset": offset,
+                    "timeout": 0,
+                    "allowed_updates": '["callback_query"]',
+                },
+                timeout=10,
+            )
+            r.raise_for_status()
+            ergebnis = r.json().get("result") or []
+        except requests.RequestException as e:
+            log.warning("Feedback-Abruf fehlgeschlagen: %s", e)
+        except Exception:  # noqa: BLE001
+            log.exception("Feedback-Abruf: unerwarteter Fehler")
+        finally:
+            self._eingang.put(ergebnis)
+
+    def _netz(self, fn, *args) -> None:
+        """Netzaufruf ueber den Kanal (nicht blockierend) oder direkt."""
+        if self._kanal is not None:
+            self._kanal.auftrag(fn, *args)
+        else:
+            fn(*args)
+
     def verarbeite(self, updates: list[dict]) -> None:
         for u in updates:
-            self._offset = max(self._offset, int(u.get("update_id", 0)) + 1)
+            update_id = int(u.get("update_id", 0))
+            if update_id < self._offset:
+                continue  # schon verarbeitet (z. B. Abruf nach Sperren-Freigabe)
+            self._offset = update_id + 1
             cq = u.get("callback_query")
             if not cq:
                 continue
@@ -888,8 +1019,8 @@ class FeedbackSchleife:
                         if anzahl
                         else "Danke – notiert (Bilder lagen nicht mehr vor)."
                     )
-                self._entferne_buttons(cq)
-            self._antworte(cq, antwort)
+                self._netz(self._entferne_buttons, cq)
+            self._netz(self._antworte, cq, antwort)
 
     def _speichere(self, fid: str, eintrag: tuple[str, list[bytes]] | None) -> int:
         if not eintrag:
@@ -939,7 +1070,18 @@ class FeedbackSchleife:
 class Notifier:
     """Versendet Alarme; Cooldown pro (Kuh, Typ) verhindert Spam bei Kalbe-
     und Brunstverdacht. Austreibung/Eskalation (``alarm.sofort``) takten in
-    der LogicEngine und gehen immer raus."""
+    der LogicEngine und gehen immer raus.
+
+    Kein Netzzugriff im Hauptthread: Telegram und Dashboard haben je einen
+    eigenen Versand-Thread (docs/versand-entkopplung-spezifikation.md).
+    Ein haengendes Telegram haelt die App-Meldung (und damit den Push) nicht
+    auf, und umgekehrt."""
+
+    TELEGRAM_WARTESCHLANGE_MAX = 50
+    # Steht etwas im Offline-Puffer, wird alle so viele Sekunden erneut
+    # gesendet — auch ohne neuen Alarm (vorher erst mit dem naechsten Alarm,
+    # in einer ruhigen Nacht also gar nicht).
+    NACHLIEFER_INTERVALL_S = 60
 
     def __init__(self, cfg: dict):
         tg = cfg.get("telegram") or {}
@@ -963,11 +1105,29 @@ class Notifier:
         # nachgeliefert. Begrenzt, damit eine lange Stoerung den Speicher
         # nicht sprengt.
         self._puffer: deque[dict] = deque(maxlen=int(db.get("puffer_max", 200)))
+        # Outbox: Hauptthread haengt an (unter Lock), nur der Dashboard-
+        # Thread sendet, entfernt und schreibt die Pufferdatei (ein Schreiber).
+        # _version zaehlt jede Aenderung, damit die Datei nur bei Bedarf neu
+        # geschrieben wird (bis ~80 MB bei vollem Puffer mit Bildern).
+        self._puffer_lock = threading.Lock()
+        self._puffer_version = 0
+        self._puffer_gesichert = 0
+        self._db_fehler_in_folge = 0
         self._puffer_laden()
 
         self.kamera = cfg["stream"].get("kamera", "stallwache")
         self._zuletzt: dict[tuple[str | None, str], float] = {}
-        self.feedback = FeedbackSchleife(cfg)
+        self._tg = Versandkanal("telegram", self.TELEGRAM_WARTESCHLANGE_MAX)
+        self._outbox_signal: queue.Queue = queue.Queue()
+        if self.db_url and self.db_token:
+            threading.Thread(
+                target=self._outbox_arbeite, name="versand-dashboard", daemon=True
+            ).start()
+            if self._puffer:
+                # Puffer aus dem vorigen Lauf sofort nachliefern, nicht erst
+                # nach NACHLIEFER_INTERVALL_S.
+                self._outbox_signal.put(None)
+        self.feedback = FeedbackSchleife(cfg, kanal=self._tg)
 
         # Optionaler MQTT-Zusatzausgang (Home Assistant & Co.); Ausfall darf
         # den Alarmweg nie beeintraechtigen.
@@ -1026,7 +1186,8 @@ class Notifier:
                 roh.append(jpg.tobytes())
         markup = self.feedback.registriere(alarm, roh)
 
-        self._telegram(alarm, bild, serie, markup)
+        # Nur einreihen — gesendet wird in den Versand-Threads.
+        self._tg.auftrag(self._telegram, alarm, bild, serie, markup)
         self._dashboard(alarm, self._dashboard_bilder(serie, bild))
         self._mqtt(alarm)
 
@@ -1043,7 +1204,7 @@ class Notifier:
         Cooldown: der TotmannWaechter stellt Einmaligkeit pro Episode sicher."""
         log.warning(nachricht)
         meldung = Alarm("info", None, nachricht, None, None)
-        self._telegram(meldung, None)
+        self._tg.auftrag(self._telegram, meldung, None)
         self._dashboard(meldung)
         self._mqtt(meldung)
 
@@ -1069,6 +1230,9 @@ class Notifier:
             text += f"\nFeedback: ✅ {fb['treffer']} Treffer · ❌ {fb['fehlalarm']} Fehlalarm"
             fb["treffer"] = fb["fehlalarm"] = 0
         self._zaehler.clear()
+        self._tg.auftrag(self._digest_senden, text)
+
+    def _digest_senden(self, text: str) -> None:
         try:
             requests.post(
                 f"https://api.telegram.org/bot{self.tg_token}/sendMessage",
@@ -1077,6 +1241,17 @@ class Notifier:
             ).raise_for_status()
         except requests.RequestException as e:
             log.error("Digest-Versand fehlgeschlagen: %s", e)
+
+    def warte(self, timeout: float = 5.0) -> bool:
+        """Wartet, bis Telegram- und Dashboard-Versand nichts mehr offen
+        haben (Tests, Diagnose). Die Analyse ruft das nie auf."""
+        ende = time.monotonic() + timeout
+        ok = self._tg.warte(timeout)
+        while self._outbox_signal.unfinished_tasks:
+            if time.monotonic() > ende:
+                return False
+            time.sleep(0.01)
+        return ok
 
     @staticmethod
     def _annotiere(frame: np.ndarray, alarm: Alarm) -> bytes:
@@ -1212,12 +1387,14 @@ class Notifier:
         return bilder[-self.db_bilder :]
 
     # ------------------------------------------------------------------
-    # Dashboard-Meldung mit Offline-Puffer
+    # Dashboard-Meldung mit Offline-Puffer (Outbox)
     #
     # Der Stall ist der Ort mit dem schlechtesten Empfang des Betriebs. Faellt
-    # die Leitung aus, darf ein Kalbealarm nicht einfach verschwinden: er
-    # wandert in einen Puffer auf der Platte und geht beim naechsten Kontakt
-    # als Stapel raus (POST /api/events mit {"ereignisse": [...]}).
+    # die Leitung aus, darf ein Kalbealarm nicht einfach verschwinden: Jedes
+    # Ereignis kommt zuerst in die Outbox, der Dashboard-Thread sichert sie
+    # auf die Platte und sendet alles Ausstehende als Stapel
+    # (POST /api/events mit {"ereignisse": [...]}) — beim naechsten Ereignis
+    # und spaetestens alle NACHLIEFER_INTERVALL_S.
     # ------------------------------------------------------------------
 
     def _puffer_laden(self) -> None:
@@ -1234,18 +1411,22 @@ class Notifier:
             log.error("Offline-Puffer nicht lesbar (wird verworfen): %s", e)
             self._puffer.clear()
 
-    def _puffer_sichern(self) -> None:
-        """Schreibt den Puffer atomar zurueck (erst temporaer, dann ersetzen)."""
+    def _puffer_sichern(self, eintraege: list[dict], version: int) -> None:
+        """Schreibt den Puffer atomar zurueck (erst temporaer, dann ersetzen).
+        Nur aus dem Dashboard-Thread aufrufen (ein Schreiber)."""
+        if version == self._puffer_gesichert:
+            return
         try:
-            if not self._puffer:
+            if not eintraege:
                 self._puffer_datei.unlink(missing_ok=True)
-                return
-            tmp = self._puffer_datei.with_suffix(".tmp")
-            tmp.write_text(
-                "\n".join(json.dumps(e, ensure_ascii=False) for e in self._puffer),
-                "utf-8",
-            )
-            tmp.replace(self._puffer_datei)
+            else:
+                tmp = self._puffer_datei.with_suffix(".tmp")
+                tmp.write_text(
+                    "\n".join(json.dumps(e, ensure_ascii=False) for e in eintraege),
+                    "utf-8",
+                )
+                tmp.replace(self._puffer_datei)
+            self._puffer_gesichert = version
         except OSError as e:
             log.error("Offline-Puffer nicht schreibbar: %s", e)
 
@@ -1276,8 +1457,42 @@ class Notifier:
                 base64.b64encode(b).decode("ascii") for b in bilder[-self.db_bilder :]
             ]
 
-        # Alles, was noch aussteht, geht in derselben Verbindung mit raus.
-        stapel = list(self._puffer) + [ereignis]
+        # In die Outbox; senden, sichern und entfernen macht der Dashboard-
+        # Thread. Der Hauptthread fasst weder Netz noch Pufferdatei an.
+        with self._puffer_lock:
+            self._puffer.append(ereignis)
+            self._puffer_version += 1
+        self._outbox_signal.put(None)
+
+    def _outbox_arbeite(self) -> None:
+        """Dashboard-Thread: sendet bei jedem neuen Ereignis und — solange
+        etwas aussteht — spaetestens alle NACHLIEFER_INTERVALL_S."""
+        while True:
+            try:
+                self._outbox_signal.get(timeout=self.NACHLIEFER_INTERVALL_S)
+                signal = True
+            except queue.Empty:
+                signal = False
+            try:
+                self._nachliefern()
+            except Exception:  # noqa: BLE001 – der Worker darf nie sterben
+                log.exception("Dashboard-Versand: unerwarteter Fehler")
+            finally:
+                if signal:
+                    self._outbox_signal.task_done()
+
+    def _nachliefern(self) -> bool:
+        """Sendet alles Ausstehende als einen Stapel. Entfernt bei Erfolg genau
+        die gesendeten Eintraege (Objekt-Identitaet, nicht Position): Was
+        waehrenddessen dazukam oder durch die Obergrenze verdraengt wurde,
+        wird weder doppelt gesendet noch verloren."""
+        with self._puffer_lock:
+            stapel = list(self._puffer)
+            version = self._puffer_version
+        # Vor dem Senden sichern: Ein Neustart mitten im Versand verliert nichts.
+        self._puffer_sichern(stapel, version)
+        if not stapel:
+            return True
         try:
             requests.post(
                 self.db_url,
@@ -1286,19 +1501,28 @@ class Notifier:
                 timeout=30,
             ).raise_for_status()
         except requests.RequestException as e:
-            self._puffer.append(ereignis)
-            self._puffer_sichern()
-            log.error(
-                "Dashboard-Meldung fehlgeschlagen (%d im Puffer): %s",
-                len(self._puffer),
-                e,
-            )
-            return
+            self._db_fehler_in_folge += 1
+            if self._db_fehler_in_folge == 1 or self._db_fehler_in_folge % 10 == 0:
+                log.error(
+                    "Dashboard-Meldung fehlgeschlagen (%d im Puffer, neuer Versuch "
+                    "in %d s): %s",
+                    len(stapel),
+                    self.NACHLIEFER_INTERVALL_S,
+                    e,
+                )
+            return False
 
-        if self._puffer:
-            log.info("Offline-Puffer nachgeliefert: %d Ereignis(se)", len(self._puffer))
-            self._puffer.clear()
-            self._puffer_sichern()
+        gesendet = {id(e) for e in stapel}
+        with self._puffer_lock:
+            rest = [e for e in self._puffer if id(e) not in gesendet]
+            self._puffer = deque(rest, maxlen=self._puffer.maxlen)
+            self._puffer_version += 1
+            version = self._puffer_version
+        if self._db_fehler_in_folge or len(stapel) > 1:
+            log.info("Offline-Puffer nachgeliefert: %d Ereignis(se)", len(stapel))
+        self._db_fehler_in_folge = 0
+        self._puffer_sichern(rest, version)
+        return True
 
 
 # --------------------------------------------------------------------------

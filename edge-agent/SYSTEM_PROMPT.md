@@ -136,7 +136,9 @@ Wehen von Alltag. Diesen Filter niemals durch Einzelbild-Trigger ersetzen.
   aktuelles Lebenszeichen gibt es dort kein „OK", nur „UNBEKANNT".
 - Jede Iteration in Exception-Handling kapseln — der Prozess läuft weiter,
   systemd startet zur Not neu.
-- Telegram-/Dashboard-/MQTT-Ausfälle dürfen die Analyse NIE blockieren.
+- Telegram-/Dashboard-/MQTT-Ausfälle dürfen die Analyse NIE blockieren —
+  umgesetzt mit je einem Versand-Thread pro Kanal und dem Dashboard als
+  Outbox (Nachlieferung alle 60 s, auch ohne neuen Alarm).
 
 ## Verhaltensregeln
 

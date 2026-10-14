@@ -178,7 +178,11 @@ python3 edge-agent/tests/alle_tests.py
   **Snapshot-Polling** über die go2rtc-API (funktioniert selbst bei zickigem WLAN).
 * Jede Iteration ist mit Exception-Handling abgesichert – der Prozess läuft
   24/7 weiter, `systemd` startet ihn zur Not neu.
-* Telegram-/Dashboard-Ausfälle blockieren die Analyse nicht.
+* Telegram-/Dashboard-Ausfälle blockieren die Analyse nicht: Je Kanal ein
+  eigener Versand-Thread, das Dashboard als Outbox (vor dem Senden auf die
+  Platte gesichert, gepufferte Alarme gehen alle 60 s nach, auch ohne neuen
+  Alarm). Feedback-Abruf ebenfalls entkoppelt
+  (`docs/versand-entkopplung-spezifikation.md`).
 * **Lebenszeichen** (`dashboard.lebenszeichen_minuten`, Default 5): Der
   Agent meldet der App im Hintergrund, dass er lebt, in welchem Modus er
   läuft und ob die Kamera ein Bild liefert. Ohne Lebenszeichen antwortet die

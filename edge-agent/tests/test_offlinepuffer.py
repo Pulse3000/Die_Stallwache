@@ -58,6 +58,7 @@ alarm2 = m.Alarm("brunstverdacht", "Kuh #17", "Aufsprung erkannt", 0.71, None)
 netz_aus()
 n = notifier()
 n._dashboard(alarm1, [b"jpeg-a", b"jpeg-b"])
+n.warte()  # Versand laeuft im Dashboard-Thread
 p.check("bei Netzausfall gepuffert", len(n._puffer) == 1)
 p.check("Pufferdatei geschrieben", puffer.exists())
 
@@ -69,12 +70,14 @@ p.check("Bilder base64-kodiert mitgepuffert", len(gespeichert["bilder"]) == 2)
 
 # --- 2. Neustart des Agenten: Puffer wird wieder eingelesen ---------------
 n2 = notifier()
+n2.warte()  # Nachlieferungsversuch beim Start (Netz noch aus)
 p.check("Puffer ueberlebt Neustart", len(n2._puffer) == 1)
 
 # --- 3. Netz zurueck: alter + neuer Alarm gehen als ein Stapel raus -------
 netz_an()
 gesendet.clear()
 n2._dashboard(alarm2, None)
+n2.warte()
 p.check("genau eine Anfrage", len(gesendet) == 1)
 
 koerper = gesendet[0][1]["json"]
@@ -92,6 +95,7 @@ p.check("Pufferdatei nach Erfolg entfernt", not puffer.exists())
 gesendet.clear()
 n3 = notifier(bilder=2)
 n3._dashboard(alarm1, [b"alt", b"mitte", b"neu"])
+n3.warte()
 bilder = gesendet[0][1]["json"]["ereignisse"][0]["bilder"]
 p.check("auf konfigurierte Anzahl begrenzt", len(bilder) == 2)
 p.check(
@@ -102,6 +106,7 @@ p.check(
 gesendet.clear()
 n4 = notifier(bilder=0)
 n4._dashboard(alarm1, [b"x"])
+n4.warte()
 p.check(
     "bilder=0 sendet reinen Text",
     "bilder" not in gesendet[0][1]["json"]["ereignisse"][0],
@@ -122,6 +127,7 @@ netz_aus()
 n6 = notifier(puffer_max=3)
 for i in range(5):
     n6._dashboard(m.Alarm("info", None, f"Meldung {i}", None, None), None)
+n6.warte()
 p.check("Puffer respektiert Obergrenze", len(n6._puffer) == 3)
 p.check("aelteste verdraengt", n6._puffer[0]["nachricht"] == "Meldung 2")
 
@@ -130,6 +136,7 @@ gesendet.clear()
 netz_an()
 n7 = m.Notifier({"stream": {"kamera": "stallwache"}, "telegram": {}, "dashboard": {}})
 n7._dashboard(alarm1, [b"x"])
+n7.warte()
 p.check("ohne url/token kein Request", len(gesendet) == 0)
 
 sys.exit(p.bericht())
