@@ -40,9 +40,11 @@ Nach jedem Neustart beginnt die Zählung wieder bei 0:
    ausgemusterter Laptop) starten nach einem Stromausfall mit falscher Uhr,
    eine zeitbasierte ID könnte sich wiederholen.
 2. **Ein Button aus einem früheren Prozess läuft ins Leere**, genau wie der
-   Button eines abgelaufenen Alarms (älter als die letzten 20): Antwort
-   „Danke – notiert (Bilder lagen nicht mehr vor).“, keine Bilder, kein
-   Aufruf von `bei_fehlalarm`. Der neue Alarm bleibt abstimmbar.
+   Button eines abgelaufenen Alarms (älter als die letzten 20). Es werden
+   keine Bilder gespeichert und `bei_fehlalarm` wird nicht aufgerufen.
+   „❌ Fehlalarm“ antwortet „Danke – notiert (Bilder lagen nicht mehr
+   vor).“, „✅ Treffer“ wie bisher „Danke!“. Der neue Alarm bleibt
+   abstimmbar.
 3. **Hard Negatives werden exklusiv angelegt** (`open(…, "xb")`): Eine
    vorhandene Datei wird nie überschrieben. Trifft das Schreiben doch auf
    eine vorhandene Datei, gilt es als gescheitert. Die Antwort meldet das
@@ -115,3 +117,39 @@ Am realen Agenten (Beweispflicht, offen):
    Doppel-Tipp auf einen abgelaufenen Alarm; die Zähler-Semantik bleibt
    bewusst unverändert.
 3. **Längere Dateinamen** (+8 Zeichen): unkritisch.
+
+## 6. Abnahme `qa-waechter` (15.10.2026, Delta ecde966..f7b20b4): FREIGABE
+
+- Statik und Logiktests grün (`py_compile`, `alle_tests.py`, Feedback
+  26/26).
+- Spezifikationstreue grün. Der Token hat an 20 000 Ziehungen immer 8
+  Zeichen aus `[0-9a-f]`. Die Byte-Rechnung der 64-Byte-Grenze stimmt
+  (43 Ziffern = 64 Bytes, 44 Ziffern = 65 Bytes).
+- Eigene Reproduktion grün (38/38 Checks): synchron und über den
+  `Versandkanal`. Alte Buttons im neuen und im Vorversions-Format laufen ins
+  Leere. Der Altbestand bleibt byte- und mtime-gleich, auch Dateien im
+  alten Namensschema.
+- Gegenprobe am alten Stand: 9 der neuen Checks rot (alle „Neustart“- und
+  „Vorhandene Datei“-Checks). Der 64-Byte-Check ist eine reine Grenzprüfung
+  und bleibt dort grün.
+
+Befunde ohne Handlungsbedarf:
+
+- **Kollision bei Bild i > 0** (setzt eine Token-Kollision voraus): Die
+  Antwort lautet „NICHT gespeichert“, obwohl ein Teil der Serie auf der
+  Platte liegt. Das ist pessimistisch, nie zu optimistisch. Das Archiv wird
+  nicht befüllt.
+- **Tagesgrenze im Test:** Läuft „Exklusives Anlegen“ genau über
+  Mitternacht (Fenster im Mikrosekundenbereich), kann der Check fälschlich
+  rot werden. Kein Produktfehler.
+- Ungenaue Doku (Grundsatz 2 und Skill nannten nur die ❌-Antwort und
+  „nie“ statt des Restrisikos): korrigiert.
+
+**Folgepunkt außerhalb dieses Deltas:** Im Silent Mode heißen die
+Trainingsbilder `%Y%m%d-%H%M%S.jpg` (`edge-agent/main.py`, Silent-Mode-Zweig
+der Hauptschleife), und `cv2.imwrite` überschreibt ohne Prüfung. Startet ein
+Raspberry Pi mit fake-hwclock nach einem Stromausfall mit zurückgestellter
+Uhr, entstehen bis zur NTP-Synchronisierung wieder Namen der letzten Stunde
+vor dem Ausfall. Vorhandene Trainingsbilder werden dann still
+überschrieben. Eigener Schritt, gleiches Muster (eindeutiger Name oder
+exklusives Anlegen).

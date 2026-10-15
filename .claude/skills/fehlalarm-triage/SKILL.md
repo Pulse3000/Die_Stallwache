@@ -28,8 +28,10 @@ Die Buttons sind gebaut (`FeedbackSchleife` in `edge-agent/main.py`,
 Tagesbericht. Manuelles Sichern ist nur noch der Fallback (z. B. wenn die
 Buttons älterer Alarme abgelaufen sind — nur die letzten 20 bleiben
 abstimmbar, und nach einem Neustart des Agenten keiner der vorherigen).
-Ein abgelaufener Button antwortet „Bilder lagen nicht mehr vor“ und trifft
-nie einen anderen Alarm (`docs/feedback-id-spezifikation.md`).
+Ein abgelaufener „❌ Fehlalarm“-Button antwortet „Bilder lagen nicht mehr
+vor“ (✅ wie bisher „Danke!“). Er speichert nichts und trifft keinen anderen
+Alarm; das Restrisiko einer Token-Kollision liegt bei 1 : 2³²
+(`docs/feedback-id-spezifikation.md`).
 
 ## 2. Buchführung (Orchestrator, wöchentlich)
 
