@@ -76,7 +76,7 @@ Automatisiert / im Repo:
 
 1. In `bridge/docker-compose.yml` und `bridge/mediamtx/docker-compose.yml` gibt es keinen `cloudflared`-Dienst mehr. Beide Dateien sind gültiges YAML.
 2. Im Repo steht „Cloudflare“ nur noch in dieser Entscheidung, in der Roadmap und in Rückbau-Hinweisen. `bridge/termux/` und `cloud-transcoder/` existieren nicht mehr. Kein UI-Text und keine Anleitung empfiehlt mehr, `NEXT_PUBLIC_BRIDGE_URL` zu setzen.
-3. `npm test`, `tsc --noEmit`, `npm run lint` und `npm run build` sind grün (es ändern sich nur Kommentare im Code).
+3. `npm test`, `tsc --noEmit`, `npm run lint` und `npm run build` sind grün. Im Code ändern sich nur Kommentare (#79) und zwei Hinweistexte (#81: Kachel ohne Bildweg, Snapshot-Meldung).
 
 Am realen Gerät (Beweispflicht, Betreiber + Orchestrator):
 

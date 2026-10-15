@@ -467,7 +467,9 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-slate-800 to-slate-950 p-4">
           <p className="max-w-xs text-center text-xs text-white/60">
             Noch kein Livebild eingerichtet – das Bild der {camera.name} kommt
-            über den Fernzugriff (Tailscale) oder die Tuya-Cloud.
+            {camera.id === "stallwache"
+              ? "über den Fernzugriff (Tailscale) oder die Tuya-Cloud."
+              : "über die Tuya-Cloud."}
           </p>
         </div>
       )}
