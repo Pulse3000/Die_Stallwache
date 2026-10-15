@@ -5,6 +5,7 @@ import {
   ladeNachGcs,
   saubererPfadteil,
 } from "@/lib/gcs";
+import { tokenGleich } from "@/lib/token";
 
 export const dynamic = "force-dynamic";
 // node:crypto (Service-Account-Signatur) braucht die Node-Runtime.
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest) {
       { status: 503 },
     );
   }
-  if (req.headers.get("x-ingest-token") !== token) {
+  if (!tokenGleich(req.headers.get("x-ingest-token"), token)) {
     return NextResponse.json({ fehler: "Ungültiger Token." }, { status: 401 });
   }
   if (!gcsKonfiguriert()) {

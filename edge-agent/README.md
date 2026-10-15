@@ -178,3 +178,9 @@ python3 edge-agent/tests/alle_tests.py
 * Jede Iteration ist mit Exception-Handling abgesichert – der Prozess läuft
   24/7 weiter, `systemd` startet ihn zur Not neu.
 * Telegram-/Dashboard-Ausfälle blockieren die Analyse nicht.
+* **Lebenszeichen** (`dashboard.lebenszeichen_minuten`, Default 5): Der
+  Agent meldet der App im Hintergrund, dass er lebt, in welchem Modus er
+  läuft und ob die Kamera ein Bild liefert. Ohne Lebenszeichen antwortet die
+  Statusabfrage (`GET /api/stall-status`) mit „UNBEKANNT" statt „OK" —
+  Schweigen heißt nie „alles ruhig". Eigener Thread, 10 s Timeout, blockiert
+  die Analyse nicht (`docs/statusabfrage-spezifikation.md`).

@@ -101,6 +101,13 @@ dashboard:
   puffer_datei: alarm-puffer.jsonl
   puffer_max: 200
 
+  # Lebenszeichen an die App (Minuten; 0 = aus): Agent lebt, Modus
+  # (Analyse/Silent), Kamera liefert Bild. Ohne Lebenszeichen sagt die
+  # Statusabfrage (GET /api/stall-status) nie „OK", sondern „UNBEKANNT" -
+  # Schweigen darf nicht „alles ruhig" bedeuten. Laeuft im Hintergrund,
+  # blockiert die Analyse nie. Wechsel (Bild weg/da) gehen nach ~30 s raus.
+  lebenszeichen_minuten: 5
+
   # Zweitkopie der Trainingsbilder in Google Cloud Storage.
   # Silent-Mode-Aufnahmen und per Feedback markierte Fehlalarm-Bilder liegen
   # sonst NUR auf der Platte des Stallrechners - meist ein ausgemusterter

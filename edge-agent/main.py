@@ -263,6 +263,96 @@ class TotmannWaechter:
         return None
 
 
+class Lebenszeichen:
+    """Meldet der App regelmaessig: Agent lebt, Modus, Kamera liefert Bild.
+
+    Ohne dieses Signal kann die Statusabfrage (GET /api/stall-status) nie
+    „OK" sagen — eine ruhige Nacht und ein toter Agent saehen gleich aus.
+    Vertrag: docs/statusabfrage-spezifikation.md (leerer Stapel plus Feld
+    ``lebenszeichen``, abwaertskompatibel).
+
+    Versand im eigenen Daemon-Thread mit kurzem Timeout: ein toter Uplink
+    darf die Analyseschleife nie aufhalten. Haengt ein Versand noch, faellt
+    der naechste aus, statt Threads aufzustauen. Den Offline-Puffer der
+    Alarme fasst er bewusst nicht an (gehoert dem Hauptthread).
+    """
+
+    TIMEOUT_S = 10
+    # Zustandswechsel (Bild weg/da, Modus) frueher melden, aber nicht oefter
+    # als alle 30 s — ein flackernder Stream soll die Leitung nicht fluten.
+    WECHSEL_MIN_ABSTAND_S = 30
+
+    def __init__(self, cfg: dict):
+        db = cfg.get("dashboard") or {}
+        self.url = (db.get("url") or "").strip()
+        self.token = (db.get("token") or "").strip()
+        self.intervall_s = float(db.get("lebenszeichen_minuten", 5) or 0) * 60
+        self.kamera = (cfg.get("stream") or {}).get("kamera", "stallwache")
+        self._zuletzt: float | None = None
+        self._zustand: tuple[str, bool] | None = None
+        self._thread: threading.Thread | None = None
+        self.fehler_in_folge = 0
+
+    @property
+    def aktiv(self) -> bool:
+        return bool(self.url and self.token and self.intervall_s > 0)
+
+    def tick(self, analyse_aktiv: bool, bild_ok: bool, jetzt: float | None = None) -> bool:
+        """Pro Hauptschleifen-Iteration aufrufen. True = Versand gestartet.
+        Wirft nie."""
+        try:
+            if not self.aktiv:
+                return False
+            t = time.time() if jetzt is None else jetzt
+            zustand = ("analyse" if analyse_aktiv else "silent", bool(bild_ok))
+            if self._zuletzt is not None:
+                seit = t - self._zuletzt
+                faellig = seit >= self.intervall_s or (
+                    zustand != self._zustand and seit >= self.WECHSEL_MIN_ABSTAND_S
+                )
+                if not faellig:
+                    return False
+            if self._thread is not None and self._thread.is_alive():
+                return False  # voriger Versand haengt noch (Timeout laeuft)
+            self._zuletzt, self._zustand = t, zustand
+            nutzlast = {
+                "ereignisse": [],
+                "lebenszeichen": {
+                    "kamera": self.kamera,
+                    "modus": zustand[0],
+                    "bild": zustand[1],
+                },
+            }
+            self._thread = threading.Thread(
+                target=self._sende, args=(nutzlast,), name="lebenszeichen", daemon=True
+            )
+            self._thread.start()
+            return True
+        except Exception:  # noqa: BLE001 – darf die Hauptschleife nie stoeren
+            log.exception("Lebenszeichen konnte nicht gestartet werden")
+            return False
+
+    def _sende(self, nutzlast: dict) -> None:
+        try:
+            requests.post(
+                self.url,
+                json=nutzlast,
+                headers={"x-ingest-token": self.token},
+                timeout=self.TIMEOUT_S,
+            ).raise_for_status()
+        except Exception as e:  # noqa: BLE001
+            self.fehler_in_folge += 1
+            if self.fehler_in_folge == 1:  # nur den Beginn einer Stoerung loggen
+                log.warning("Lebenszeichen an die App nicht zugestellt: %s", e)
+            return
+        if self.fehler_in_folge:
+            log.info(
+                "Lebenszeichen wieder zugestellt (nach %d Fehlversuchen)",
+                self.fehler_in_folge,
+            )
+        self.fehler_in_folge = 0
+
+
 # --------------------------------------------------------------------------
 # KI-Inferenz (YOLO-Pose + ByteTrack) – optional, sonst Silent Mode
 # --------------------------------------------------------------------------
@@ -1167,6 +1257,10 @@ def main() -> None:
     logik = LogicEngine(cfg)
     notifier = Notifier(cfg)
     totmann = TotmannWaechter(cfg)
+    lebenszeichen = Lebenszeichen(cfg)
+    # „Bild da" fuer das Lebenszeichen: letzter Frame juenger als 2 min und
+    # kein Defekt laut Freeze-Watchdog.
+    letztes_bild: float | None = None
     # Zweitkopie der Trainingsbilder in der Cloud (dashboard.archiv). Die
     # Feedback-Schleife bekommt dieselbe Instanz, damit nur ein Worker-Thread
     # laeuft und Silent-Mode-Bilder wie Hard Negatives denselben Weg nehmen.
@@ -1204,6 +1298,14 @@ def main() -> None:
             totmann_meldung = totmann.tick(frame is not None)
             if totmann_meldung:
                 notifier.wichtig(totmann_meldung)
+            if frame is not None:
+                letztes_bild = time.time()
+            lebenszeichen.tick(
+                engine.aktiv,
+                letztes_bild is not None
+                and time.time() - letztes_bild < 120
+                and not (wd is not None and wd.defekt),
+            )
             if frame is None:
                 continue
 

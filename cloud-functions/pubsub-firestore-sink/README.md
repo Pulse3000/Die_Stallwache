@@ -69,10 +69,15 @@ kein Teil des Alarmwegs.
 
 ## Anschluss an den Tagesreport
 
-Der Sink macht die Daten lediglich **speicherbar**. Damit die
-KuhWatch-Tagesreport-Routine sie auch lesen kann, fehlt noch ein
-Abfrageweg aus der Cloud-Session heraus — z. B. ein schlanker, token-
-geschützter Lese-Endpunkt in der Webapp (`GET /api/stall-status?stunden=12`),
-den die Routine per HTTPS abruft. Das ist bewusst nicht Teil dieser
-Function und folgt als eigener Schritt, sobald der Sink produktiv Daten
-sammelt.
+Der Sink macht die Daten lediglich **speicherbar**. Für den Tagesreport
+gibt es inzwischen den token-geschützten Lese-Endpunkt der Webapp:
+
+```bash
+curl -s -H "x-status-token: $STATUS_READ_TOKEN" \
+  "https://<app>/api/stall-status?stunden=12"
+```
+
+Er liefert je Kamera und Kuh `OK`/`WARNUNG`/`KRITISCH`/`UNBEKANNT` samt
+Klartext und liest aus dem Ereignisspeicher der Webapp (KV), nicht aus
+Firestore — die Statusabfrage funktioniert damit auch ohne GCP. Regeln und
+Grenzen: [`docs/statusabfrage-spezifikation.md`](../../docs/statusabfrage-spezifikation.md).

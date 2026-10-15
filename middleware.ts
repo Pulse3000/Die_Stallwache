@@ -8,6 +8,8 @@ import { authAktiv, pruefeToken, SESSION_COOKIE } from "@/lib/auth";
  *   - /login, /api/login, /api/logout  (Anmeldeweg selbst)
  *   - POST /api/events                  (Edge-Agent-Ingest, eigene Token-Auth)
  *   - POST /api/datensatz               (Edge-Agent-Bildarchiv, eigene Token-Auth)
+ *   - GET /api/stall-status mit Header  (Statusabfrage externer Routinen,
+ *     x-status-token                    eigene Token-Auth in der Route)
  *   - statische Assets                  (ueber matcher unten ausgeschlossen)
  */
 export async function middleware(req: NextRequest) {
@@ -28,6 +30,17 @@ export async function middleware(req: NextRequest) {
   if (
     (pathname === "/api/events" || pathname === "/api/datensatz") &&
     req.method === "POST"
+  ) {
+    return NextResponse.next();
+  }
+
+  // Statusabfrage externer Routinen (Tagesreport) mit eigenem Lese-Token.
+  // Nur mit Header durchreichen — ohne Header gilt die Session wie ueberall;
+  // die Route lehnt einen falschen Token selbst mit 401 ab.
+  if (
+    pathname === "/api/stall-status" &&
+    req.method === "GET" &&
+    req.headers.has("x-status-token")
   ) {
     return NextResponse.next();
   }
