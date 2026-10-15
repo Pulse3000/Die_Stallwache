@@ -44,7 +44,7 @@ const pruefe = (name, ok, detail) => {
 };
 
 /** Neuer Browser-Kontext mit Datensparen-Einstellung und nachgebildeten Quellen. */
-async function oeffne({ datensparen, quelle = {}, uhr = false }) {
+async function oeffne({ datensparen, quelle = {}, uhr = false, verzoegerung = {} }) {
   // Service Worker blockieren: Er holt sonst die HLS-Dateien selbst, und
   // page.route sieht diese Anfragen nicht (404 vom Server statt Testbild).
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
@@ -54,9 +54,12 @@ async function oeffne({ datensparen, quelle = {}, uhr = false }) {
   const page = await ctx.newPage();
   if (uhr) await page.clock.install();
   const anfragen = Object.fromEntries(KAMERAS.map((k) => [k, 0]));
-  await page.route(/\/api\/(\w+)\/stream$/, (route) => {
+  const segmente = Object.fromEntries(KAMERAS.map((k) => [k, 0]));
+  await page.route(/\/api\/(\w+)\/stream$/, async (route) => {
     const kam = route.request().url().match(/api\/(\w+)\/stream/)[1];
     anfragen[kam]++;
+    // Zuteilung absichtlich langsam (Wettlauf mit Rollenwechsel/Pause).
+    if (verzoegerung[kam]) await sleep(verzoegerung[kam]);
     if ((quelle[kam] ?? "ok") === "ok") {
       route.fulfill({
         status: 200,
@@ -68,14 +71,15 @@ async function oeffne({ datensparen, quelle = {}, uhr = false }) {
     }
   });
   await page.route(/\/e2e-hls\/\w+\/([\w.]+)$/, (route) => {
-    const datei = route.request().url().match(/\/e2e-hls\/\w+\/([\w.]+)$/)[1];
+    const [, kam, datei] = route.request().url().match(/\/e2e-hls\/(\w+)\/([\w.]+)$/);
+    if (!datei.endsWith(".m3u8")) segmente[kam]++;
     const typ = datei.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp4";
     route.fulfill({ status: 200, contentType: typ, body: readFileSync(join(hlsDir, datei)) });
   });
   const fehler = [];
   page.on("pageerror", (e) => fehler.push(e.message));
   await page.goto(BASE, { waitUntil: "networkidle" });
-  return { ctx, page, anfragen, fehler };
+  return { ctx, page, anfragen, segmente, fehler };
 }
 
 const zustaende = (page) =>
@@ -86,7 +90,7 @@ const zustaende = (page) =>
   );
 const kopf = (page) =>
   page.evaluate(() => ({
-    text: document.querySelector("[data-kopftext]").textContent,
+    text: document.querySelector("[data-kopftext]").textContent.replace(/\u00a0/g, " "),
     ton: document.querySelector('[aria-label="Systemstatus"]').dataset.ton,
   }));
 async function warteAuf(page, kam, zustand, ms = 20000) {
@@ -184,6 +188,82 @@ const klick = (page, kam, text) =>
   pruefe("Rollenwechsel ohne Datensparen: alle sichtbaren bleiben/werden „Online“", sichtbar.every((c) => z2[c] === "online"), JSON.stringify(z2));
   pruefe("keine Seitenfehler", fehler.length === 0, fehler.slice(0, 2).join(" | "));
   console.log(`  Kopf: „${k.text}“`);
+  await ctx.close();
+}
+
+// ---- 4. Wettlauf: alte Haupt-Session darf in Vorschau/Pause nichts starten (qa-waechter F1) ----
+const videoLaeuft = (page, kam) =>
+  page.evaluate((k) => {
+    const v = document.querySelector(`[data-kamera="${k}"] video`);
+    return !v.paused && v.readyState > 2;
+  }, kam);
+{
+  console.log("\n# Wettlauf: Vollbild auf und gleich wieder zu, Zuteilung kommt erst nach 2 s");
+  const { ctx, page, segmente, fehler } = await oeffne({ datensparen: true, verzoegerung: { stallwache: 2000 } });
+  await sleep(4000);
+  await page.locator('[data-kamera="stallwache"] [aria-label="Vollbild öffnen"]').click();
+  await sleep(500);
+  await page.locator('[data-kamera="stallwache"] button', { hasText: "Zurück" }).click();
+  const vorher = segmente.stallwache;
+  await sleep(8000);
+  const z = await zustaende(page);
+  pruefe("Vorschau-Kachel bleibt „Ungeprüft“, nicht „Online“", z.stallwache === "ungeprueft", JSON.stringify(z));
+  pruefe("kein versteckter Stream: kein Segment geladen, Video steht", segmente.stallwache === vorher && !(await videoLaeuft(page, "stallwache")), `Segmente ${vorher} -> ${segmente.stallwache}`);
+  pruefe("Kopf zaehlt sie nicht als online", !(await kopf(page)).text.includes("online"), (await kopf(page)).text);
+  pruefe("keine Seitenfehler", fehler.length === 0, fehler.slice(0, 2).join(" | "));
+  await ctx.close();
+}
+{
+  console.log("\n# Wettlauf: „Live starten“, Tab nach 0,3 s verborgen, Zuteilung nach 2 s");
+  const { ctx, page, segmente, fehler } = await oeffne({ datensparen: true, verzoegerung: { stallwache: 2000 } });
+  await sleep(4000);
+  await klick(page, "stallwache", "Live starten");
+  await sleep(300);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const vorher = segmente.stallwache;
+  await sleep(8000);
+  pruefe("pausierte Kachel laedt nichts nach", segmente.stallwache === vorher && !(await videoLaeuft(page, "stallwache")), `Segmente ${vorher} -> ${segmente.stallwache}`);
+  pruefe("keine Seitenfehler", fehler.length === 0, fehler.slice(0, 2).join(" | "));
+  await ctx.close();
+}
+
+// ---- 5. Navigation: belegtes „Offline“ und Faelligkeit ueberdauern den Tabwechsel (qa-waechter F2) ----
+{
+  console.log("\n# Navigation Dashboard → Alarme → Dashboard mit gestoerter Abkalbebox");
+  const { ctx, page, anfragen, fehler } = await oeffne({ datensparen: true, quelle: { abkalbebox: "fehler" }, uhr: true });
+  await page.clock.runFor(5000);
+  await sleep(500);
+  await page.clock.runFor(61000);
+  await sleep(600);
+  pruefe("vor der Navigation: Abkalbebox „Offline“, Punkt rot", (await zustaende(page)).abkalbebox === "offline" && (await kopf(page)).ton === "stoerung");
+  // Nur Kameras, die schon gepingt wurden: eine bisher nie gepingte Kachel
+  // (Weidewache, vorher unterhalb des Bildes) darf beim ersten Sichtkontakt pingen.
+  const gepingt = KAMERAS.filter((k) => anfragen[k] > 0);
+  const zaehle = () => JSON.stringify(Object.fromEntries(gepingt.map((k) => [k, anfragen[k]])));
+  const pingsVorher = zaehle();
+  let haelt = true;
+  for (let i = 0; i < 3; i++) {
+    await page.locator('nav[aria-label="Hauptnavigation"] a', { hasText: "Alarme" }).click();
+    await page.waitForURL("**/alarme");
+    await page.locator('nav[aria-label="Hauptnavigation"] a', { hasText: "Dashboard" }).click();
+    await page.waitForURL(`${BASE}/`);
+    await page.clock.runFor(1000);
+    await sleep(300);
+    const z = await zustaende(page);
+    const k = await kopf(page);
+    if (z.abkalbebox !== "offline" || k.ton !== "stoerung") {
+      haelt = false;
+      console.log(`  Rueckkehr ${i + 1}: ${JSON.stringify(z)} / ${k.text} / ${k.ton}`);
+    }
+    await page.clock.runFor(4000);
+    await sleep(300);
+  }
+  pruefe("nach jeder Rueckkehr weiter „Offline“ und rot (nicht ohne Beweis zurueckgenommen)", haelt);
+  pruefe("Rueckkehr loest keinen vorzeitigen Ping aus (schon gepingte Kameras)", zaehle() === pingsVorher, `${pingsVorher} -> ${zaehle()}`);
+  pruefe("keine Seitenfehler", fehler.length === 0, fehler.slice(0, 2).join(" | "));
   await ctx.close();
 }
 

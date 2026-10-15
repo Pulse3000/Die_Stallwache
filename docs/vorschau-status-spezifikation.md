@@ -3,7 +3,8 @@
 Stand: 15.10.2026 · Ergänzt [`fernzugriff-spezifikation.md`](./fernzugriff-spezifikation.md)
 §2 (`NEXT_PUBLIC_BRIDGE_URL` bleibt leer) um die Frage, was eine Kachel
 **ohne** Einzelbild über ihren Zustand sagen darf.
-**Status: umgesetzt, Abnahme am realen Gerät offen** (§6, Punkte 8–9).
+**Status: umgesetzt, Befunde des `qa-waechter` (F1–F5) eingearbeitet,
+Abnahme am realen Gerät offen** (§6, Punkte 10–12).
 
 ## Anlass
 
@@ -50,7 +51,13 @@ Alarmzustand) und „Schweigen ist kein OK“ (kein ungeprüftes „Online“).
    - „Offline“ bleibt auch während der Pause sichtbar (wie bisher).
 5. **„Offline“ wird nicht ohne Beweis zurückgenommen.** Wechselt eine
    Offline-Kachel in die Vorschau oder kehrt sie aus der Pause zurück, bleibt
-   sie offline, bis eine Prüfung etwas anderes zeigt.
+   sie offline, bis eine Prüfung etwas anderes zeigt. Das gilt auch über die
+   Navigation hinweg (Dashboard → Alarme → Dashboard): Der Beleg gehört der
+   Kamera, nicht der Kachel. Erst ein Neuladen der Seite beginnt frisch.
+6. **Ein beendeter Live-Versuch startet nichts mehr.** Wechselt die Kachel in
+   die Vorschau oder die Pause, während ein Live-Aufbau noch unterwegs ist
+   (Tuya-Zuteilung, hls.js-Import, Reconnect), verwirft der alte Lauf sein
+   Ergebnis. Er spielt kein Video und meldet nichts.
 
 ## 2. Grenzen
 
@@ -77,13 +84,23 @@ Rückkehr aus der Pause.
 
 ### Status-Ping ohne Bridge
 
+Jede Antwort wird zuerst eingeordnet (`pingAntwort`):
+
+| Antwort | Klasse | Begründung |
+| --- | --- | --- |
+| HTTP 2xx | `ok` | Quelle erreichbar, aber kein Bildbeweis |
+| HTTP ≥ 500 (502 Tuya/Funnel gestört, 503 nicht konfiguriert) | `stoerung` | Server erreicht, Quelle gestört |
+| kein Netz, Frist (20 s) abgelaufen, sonstiger Status (z. B. 401: Login abgelaufen) | `unklar` | sagt nichts über die Kamera. Ein Funkloch am Handy ist kein Kameraausfall |
+
 | Ereignis | Zustand danach | nächster Ping |
 | --- | --- | --- |
-| Ping 2xx | `ungeprueft`, Fehlerzähler 0 | 5 min |
-| 1. Fehlschlag (HTTP ≠ 2xx oder Netzfehler) | unverändert | 60 s (Bestätigung) |
-| 2. Fehlschlag in Folge | `offline` | 2 min |
-| jeder weitere Fehlschlag | `offline` | 2 min |
-| Livebild (`playing`) als Hauptbild | `online`, Fehlerzähler 0 | 5 min nach dem Livebild, falls die Kachel bis dahin Vorschau ist |
+| `ok` | `ungeprueft`, Stand zurückgesetzt | 5 min |
+| 1. `stoerung` | unverändert | 60 s (Bestätigung) |
+| 2. `stoerung` in Folge (≤ 3 min nach der vorigen) | `offline` (belegt) | 2 min |
+| jede weitere `stoerung` | `offline` | 2 min |
+| `stoerung` mehr als 3 min nach der vorigen (z. B. nach langer Pause) | zählt als 1. Störung; ein belegtes `offline` bleibt stehen | 60 s |
+| `unklar` | unverändert, zählt nicht | 2 min |
+| Livebild (`playing`) als Hauptbild | `online`, Stand zurückgesetzt | 5 min nach dem Livebild, falls die Kachel bis dahin Vorschau ist |
 
 | Konstante (`lib/kamera-status.ts`) | Wert | Zweck |
 | --- | --- | --- |
@@ -91,16 +108,21 @@ Rückkehr aus der Pause.
 | `PING_OK_MS` | 5 min | Takt nach Erfolg oder Livebild |
 | `PING_BESTAETIGUNG_MS` | 60 s | ein einzelner Fehlschlag färbt nichts rot |
 | `PING_OFFLINE_MS` | 2 min | Takt, solange offline; danach erscheint „Live starten“ wieder |
-| `PING_FEHLSCHLAEGE_OFFLINE` | 2 | Fehlschläge in Folge bis `offline` |
+| `PING_FEHLSCHLAEGE_OFFLINE` | 2 | Störungen in Folge bis `offline` |
+| `PING_FOLGE_MAX_MS` | 3 min | so dicht müssen zwei Störungen aufeinander folgen (Offline-Takt plus Frist) |
+| `PING_TIMEOUT_MS` | 20 s | Frist je Ping; eine hängende Anfrage hält den Takt nicht an |
 
-- **Fälligkeit ist absolut.** Jede Kachel merkt sich, wann ihr nächster Ping
-  fällig ist. Rollenwechsel, Pause und Rückkehr setzen diesen Zeitpunkt nicht
-  zurück. Je Kachel gibt es also höchstens einen Ping pro Intervall, egal wie
-  oft gescrollt oder getauscht wird.
+- **Fälligkeit ist absolut und gehört der Kamera.** Der Ping-Stand
+  (`PingStand`: Störungen in Folge, letzte Störung, nächste Fälligkeit,
+  belegtes `offline`) liegt je Kamera auf Modulebene von
+  `components/CameraStream.tsx`. Rollenwechsel, Pause, Rückkehr und
+  Navigation setzen ihn nicht zurück. Je Kamera gibt es also höchstens einen
+  Ping pro Intervall, egal wie oft gescrollt, getauscht oder der Tab
+  gewechselt wird.
 - **Kein Ping bei pausierter Kachel** (Tab verborgen, aus dem Bild), wie bei
   den Streams (`lib/pausiert.ts`).
 - **Kosten:** Im Normalbetrieb höchstens 12 Pings pro Stunde je sichtbarer
-  Vorschau-Kachel, bei Störung höchstens 31. Ein Tuya-Ping ist ein
+  Vorschau-Kachel, bei Störung höchstens 31, bei unklarer Lage höchstens 30. Ein Tuya-Ping ist ein
   `allocate`-Aufruf (das Token ist zwischengespeichert). Bei der Stallwache
   ist er eine Probe am Stall-Rechner. Die Antwort (wenige hundert Byte) wird
   verworfen.
@@ -117,6 +139,8 @@ Gezählt (mit Beweis oder Versuch) sind `online`, `offline` und `instabil`.
 | `ungeprueft` | „2 ungeprüft“ |
 | `pausiert` | „1 pausiert“ |
 
+- Zahl und Wort sind mit einem geschützten Leerzeichen verbunden. Bricht der
+  Kopf um, steht nie „· 1“ am Zeilenende und „pausiert“ allein darunter.
 - Sonderfälle: Sind alle Kameras online, heißt es „4 Kameras online“. Steht
   nur der gezählte Teil da, heißt es „1 von 2 Kameras online“. Sind alle
   Kameras pausiert, heißt es „Livebilder pausiert“.
@@ -192,24 +216,33 @@ Automatisiert / im Repo:
    6. Sparsamkeit: Je Vorschau-Kachel gibt es in den ersten 20 s höchstens
       einen Ping. Eine pausierte Kachel pingt nie.
    7. In keinem Durchlauf gibt es Seitenfehler (`pageerror`).
+   8. Wettlauf (§1.6): Vollbild auf und nach 0,5 s wieder zu, die Zuteilung
+      kommt erst nach 2 s. Die Vorschau-Kachel bleibt „Ungeprüft“, lädt kein
+      Segment und das Video steht. Ebenso bei „Live starten“ mit verborgenem
+      Tab nach 0,3 s.
+   9. Navigation (§1.5): Abkalbebox belegt „Offline“, dann dreimal
+      Dashboard → Alarme → Dashboard. Sie bleibt nach jeder Rückkehr
+      „Offline“ und rot. Schon gepingte Kameras pingen dabei nicht erneut.
 
 Am realen Gerät (Beweispflicht, Betreiber + Orchestrator):
 
-8. Produktion, Datensparen an, die Tuya-Kameras senden: Der Kopf zeigt kein
-   „0 von 3“ und der Punkt ist nicht rot.
-9. Eine Tuya-Kamera wird stromlos, Datensparen an, Kachel in der Vorschau:
-   - Wird sie nach spätestens ~3 min „Offline“?
-   - Oder bleibt sie „Ungeprüft“, weil Tuya die URL trotzdem zuteilt?
+10. Produktion, Datensparen an, die Tuya-Kameras senden: Der Kopf zeigt kein
+    „0 von 3“ und der Punkt ist nicht rot.
+11. Eine Tuya-Kamera wird stromlos, Datensparen an, Kachel in der Vorschau:
+    - Wird sie nach spätestens ~3 min „Offline“?
+    - Oder bleibt sie „Ungeprüft“, weil Tuya die URL trotzdem zuteilt?
 
-   Das Ergebnis wird hier eingetragen (offen).
+    Das Ergebnis wird hier eingetragen (offen).
+12. Am Handy mit ausgeschaltetem Bildschirm während eines Live-Aufbaus: Es
+    läuft kein Stream weiter (Datenverbrauch in den Android-Einstellungen).
 
 ## 7. Risiken
 
-1. **Tuya-Zuteilung bei stromloser Kamera ist unbekannt** (§6.9). Teilt Tuya
+1. **Tuya-Zuteilung bei stromloser Kamera ist unbekannt** (§6.11). Teilt Tuya
    die URL trotzdem zu, erkennt der Ping nur Cloud- und Konfigurationsfehler.
    Die Anzeige bleibt trotzdem ehrlich („Ungeprüft“, nie „Online“), sieht
    aber den Ausfall nicht. Abhilfe wäre ein Playlist-Abruf je Ping. Er weckt
-   aber möglicherweise den Kamera-Upload und wird erst nach §6.9 entschieden.
+   aber möglicherweise den Kamera-Upload und wird erst nach §6.11 entschieden.
 2. **Ping zeigt „Offline“, „Live starten“ verschwindet.** Ist die Störung
    kurz, kommt der Knopf erst mit dem nächsten Ping (≤ 2 min) zurück. Das
    Vollbild bleibt als Live-Versuch erreichbar.
@@ -226,3 +259,17 @@ Am realen Gerät (Beweispflicht, Betreiber + Orchestrator):
    der Kopf um eine Zeile und schiebt den Inhalt um etwa 16 px nach unten.
    Das wird in Kauf genommen: In genau diesem Zustand soll der ganze Text
    lesbar sein.
+6. **Unklare Antworten färben nichts.** Im Funkloch oder bei abgelaufenem
+   Login (401) bleibt eine Vorschau „Ungeprüft“, auch wenn die Kamera in
+   dieser Zeit ausfällt. Das ist gewollt: Ohne Antwort des Servers gibt es
+   keinen Beleg. Die Alarmkette (Edge-Agent, Telegram) hängt nicht daran.
+
+### Befunde `qa-waechter` (15.10.2026), eingearbeitet
+
+| Befund | Ursache | Abhilfe | Nachweis |
+| --- | --- | --- | --- |
+| F1 (hoch): Ein alter Live-Aufbau lief nach Rollenwechsel oder Pause unsichtbar weiter und meldete „Online“ (bestand schon vor dieser Änderung) | `disposedRef` galt für alle Effektläufe und wurde von jedem neuen Lauf zurückgesetzt | Ende-Flag je Effektlauf (`aus`) in allen asynchronen Fortsetzungen, `markLive` eingeschlossen | §6.3.8 |
+| F2 (mittel): „Offline“ ging beim Tabwechsel verloren, und jede Rückkehr pingte neu | Ping-Stand lag in Refs der Kachel-Instanz | `PingStand` je Kamera auf Modulebene | §6.3.9 |
+| F3 (niedrig): Eine alte Störung vor langer Pause zählte als erste von zweien | Zähler ohne Zeitbezug | Folge-Fenster `PING_FOLGE_MAX_MS`; Funkloch und 401 zählen nicht (`unklar`) | Unit-Tests |
+| F4 (kosmetisch): Umbruch „· 1“ / „pausiert“ | normales Leerzeichen | geschütztes Leerzeichen zwischen Zahl und Wort | Unit-Test |
+| F5 (Info): Ping ohne Frist | – | `PING_TIMEOUT_MS` 20 s | Code |
