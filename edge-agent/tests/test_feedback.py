@@ -228,8 +228,8 @@ for i in range(anzahl):
 p.check("31: jedes erste Votum gezaehlt", fb6.zaehler["treffer"] == anzahl)
 p.check("31: Menge begrenzt auf MAX_ABGESTIMMT", len(fb6._abgestimmt) == fb6.MAX_ABGESTIMMT)
 p.check(
-    "31: aelteste heraus, juengste drin",
-    "0" not in fb6._abgestimmt and str(anzahl - 1) in fb6._abgestimmt,
+    "31: genau die aeltesten 25 heraus, Rest in Einfuegereihenfolge",
+    list(fb6._abgestimmt) == [str(i) for i in range(25, anzahl)],
 )
 fb6.verarbeite([tipp(5000, str(anzahl - 1), "treffer")])
 p.check("31: juengste ID weiter gesperrt", fb6.zaehler["treffer"] == anzahl)
