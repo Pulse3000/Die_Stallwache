@@ -97,9 +97,11 @@ Seite gar nicht, ist der Funnel gestört: In der Tailscale-Verwaltung HTTPS-Zert
 ```bash
 docker stop stallwache-tunnel && docker rm stallwache-tunnel
 cd ~/Die_Stallwache && git pull
-# CLOUDFLARE_TUNNEL_TOKEN aus bridge/.env löschen
-cd bridge && docker compose up -d --remove-orphans
+# CLOUDFLARE_TUNNEL_TOKEN aus bridge/.env (bzw. bridge/mediamtx/.env) löschen
+cd bridge && docker compose up -d --remove-orphans   # MediaMTX: cd bridge/mediamtx
 ```
 
-Danach den Tunnel im Cloudflare-Zero-Trust-Dashboard löschen, damit sein
-Token ungültig wird.
+Danach sind noch drei Schritte nötig:
+- im Cloudflare-Zero-Trust-Dashboard den Tunnel löschen (der Token wird damit ungültig);
+- den DNS-Eintrag des früheren Public Hostname entfernen;
+- in Vercel `NEXT_PUBLIC_BRIDGE_URL` leeren und neu deployen.

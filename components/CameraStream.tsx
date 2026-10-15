@@ -462,15 +462,12 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
           role === "haupt" && videoLive ? "opacity-100" : "opacity-0"
         }`}
       />
-      {/* Bridge nicht konfiguriert (nur fuer reine Bridge-Kameras) */}
+      {/* Kein Bildweg eingerichtet (weder Fernzugriff/Tuya noch Bridge) */}
       {!isConfigured && !istTuya && (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-slate-800 to-slate-950 p-4">
           <p className="max-w-xs text-center text-xs text-white/60">
-            Warte auf Bridge – sobald{" "}
-            <code className="rounded bg-black/40 px-1">
-              NEXT_PUBLIC_BRIDGE_URL
-            </code>{" "}
-            gesetzt ist, erscheint hier das Bild der {camera.name}.
+            Noch kein Livebild eingerichtet – das Bild der {camera.name} kommt
+            über den Fernzugriff (Tailscale) oder die Tuya-Cloud.
           </p>
         </div>
       )}

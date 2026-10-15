@@ -17,7 +17,8 @@
  *              die Vorschau greift dafuer kurzzeitig auf HLS zurueck.
  *
  * Umgebungsvariablen (siehe .env.example):
- *   NEXT_PUBLIC_BRIDGE_URL     Basis-URL der Bridge, z.B. https://stallwache.example.com
+ *   NEXT_PUBLIC_BRIDGE_URL     Basis-URL der Bridge, im Normalfall LEER
+ *                              (docs/fernzugriff-spezifikation.md §2)
  *   NEXT_PUBLIC_GO2RTC_URL     Alt-Name (Alias), falls schon gesetzt
  *   NEXT_PUBLIC_BRIDGE_TYPE    "go2rtc" (Default) | "mediamtx"
  *   NEXT_PUBLIC_STREAM_NAME    Stream/Pfad der Stallwache  (Default: "stallwache")

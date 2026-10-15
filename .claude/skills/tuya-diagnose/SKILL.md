@@ -85,8 +85,9 @@ Argumente landen in der Shell-History und in der Prozessliste.
 Nicht jede schwarze Kachel liegt an der Cloud — vor der Fehlersuche
 ausschließen:
 
-- **Bridge nicht verbunden** → die Kamera zeigt „Warte auf Bridge". Das ist
-  `NEXT_PUBLIC_BRIDGE_URL`, nicht Tuya. Siehe Skill `stallwache-live-schalten`.
+- **Kein Bildweg eingerichtet** → die Kamera zeigt „Noch kein Livebild
+  eingerichtet". Das ist Fernzugriff/Tuya-Konfiguration, kein Cloud-Fehler.
+  Siehe Skill `stallwache-live-schalten`.
 - **Datensparen aktiv** → das Hauptbild läuft absichtlich als Standbild, bis
   „Live starten" getippt wird. Kein Fehler, eine Einstellung.
 - **Schwarzes Bild trotz 200** → CORS. Die Stream-URL muss über

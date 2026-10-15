@@ -22,16 +22,18 @@ berührt.
    - Er war ein **zweiter öffentlicher Zugang** zu go2rtc ohne Token-Schutz. Laut Anleitung zeigte der Public Hostname auf `http://localhost:1984`, also auf die komplette go2rtc-API.
    - Seit dem 14.10.2026 lief er auf dem Stall-Rechner in einer Neustart-Schleife (`Restarting (255)`), hat also nichts geleistet.
    - Zwei Zugangswege bedeuten doppelte Wartung und doppelte Angriffsfläche.
-4. **Die Termux-Bridge (`bridge/termux/`) ist eingestellt.** Sie hing vollständig am Cloudflare-Tunnel. Die Tailscale-App für Android kann weder `serve` noch Funnel, ein Ersatzweg ohne Cloudflare existiert also nicht (Entscheidung des Betreibers). Der Edge-Agent unter Termux (`edge-agent/termux/`, Silent Mode) ist davon unabhängig und bleibt.
+4. **Der Cloud-Transcoder (`cloud-transcoder/`) ist entfernt** (Entscheidung des Betreibers, Abnahme nach dem Merge von #79). Er stellte go2rtc auf einem VPS öffentlich ins Internet, mit der kompletten API hinter Caddy und nur optionaler Basic-Auth. Das widerspricht Punkt 2. Von der Webapp aus funktionierte er ohnehin nur mit einer CORS-Freigabe.
+5. **Die Termux-Bridge (`bridge/termux/`) ist eingestellt.** Sie hing vollständig am Cloudflare-Tunnel. Die Tailscale-App für Android kann weder `serve` noch Funnel, ein Ersatzweg ohne Cloudflare existiert also nicht (Entscheidung des Betreibers). Der Edge-Agent unter Termux (`edge-agent/termux/`, Silent Mode) ist davon unabhängig und bleibt.
 
 ## 2. Grenzen
 
 - **Ohne Funnel kein Livebild der Stallwache von außen.** Die Alarme des Edge-Agenten (Telegram, App-Meldungen) gehen direkt ins Internet und hängen nicht am Funnel.
 - **Direktzugriff der Webapp auf go2rtc (`NEXT_PUBLIC_BRIDGE_URL`) funktioniert nicht und wird nicht mehr empfohlen.**
   - Es gibt keinen öffentlichen Port, und go2rtc erlaubt keine Cross-Origin-Abrufe. Damit scheitern WebRTC und hls.js aus `https://<app>.vercel.app` auch im Tailnet.
-  - Ist die Variable trotzdem gesetzt, wechselt die Kachel nach dem ersten Fehlschlag des Fernzugriffs für die ganze Sitzung auf diese tote Bridge (`components/CameraStream.tsx`, `startTuya`).
+  - Ist die Variable trotzdem gesetzt, wechselt die Kachel nach dem ersten Fehlschlag des Stream-Endpunkts auf diese tote Bridge und bleibt dort (`components/CameraStream.tsx`, `startTuya`). Das gilt auch für die Tuya-Kameras. Zurückgesetzt wird erst, wenn die Kachel neu aufgebaut wird (Neuladen, Rollenwechsel, Ein-/Ausblenden).
   - Ohne die Variable versucht sie den Fernzugriff erneut (`scheduleReconnect`).
-  - **Folge:** `NEXT_PUBLIC_BRIDGE_URL` in Vercel leer lassen. Dadurch fallen die go2rtc-Vorschaubilder (Snapshots) weg, die ohnehin nur im Tailnet luden.
+  - **Folge:** `NEXT_PUBLIC_BRIDGE_URL` in Vercel leer lassen. Dadurch fallen die go2rtc-Vorschaubilder weg, die ohnehin nur im Tailnet luden. Der Snapshot-Knopf meldet „Snapshot nicht verfügbar – nur mit Bridge-Direktzugriff“.
+- **Android-App (eigenes Repo):** Sie spielt die Bridge nativ ab, ohne CORS, bekommt das Bild der Stallwache also nur im Tailnet. Einen Passwort-Login hat sie nicht. Bei aktivem `STALLBLICK_PASSWORT` (Voraussetzung für den Fernzugriff) antworten ihr die Webapp-Endpunkte mit 401.
 - **Wartung von go2rtc** (WebUI, Stream-Test) läuft nur im Tailnet: `http://<tailnet-IP>:1984` von einem Gerät mit aktiver Tailscale-App.
 - **MediaMTX-Variante (`bridge/mediamtx/`):** `fern-proxy.py` kennt nur go2rtc-Pfade. Ohne Cloudflare hat MediaMTX daher **keinen** Fernzugriff, sondern nur Zugriff im LAN bzw. Tailnet. Das ist nicht am Gerät erprobt. Der Standard bleibt go2rtc.
 
@@ -59,18 +61,21 @@ Voraussetzung: In der Tailscale-Verwaltung sind für das Gerät **HTTPS-Zertifik
 ```bash
 docker stop stallwache-tunnel && docker rm stallwache-tunnel
 cd ~/Die_Stallwache && git pull          # Compose-Datei ohne cloudflared
-# CLOUDFLARE_TUNNEL_TOKEN aus bridge/.env löschen
-cd bridge && docker compose up -d --remove-orphans
+# CLOUDFLARE_TUNNEL_TOKEN aus bridge/.env (bzw. bridge/mediamtx/.env) löschen
+cd bridge && docker compose up -d --remove-orphans   # MediaMTX: cd bridge/mediamtx
 ```
 
-Danach den Tunnel im Cloudflare-Zero-Trust-Dashboard löschen, damit der Token ungültig wird.
+Danach sind noch drei Schritte nötig:
+- im Cloudflare-Zero-Trust-Dashboard den Tunnel löschen (der Token wird damit ungültig);
+- den DNS-Eintrag des früheren Public Hostname entfernen;
+- in Vercel `NEXT_PUBLIC_BRIDGE_URL` leeren und neu deployen.
 
 ## 4. Abnahmekriterien
 
 Automatisiert / im Repo:
 
 1. In `bridge/docker-compose.yml` und `bridge/mediamtx/docker-compose.yml` gibt es keinen `cloudflared`-Dienst mehr. Beide Dateien sind gültiges YAML.
-2. Im Repo steht „Cloudflare“ nur noch in dieser Entscheidung, in der Roadmap und in Rückbau-Hinweisen. `bridge/termux/` existiert nicht mehr.
+2. Im Repo steht „Cloudflare“ nur noch in dieser Entscheidung, in der Roadmap und in Rückbau-Hinweisen. `bridge/termux/` und `cloud-transcoder/` existieren nicht mehr. Kein UI-Text und keine Anleitung empfiehlt mehr, `NEXT_PUBLIC_BRIDGE_URL` zu setzen.
 3. `npm test`, `tsc --noEmit`, `npm run lint` und `npm run build` sind grün (es ändern sich nur Kommentare im Code).
 
 Am realen Gerät (Beweispflicht, Betreiber + Orchestrator):

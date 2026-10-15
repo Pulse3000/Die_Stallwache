@@ -255,16 +255,19 @@ Die Kamera-Streams laufen dort ohne Browser-Umwege direkt in der APK
 (Media3/ExoPlayer statt hls.js):
 
 * **Stallwache** → Bridge-HLS (go2rtc `api/stream.m3u8` bzw. MediaMTX
-  `index.m3u8`), Vorschau per go2rtc-Snapshot-Polling. In der Webapp
-  alternativ über die Tuya-Cloud (`/api/stallwache/stream`, siehe „Ohne
-  Bridge starten"); die Android-App nutzt bislang nur den Bridge-Weg.
+  `index.m3u8`), Vorschau per go2rtc-Snapshot-Polling. Da go2rtc nie
+  öffentlich ist, bekommt die Android-App dieses Bild **nur im Tailnet**
+  (Tailscale-App aktiv). Die Webapp nutzt von außen den Fernzugriff
+  (`/api/stallwache/stream`, [`docs/fernzugriff-spezifikation.md`](docs/fernzugriff-spezifikation.md)).
 * **Futterwache/Abkalbebox/Weidewache** → Tuya-Cloud: wahlweise über die Webapp-Endpoints
   (`/api/<kamera>/stream`) oder direkt über die Tuya-OpenAPI (HMAC-SHA256 in
   Kotlin portiert); Bridge als Fallback. Der CORS-Proxy der Webapp wird nativ
   nicht benötigt.
 * **KI-Wache** → die App spiegelt `GET /api/events` in ihre lokale Datenbank;
-  Alarme erscheinen als Overlay auf dem Handy. Die App nutzt keinen
-  Passwort-Login — die Webapp läuft ohne `STALLBLICK_PASSWORT`.
+  Alarme erscheinen als Overlay auf dem Handy. Die App hat keinen
+  Passwort-Login. Ist `STALLBLICK_PASSWORT` gesetzt (Voraussetzung für den
+  Fernzugriff, in Produktion aktiv), antworten die Webapp-Endpunkte ihr mit
+  401 — dieser Abgleich braucht dann einen Login in der App.
 
 ## Tech-Stack
 

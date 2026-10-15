@@ -23,7 +23,8 @@ export const runtime = "nodejs";
 export async function GET() {
   // Fernzugriff ueber den Stall-Rechner (Tapo/go2rtc, lib/fern.ts): nur mit
   // aktivem App-Login. Antwortet der Stall-Rechner nicht, geht es mit 502
-  // weiter – die Kachel faellt dann auf die Bridge zurueck (Tailscale).
+  // weiter – die Kachel zeigt den Verbindungshinweis und versucht es erneut
+  // (ohne NEXT_PUBLIC_BRIDGE_URL, docs/fernzugriff-spezifikation.md §2).
   if (fernKonfiguriert()) {
     if (!authAktiv()) {
       return NextResponse.json(
