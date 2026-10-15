@@ -62,7 +62,9 @@ einem laufenden Dev-Server stoert dessen Zustand — danach
 `docker compose -f docker-compose.base44.yml restart web`.
 
 Erwartung ohne Zugangsdaten: fuenf Bereiche rendern (`/`, `/alarme`,
-`/steuerung`, `/analytik`, `/einstellungen`), 0 von 4 Kameras online,
+`/steuerung`, `/analytik`, `/einstellungen`), Kopf z. B. „0 von 3 online ·
+1 pausiert" mit rotem Punkt (korrekt: alle Stream-Endpunkte antworten 503;
+Regeln in `docs/vorschau-status-spezifikation.md`),
 `/api/events` liefert Demo-Daten, `/api/tuya/geraete` → 503.
 
 ## Merge-Freigabe

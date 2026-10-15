@@ -12,6 +12,7 @@ import {
   snapshotUrl,
   webrtcUrl,
 } from "@/lib/config";
+import { PING_OK_MS, bewertePing, wartezeitBisPing } from "@/lib/kamera-status";
 
 export type CameraRole = "haupt" | "vorschau";
 
@@ -50,7 +51,10 @@ const PREVIEW_INITIAL_DELAY = 600;
  *                      laufen ab → bei fatalem HLS-Fehler wird eine frische
  *                      URL geholt.
  *   Rolle "vorschau" → wie Bridge-Vorschau oben (go2rtc-Snapshot wenn
- *                      verfuegbar, sonst ruhiger Platzhalter).
+ *                      verfuegbar). Ohne Bridge: ruhiger Platzhalter, Zustand
+ *                      "ungeprueft" (kein Bildbeweis) plus sparsamer
+ *                      Status-Ping an camera.tuyaEndpoint
+ *                      (docs/vorschau-status-spezifikation.md).
  *
  * Der Rollenwechsel bindet nur die Medienquelle im selben Container um;
  * die Komponente bleibt gemountet, es gibt keinen Seiten-Neuaufbau.
@@ -67,6 +71,11 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
   const disposedRef = useRef(false);
   // Tuya fehlgeschlagen -> fuer diese Haupt-Session auf die Bridge bleiben.
   const tuyaAufgegebenRef = useRef(false);
+  // Status-Ping der Vorschau ohne Bridge: Fehlschlaege in Folge und absolute
+  // Faelligkeit (ueberdauert Rollenwechsel und Pause – hoechstens ein Ping
+  // pro Intervall, lib/kamera-status.ts).
+  const pingFehlschlaegeRef = useRef(0);
+  const pingFaelligRef = useRef(0);
 
   const istTuya = camera.tuyaFaehig;
 
@@ -111,6 +120,10 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
     const markLive = () => {
       attemptsRef.current = 0;
       wasLiveRef.current = true;
+      // Ein Livebild ist der staerkste Beweis: der naechste Vorschau-Ping
+      // ist erst nach dem normalen Takt faellig.
+      pingFehlschlaegeRef.current = 0;
+      pingFaelligRef.current = Date.now() + PING_OK_MS;
       setVideoLive(true);
       report("online");
     };
@@ -159,7 +172,9 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
           if (disposedRef.current) return;
           setSnapSrc(`${snapshotUrl(camera.streamName)}&t=${Date.now()}`);
         };
-        report(wasLiveRef.current ? "online" : "laedt");
+        // Kein uebernommenes „online": das erste Einzelbild entscheidet.
+        // „offline" bleibt bis dahin stehen (nicht ohne Beweis zuruecknehmen).
+        if (stateRef.current !== "offline") report("laedt");
         timerRef.current = setTimeout(poll, PREVIEW_INITIAL_DELAY);
       } else if (isConfigured) {
         // ---- MediaMTX: kein Snapshot-Endpoint – leichtes HEAD-Polling ----
@@ -188,7 +203,43 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
         void pingen();
       } else {
         // ---- Tuya-only: ruhiger Platzhalter, kein zweiter Live-Stream ----
-        report(wasLiveRef.current ? "online" : "laedt");
+        // Ohne Einzelbild gibt es keinen Bildbeweis: „ungeprueft" statt eines
+        // uebernommenen „online" oder eines ewigen „laedt". „offline" bleibt,
+        // bis eine Pruefung etwas anderes zeigt.
+        if (stateRef.current !== "offline") report("ungeprueft");
+        // Sparsamer Status-Ping: Erfolg ist kein Bildbeweis (bleibt
+        // „ungeprueft"), zwei Fehlschlaege in Folge sind eine Stoerung.
+        let aktiv = true; // nur dieser Effektlauf darf melden
+        const abbruch = new AbortController();
+        const pingen = async () => {
+          let ok = false;
+          try {
+            const res = await fetch(camera.tuyaEndpoint, {
+              cache: "no-store",
+              signal: abbruch.signal,
+            });
+            ok = res.ok;
+            res.body?.cancel().catch(() => {}); // nur der Status zaehlt
+          } catch {
+            ok = false;
+          }
+          if (!aktiv) return;
+          const e = bewertePing(pingFehlschlaegeRef.current, ok);
+          pingFehlschlaegeRef.current = e.fehlschlaege;
+          pingFaelligRef.current = Date.now() + e.warteMs;
+          if (e.zustand) report(e.zustand);
+          timerRef.current = setTimeout(pingen, e.warteMs);
+        };
+        timerRef.current = setTimeout(
+          pingen,
+          wartezeitBisPing(pingFaelligRef.current, Date.now()),
+        );
+        return () => {
+          aktiv = false;
+          abbruch.abort();
+          disposedRef.current = true;
+          clearTimer();
+        };
       }
       return () => {
         disposedRef.current = true;
