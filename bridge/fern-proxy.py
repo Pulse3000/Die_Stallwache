@@ -62,7 +62,7 @@ def ziel_fuer(roh_pfad: str, quelle: str = "stallwache_sd") -> str | None:
         ziel.append(("src", quelle))
     for name in erlaubt:
         if name in angefragt:
-            if not WERT.match(angefragt[name]):
+            if not WERT.fullmatch(angefragt[name]):
                 return None
             ziel.append((name, angefragt[name]))
     return f"/api/{pfad}" + (f"?{urlencode(ziel)}" if ziel else "")

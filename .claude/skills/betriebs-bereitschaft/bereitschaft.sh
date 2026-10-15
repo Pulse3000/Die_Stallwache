@@ -133,7 +133,14 @@ A=$(hole "/api/stallwache/stream")
 if [ "$C" = "401" ]; then
   zeile "Stallwache" "UNKLAR" "Anmeldung noetig (Cookie-Datei mitgeben)"
 elif echo "$A" | grep -q '"url"'; then
-  zeile "Stallwache" "SCHARF" "Stream-URL erhalten (Livebild am Geraet pruefen)"
+  # Server liefert einen Stream — zeigt die App ihn auch? NEXT_PUBLIC_* wird
+  # beim Build eingebacken: Fehlt NEXT_PUBLIC_STALLWACHE_FERN/_TUYA im Build,
+  # bleibt die Kachel beim Platzhalter, obwohl der Endpunkt antwortet.
+  if hole / | sed 's/<!-- -->//g' | grep -q "das Bild der Stallwache kommt"; then
+    zeile "Stallwache" "HALB" "Stream da, App zeigt Platzhalter (NEXT_PUBLIC_STALLWACHE_FERN + Redeploy?)"
+  else
+    zeile "Stallwache" "SCHARF" "Stream-URL erhalten (Livebild am Geraet pruefen)"
+  fi
 elif echo "$A" | grep -q 'nicht konfiguriert'; then
   zeile "Stallwache" "SCHLAEFT" "weder Fernzugriff (STALLWACHE_FERN_*) noch Tuya eingerichtet"
 elif echo "$A" | grep -q 'fehler'; then

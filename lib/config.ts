@@ -106,11 +106,15 @@ const WEIDEWACHE_TUYA = process.env.NEXT_PUBLIC_WEIDEWACHE_TUYA?.trim() !== "0";
  * Aktivieren: NEXT_PUBLIC_STALLWACHE_TUYA=1 (plus TUYA_DEVICE_ID_STALLWACHE
  * serverseitig). Ist zusaetzlich eine Bridge gesetzt, dient sie als Fallback.
  */
+/** Fernzugriff zum Stall-Rechner (lib/fern.ts, Tailscale Funnel) aktiv? */
+export const STALLWACHE_FERN =
+  process.env.NEXT_PUBLIC_STALLWACHE_FERN?.trim() === "1";
+
 const STALLWACHE_TUYA =
   process.env.NEXT_PUBLIC_STALLWACHE_TUYA?.trim() === "1" ||
   // Fernzugriff auf die Tapo ohne Tailscale-App (lib/fern.ts): gleicher
   // Endpoint /api/stallwache/stream, HLS statt WebRTC.
-  process.env.NEXT_PUBLIC_STALLWACHE_FERN?.trim() === "1";
+  STALLWACHE_FERN;
 
 /** Stallwache = Hauptkamera (Default), weitere Kameras als Zweitkameras. */
 export const CAMERAS: readonly CameraConfig[] = [

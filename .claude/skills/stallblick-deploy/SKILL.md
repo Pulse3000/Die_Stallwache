@@ -31,7 +31,7 @@ kaputte Deploys kosten Vertrauen ins „Dritte Auge".
 
 - Produktions-Alias: `stallwache.vercel.app` (alt `die-stallwache.vercel.app` leitet per 307 dorthin um) (Team `stallwache`,
   Projekt `die-stallwache`, `team_7af87ADvim4feu9IPsZoUFq8`).
-- Env-Vars (`EDGE_INGEST_TOKEN`, `NEXT_PUBLIC_GO2RTC_URL`, …) nur der Nutzer
+- Env-Vars (`EDGE_INGEST_TOKEN`, `STALLWACHE_FERN_TOKEN`, …) nur der Nutzer
   im Vercel-Dashboard setzen lassen — Schreibzugriff auf den Secret-Store ist
   in dieser Umgebung gesperrt.
 - Kein Deploy nötig, wenn nur `edge-agent/`, `docs/` oder `.claude/` geändert

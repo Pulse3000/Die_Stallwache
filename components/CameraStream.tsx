@@ -10,6 +10,7 @@ import {
   isConfigured,
   snapshotSupported,
   snapshotUrl,
+  STALLWACHE_FERN,
   webrtcUrl,
 } from "@/lib/config";
 
@@ -104,6 +105,10 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
       if (url) fetch(url, { method: "DELETE" }).catch(() => {});
     };
 
+    // Fehler-Hoerer des nativen HLS (Safari/iOS). Muss wie markLive VOR
+    // teardownLive stehen (TDZ, siehe unten): teardownLive meldet ihn ab.
+    let nativFehler: (() => void) | null = null;
+
     // Muss VOR teardownLive stehen: teardownLive meldet den Listener ab und
     // laeuft schon in den Zweigen „pausiert" und „vorschau" — eine spaeter
     // deklarierte const waere dort noch nicht initialisiert (TDZ ->
@@ -127,6 +132,8 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
       const video = videoRef.current;
       if (video) {
         video.removeEventListener("playing", markLive);
+        if (nativFehler) video.removeEventListener("error", nativFehler);
+        nativFehler = null;
         video.srcObject = null;
         video.removeAttribute("src");
       }
@@ -217,6 +224,16 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
         // "online" erst beim echten "playing"-Event – play() aufgeloest
         // heisst nur "Wiedergabe gestartet", nicht "Bild da".
         video.addEventListener("playing", markLive, { once: true });
+        // hls.js meldet Abbrueche ueber onFatal; nativ kommt nur "error".
+        // Ohne diesen Hoerer bliebe die Kachel nach einem Ausfall (z. B.
+        // Funnel weg) stehen und versuchte es nie erneut.
+        const beiFehler = () => {
+          video.removeEventListener("error", beiFehler);
+          if (nativFehler === beiFehler) nativFehler = null;
+          if (!disposedRef.current) onFatal();
+        };
+        nativFehler = beiFehler;
+        video.addEventListener("error", beiFehler);
         video.play().catch(() => {});
         return;
       }
@@ -486,7 +503,11 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-slate-800 to-slate-950 p-4">
           <p className="max-w-xs text-center text-xs text-white/60">
             {role === "haupt"
-              ? `${camera.name} über Tuya-Cloud – verbinde…`
+              ? `${camera.name} über ${
+                  camera.id === "stallwache" && STALLWACHE_FERN
+                    ? "den Fernzugriff"
+                    : "Tuya-Cloud"
+                } – verbinde…`
               : `${camera.name} · Vorschau`}
           </p>
         </div>

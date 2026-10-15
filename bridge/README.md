@@ -51,6 +51,26 @@ Kachel nach dem ersten Aussetzer des Fernzugriffs für die ganze Sitzung auf
 diese tote Adresse. Ohne die Variable versucht sie den Fernzugriff erneut.
 Begründung: [`docs/fernzugriff-spezifikation.md`](../docs/fernzugriff-spezifikation.md) §2.
 
+## go2rtc-Login (Pflicht)
+
+go2rtc nimmt ohne Login aus dem ganzen Stall-WLAN Befehle an, auch „einfache“
+POST-Anfragen einer beliebigen Webseite, die ein Gerät im WLAN öffnet. Damit
+ließe sich go2rtc beenden oder das Bild an einen fremden Server weiterleiten.
+Fehlendes CORS verhindert nur das Lesen der Antwort. Deshalb in `bridge/.env`:
+
+```bash
+GO2RTC_API_USER=stallwache
+GO2RTC_API_PASS=<openssl rand -hex 16>   # nur Buchstaben/Ziffern
+```
+
+Danach `docker compose up -d`. Der Fernzugriff (`fern-proxy.py`) spricht go2rtc
+über 127.0.0.1 an und braucht keinen Login. Der Edge-Agent braucht ihn für
+seinen Snapshot-Fallback: `stream.fallback_snapshot_url =
+http://BENUTZER:PASSWORT@<ip>:1984/api/frame.jpeg?src=stallwache`. Er schickt
+die Daten als Basic-Auth und schreibt sie nie ins Log. **Nie** `tailscale
+serve`/`funnel` direkt auf Port 1984 setzen: Das käme als 127.0.0.1 an und
+umginge den Login. Begründung: [`docs/fernzugriff-spezifikation.md`](../docs/fernzugriff-spezifikation.md) §1.2.
+
 ## Fernzugriff (Stallwache/Tapo) über Tailscale Funnel
 
 go2rtc ist nur im LAN bzw. Tailnet erreichbar. Für den Zugriff von jedem

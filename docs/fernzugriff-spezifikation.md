@@ -17,7 +17,10 @@ berührt.
    - `bridge/fern-proxy.py` ist das Einzige, was öffentlich erreichbar ist.
    - Er lässt nur das HLS der Stallwache durch (SD-Stream) und verlangt den Header `x-stallwache-token`. Alles andere beantwortet er mit 403 oder 404.
    - Die Webapp reicht das Bild nur hinter dem App-Login weiter (`lib/fern.ts`).
-2. **go2rtc ist nie öffentlich.** Seine API kann Befehle auf dem Stall-Rechner ausführen. Sie bleibt im LAN bzw. Tailnet und bekommt keine CORS-Freigabe (`api.origin`). Mit einer solchen Freigabe könnte jede Webseite, die ein Gerät im Tailnet öffnet, diese API ansprechen.
+2. **go2rtc ist nie öffentlich und hat einen Login.** Seine API kann Befehle auf dem Stall-Rechner ausführen. Sie bleibt im LAN bzw. Tailnet und bekommt keine CORS-Freigabe (`api.origin`).
+   - Fehlendes CORS verhindert nur, dass eine fremde Webseite Antworten **liest**. „Einfache“ POST-Anfragen sendet der Browser trotzdem. Ohne Login könnte also jede Webseite, die ein Gerät im Stall-WLAN oder Tailnet öffnet, go2rtc beenden (`POST /api/exit`) oder das Kamerabild an einen fremden Server weiterleiten (`POST /api/streams?src=…&dst=…`). Belegt im go2rtc-Quelltext, `internal/api/api.go` bzw. `internal/streams/api.go`, und verletzt „Video verlässt den Hof nie“.
+   - Deshalb gilt Login-Pflicht über `GO2RTC_API_USER`/`GO2RTC_API_PASS` in `bridge/.env` (Entscheidung des Betreibers, 15.10.2026). Anfragen vom Stall-Rechner selbst (`fern-proxy.py` über 127.0.0.1) brauchen keinen Login, weil `local_auth` aus ist.
+   - **Nie** `tailscale serve`/`funnel` direkt auf Port 1984 setzen: Solche Anfragen kämen als 127.0.0.1 an und umgingen den Login.
 3. **Kein Cloudflare-Tunnel mehr.** Er wird aus Compose-Dateien, Vorlagen und Anleitungen entfernt. Gründe:
    - Er war ein **zweiter öffentlicher Zugang** zu go2rtc ohne Token-Schutz. Laut Anleitung zeigte der Public Hostname auf `http://localhost:1984`, also auf die komplette go2rtc-API.
    - Seit dem 14.10.2026 lief er auf dem Stall-Rechner in einer Neustart-Schleife (`Restarting (255)`), hat also nichts geleistet.
@@ -33,9 +36,10 @@ berührt.
   - Ist die Variable trotzdem gesetzt, wechselt die Kachel nach dem ersten Fehlschlag des Stream-Endpunkts auf diese tote Bridge und bleibt dort (`components/CameraStream.tsx`, `startTuya`). Das gilt auch für die Tuya-Kameras. Zurückgesetzt wird erst, wenn die Kachel neu aufgebaut wird (Neuladen, Rollenwechsel, Ein-/Ausblenden).
   - Ohne die Variable versucht sie den Fernzugriff erneut (`scheduleReconnect`).
   - **Folge:** `NEXT_PUBLIC_BRIDGE_URL` in Vercel leer lassen. Dadurch fallen die go2rtc-Vorschaubilder weg, die ohnehin nur im Tailnet luden. Der Snapshot-Knopf meldet „Snapshot nicht verfügbar – nur mit Bridge-Direktzugriff“.
-- **Android-App (eigenes Repo):** Sie spielt die Bridge nativ ab, ohne CORS, bekommt das Bild der Stallwache also nur im Tailnet. Einen Passwort-Login hat sie nicht. Bei aktivem `STALLBLICK_PASSWORT` (Voraussetzung für den Fernzugriff) antworten ihr die Webapp-Endpunkte mit 401.
-- **Wartung von go2rtc** (WebUI, Stream-Test) läuft nur im Tailnet: `http://<tailnet-IP>:1984` von einem Gerät mit aktiver Tailscale-App.
-- **MediaMTX-Variante (`bridge/mediamtx/`):** `fern-proxy.py` kennt nur go2rtc-Pfade. Ohne Cloudflare hat MediaMTX daher **keinen** Fernzugriff, sondern nur Zugriff im LAN bzw. Tailnet. Das ist nicht am Gerät erprobt. Der Standard bleibt go2rtc.
+- **Android-App (eigenes Repo):** Sie spielt die Bridge nativ ab, ohne CORS, bekommt das Bild der Stallwache also nur im Tailnet. Mit go2rtc-Login braucht sie dafür die Zugangsdaten; ob sie das kann, ist nicht geprüft. Einen Passwort-Login für die Webapp hat sie nicht. Bei aktivem `STALLBLICK_PASSWORT` (Voraussetzung für den Fernzugriff) antworten ihr die Webapp-Endpunkte mit 401.
+- **Wartung von go2rtc** (WebUI, Stream-Test) läuft nur im LAN/Tailnet und mit Login: `http://<ip>:1984`.
+- **Edge-Agent:** Sein Snapshot-Fallback ruft go2rtc über die LAN-Adresse ab und braucht den Login in `stream.fallback_snapshot_url` (`http://BENUTZER:PASSWORT@<ip>:1984/…`). Der Agent schickt ihn als Basic-Auth und schreibt ihn nie ins Log. Der RTSP-Restream (:8554) ist vom API-Login nicht betroffen.
+- **MediaMTX-Variante (`bridge/mediamtx/`):** `fern-proxy.py` kennt nur go2rtc-Pfade. Ohne Cloudflare hat MediaMTX daher **keinen** Fernzugriff, sondern nur Zugriff im LAN bzw. Tailnet. Das ist nicht am Gerät erprobt. Der Standard bleibt go2rtc. Offen: `hlsAllowOrigin: "*"` erlaubt jeder Webseite im LAN/Tailnet, das Bild zu lesen. Wer MediaMTX einsetzt, muss das vorher einschränken. Auf dem Stall-Rechner läuft MediaMTX nicht.
 
 ## 3. Konfiguration
 
@@ -46,6 +50,16 @@ cd ~/Die_Stallwache/bridge && bash fern-einrichten.sh   # Funnel :8443 nur für 
 ```
 
 Voraussetzung: In der Tailscale-Verwaltung sind für das Gerät **HTTPS-Zertifikate** (DNS) und **Funnel** (Access controls → `nodeAttrs` `funnel`) erlaubt.
+
+**go2rtc-Login (Stall-Rechner, Betreiber):** In `bridge/.env` beide Werte setzen und go2rtc neu starten:
+
+```bash
+GO2RTC_API_USER=stallwache
+GO2RTC_API_PASS=$(openssl rand -hex 16)   # nur Buchstaben/Ziffern
+cd ~/Die_Stallwache/bridge && docker compose up -d   # übernimmt die neuen Werte
+```
+
+Bleiben beide leer, läuft go2rtc ohne Login wie bisher (damit ein `git pull` die Bridge nicht lahmlegt). Danach im Edge-Agenten `stream.fallback_snapshot_url` um `BENUTZER:PASSWORT@` ergänzen und den Agenten neu starten. `edge-agent/setup.sh` fragt den Login bei Neueinrichtung ab.
 
 **Vercel (Production, Betreiber):**
 
@@ -83,7 +97,9 @@ Am realen Gerät (Beweispflicht, Betreiber + Orchestrator):
 4. `docker ps` zeigt keinen `stallwache-tunnel`. `docker compose up -d --remove-orphans` startet nur go2rtc.
 5. Über Mobilfunk ohne Tailscale liefert `https://<gerät>.<tailnet>.ts.net:8443/api/stream.m3u8` die Antwort **403**. Der Funnel arbeitet also, und der Proxy sperrt Anfragen ohne Token.
 6. Eingeloggt liefert `GET /api/stallwache/stream` den Status `200 {"url":…,"typ":"hls"}`, und die Kachel zeigt das Livebild.
-7. Bei abgeschaltetem Funnel zeigt die Kachel den Verbindungs-Hinweis und es gibt keine Seitenfehler. Wird der Funnel wieder eingeschaltet, kommt das Bild ohne Neuladen zurück (mit leerer `NEXT_PUBLIC_BRIDGE_URL`).
+7. Bei abgeschaltetem Funnel zeigt die Kachel den Verbindungs-Hinweis und es gibt keine Seitenfehler. Wird der Funnel wieder eingeschaltet, kommt das Bild ohne Neuladen zurück (mit leerer `NEXT_PUBLIC_BRIDGE_URL`). Das gilt auch für Safari/iOS (natives HLS): Ein Abbruch löst den erneuten Versuch aus.
+8. Mit gesetztem go2rtc-Login beantwortet go2rtc Anfragen aus dem LAN ohne Login mit **401**: `curl -s -o /dev/null -w '%{http_code}' http://<ip>:1984/api/streams`. Mit `-u BENUTZER:PASSWORT` kommt **200**. Der Fernzugriff (Kriterium 5/6) funktioniert unverändert.
+9. Der Edge-Agent bekommt bei gestörtem RTSP über den Snapshot-Fallback weiter Bilder. Im Log erscheint das Passwort nicht.
 
 ## 5. Risiken
 
@@ -91,3 +107,5 @@ Am realen Gerät (Beweispflicht, Betreiber + Orchestrator):
 2. **Funnel ist aktuell gestört (offen).** Seit dem 14.10.2026, 05:57, erreicht keine Anfrage von außen mehr den Proxy. Ein Test von außen bricht beim TLS-Aufbau ab („connection reset“), obwohl `tailscale funnel status` den Funnel als eingeschaltet meldet. Die Ursache wird am Gerät geklärt: Freigaben in der Tailscale-Verwaltung, `tailscaled`-Log.
 3. **Diagnose.** `lib/fern.ts` verwirft die Fehlerursache (DNS, TLS, Reset). Man sieht nur „Stall-Rechner nicht erreichbar“. Eine bessere Meldung ist ein eigener, kleiner Folgeschritt.
 4. **Funnel-Kontingente** (Bandbreite, Ports 443/8443/10000) setzt Tailscale. Für einen SD-HLS-Stream mit einem Zuschauer ist das unkritisch.
+5. **go2rtc-Login nur wirksam, wenn gesetzt.** Bleiben `GO2RTC_API_USER`/`GO2RTC_API_PASS` leer, ist die API ohne Login (§1.2). Der Bereitschafts-Check kann das von außen nicht sehen. Kriterium 8 prüft es am Gerät.
+6. **Status der Vorschau-Kacheln.** Ohne Bridge prüfen Tuya-Vorschaukacheln ihren Stream nicht. Der Kopf zeigt deshalb „0 von 3 Kameras online“, auch wenn die Kameras senden. Gemessen am 15.10. mit echten Bildern aus allen drei Tuya-Streams. Ein eigener Folgeschritt (UI).

@@ -22,5 +22,8 @@ services:
       FUTTER_IP: ${FUTTER_IP:-}
       FUTTER_USER: ${FUTTER_USER:-}
       FUTTER_PASS: ${FUTTER_PASS:-}
+      # Login der go2rtc-Schnittstelle (leer = ohne Login, wie bisher).
+      GO2RTC_API_USER: ${GO2RTC_API_USER:-}
+      GO2RTC_API_PASS: ${GO2RTC_API_PASS:-}
     volumes:
       - ./go2rtc.yaml:/config/go2rtc.yaml:ro
