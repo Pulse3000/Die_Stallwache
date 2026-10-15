@@ -878,6 +878,7 @@ class FeedbackSchleife:
     """
 
     MAX_OFFEN = 20         # nur die juengsten Alarme bleiben abstimmbar (RAM)
+    MAX_ABGESTIMMT = 200   # gemerkte, bereits gezaehlte Feedback-IDs (RAM)
     POLL_INTERVALL_S = 10  # getUpdates-Kurz-Poll
     # Haengt ein Abruf laenger (oder fiel er aus der Warteschlange), wird die
     # Sperre freigegeben — sonst waere das Feedback bis zum Neustart taub.
@@ -898,6 +899,10 @@ class FeedbackSchleife:
         self.ordner = Path(tg.get("fehlalarm_ordner") or "./aufnahmen/fehlalarme")
         self.zaehler: dict[str, int] = {"treffer": 0, "fehlalarm": 0}
         self._offen: dict[str, tuple[str, list[bytes]]] = {}
+        # Feedback-IDs, deren erstes Votum schon gezaehlt ist (geordnet,
+        # aelteste zuerst). Getrennt von _offen: dort fehlt auch, was die
+        # RAM-Grenze verdraengt hat — ein Votum darauf ist echt und zaehlt.
+        self._abgestimmt: dict[str, None] = {}
         # Austreibungs-Episode je Feedback-ID (nur Austreibungs-Alarme).
         self._episode: dict[str, int] = {}
         self._reihenfolge: deque[str] = deque()
@@ -918,6 +923,9 @@ class FeedbackSchleife:
             return None
         fid = str(self._naechste_id)
         self._naechste_id += 1
+        # Nach einem Neustart kann ein Votum auf eine Alt-Nachricht diese ID
+        # schon belegt haben; der neue Alarm beginnt unabgestimmt.
+        self._abgestimmt.pop(fid, None)
         self._offen[fid] = (alarm.typ, [b for b in bilder if b])
         if alarm.episode is not None:
             self._episode[fid] = alarm.episode
@@ -1030,7 +1038,14 @@ class FeedbackSchleife:
             antwort = "Danke!"
             if len(teile) == 3 and teile[0] == "fb" and teile[2] in self.zaehler:
                 fid, urteil = teile[1], teile[2]
-                self.zaehler[urteil] += 1
+                if fid not in self._abgestimmt:
+                    # Nur das erste Votum je Alarm zaehlt — ein Doppel-Tipp
+                    # kommt mit neuer update_id und wuerde den Tagesbericht
+                    # verfaelschen.
+                    self.zaehler[urteil] += 1
+                    self._abgestimmt[fid] = None
+                    if len(self._abgestimmt) > self.MAX_ABGESTIMMT:
+                        del self._abgestimmt[next(iter(self._abgestimmt))]
                 eintrag = self._offen.pop(fid, None)
                 episode = self._episode.pop(fid, None)
                 if urteil == "fehlalarm" and eintrag and self.bei_fehlalarm is not None:

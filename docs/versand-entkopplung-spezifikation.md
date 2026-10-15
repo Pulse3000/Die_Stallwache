@@ -66,6 +66,7 @@ einer ruhigen Nacht also gar nicht.
 | 5 | Plattensicherung der Outbox in einem **eigenen Sicherungs-Thread** (ein Schreiber), bei jeder Änderung, nie durch das Netz aufgehalten. Der Hauptthread schreibt nie die Pufferdatei (bei 200 Einträgen mit Bildern bis zu ~80 MB) |
 | 5a | `dashboard.puffer_max` < 1 wird auf 1 angehoben, mit Warnung. Sonst würde jedes Ereignis schon beim Einreihen verworfen. Jede Verdrängung durch die Obergrenze wird protokolliert |
 | 6 | Feedback-Abruf: höchstens **ein** Abruf gleichzeitig. Der nächste wird erst angestoßen, wenn das Ergebnis des vorigen im Hauptthread verarbeitet ist (kein Doppel-Votum durch denselben Offset). Hängt ein Abruf länger als 120 s oder fällt er aus der Warteschlange, wird die Sperre freigegeben |
+| 6a | Je Feedback-ID zählt nur das **erste** Votum im Tagesbericht. Ein Doppel-Tipp kommt als neues Update an und wird von Regel 6 nicht erfasst; Regel und Grenzen in §7 |
 | 7 | Ein Fehler in einem Auftrag beendet den Worker nie |
 | 8 | Ohne zugeordneten Kanal (Tests, Einzelbetrieb) arbeitet die `FeedbackSchleife` wie bisher synchron |
 
@@ -216,3 +217,127 @@ Schreiben scheiterte. Vor #74 gab es in diesem Fall keine Erfolgsmeldung.
 Weil der Landwirt keine unbewiesene Meldung bekommen soll, ist das
 behoben: Speichern und Antworten sind ein Auftrag (Grundsatz 1,
 Kriterium 24). Am alten Stand schlägt der neue Test fehl.
+
+## 7. Nachtrag: Doppel-Tipp zählt einmal (15.10.2026)
+
+**Befund.** `FeedbackSchleife.verarbeite()` erhöhte `zaehler[urteil]`,
+bevor geprüft wurde, ob zu dieser Feedback-ID schon abgestimmt wurde. Ein
+zweiter Tipp auf ✅/❌ ist möglich, solange die Buttons noch stehen: im
+kurzen Fenster, bevor `_entferne_buttons` sie entfernt hat, oder dauerhaft,
+wenn das Entfernen am Netz scheitert oder der Alarm schon aus `_offen`
+verdrängt war (dann entfernt das Votum die Buttons gar nicht, siehe
+`if eintrag is not None` in `verarbeite()`). Telegram liefert ihn als eigenes
+Update mit neuer `update_id`, Regel 6 (Offset) greift deshalb nicht. Er
+zählte doppelt. Der Zähler geht in den Tagesbericht und damit in die
+Treffer-/Fehlalarm-Quote, die Grundlage fürs Nachtraining ist.
+
+### 7.1 Grundsatz
+
+Je Feedback-ID zählt nur das erste Votum. Das gilt auch für einen Wechsel
+(erst ✅, dann ❌ oder umgekehrt): Das erste Urteil bleibt.
+
+`_offen` taugt nicht als Gedächtnis dafür. Ein Eintrag fehlt dort auch,
+wenn ihn die RAM-Grenze (`MAX_OFFEN = 20`) verdrängt hat. Ein Votum zu
+einem verdrängten Alarm ist echt und zählt. Die `FeedbackSchleife` führt
+deshalb eine eigene, von `_offen` getrennte Menge `_abgestimmt` der
+Feedback-IDs, für die schon ein Votum gezählt wurde.
+
+### 7.2 Grenzen
+
+| # | Regel |
+| --- | --- |
+| 1 | `_abgestimmt` hält höchstens `MAX_ABGESTIMMT = 200` IDs. Bei Überlauf fällt die älteste heraus. Kein RAM-Wachstum im 24/7-Betrieb (wenige zehn KB) |
+| 2 | Eine ID kommt mit dem ersten gezählten Votum hinein, unabhängig davon, ob der Eintrag noch in `_offen` lag |
+| 3 | Der Tagesbericht setzt nur die Zähler zurück, nicht `_abgestimmt`. Ein Doppel-Tipp nach dem Bericht auf einen Alarm von vorher zählt ebenfalls nicht |
+| 4 | Unverändert: alle Antworttexte an den Landwirt (auch beim Doppel-Tipp), Hard-Negative-Speicherung, `bei_fehlalarm`-Rückruf und Entfernen der Buttons nur beim ersten Votum, Schwellen. Keine neuen Schalter |
+| 5 | `_abgestimmt` wird nur im Hauptthread gelesen und geschrieben (wie `zaehler` und `_offen`, Grundsatz 4) |
+| 6 | `registriere()` nimmt die neu vergebene ID aus `_abgestimmt`. Innerhalb eines Laufs ist das wirkungslos (IDs sind eindeutig). Nach einem Neustart verhindert es, dass ein Votum auf eine Alt-Nachricht (ID ≥ aktueller Zähler) später das echte erste Votum des neuen Alarms mit derselben ID verschluckt |
+
+Bewusst nicht abgedeckt:
+
+- Ist eine ID aus `_abgestimmt` verdrängt (mehr als 200 spätere erste
+  Voten), zählt ein erneuter Tipp darauf wieder. Bei 15 min Cooldown je
+  Kuh und Typ sind das Wochen. Für Alarme mit `_offen`-Eintrag sind die
+  Buttons bis dahin entfernt, sofern Telegram einmal erreichbar war. Bei
+  verdrängten Alarmen und Alt-Nachrichten entfernt das Votum die Buttons
+  nie (vorbestehend); dort schützt allein `_abgestimmt`.
+- Wechsel ✅ → ❌: Der zweite Tipp zählt nicht, die Antwort lautet aber
+  weiter „Danke – notiert (Bilder lagen nicht mehr vor).“ (Grenze 4).
+  Vorher stimmte „notiert“, jetzt nicht mehr. Ob der Text angepasst wird,
+  entscheidet der Betreiber.
+- Nach einem Neustart beginnen `_abgestimmt`, `_offen` und die Zähler leer,
+  wie bisher.
+
+### 7.3 Abnahmekriterien
+
+Automatisiert (`edge-agent/tests/test_feedback.py`):
+
+28. Doppel-Tipp ❌ auf dieselbe ID, in zwei Abrufen und im selben Abruf:
+    Der Zähler steigt um eins. Antworttext wie bisher, keine weiteren
+    Bilder, Buttons nur einmal entfernt, `bei_fehlalarm` nur einmal.
+29. Wechsel ✅ → ❌ auf dieselbe ID zählt nur den Treffer.
+30. Votum zu einem durch `MAX_OFFEN` verdrängten Eintrag zählt; ein zweiter
+    Tipp darauf nicht.
+31. Nach `MAX_ABGESTIMMT + 25` Voten enthält `_abgestimmt` genau
+    `MAX_ABGESTIMMT` IDs: die ältesten 25 sind heraus, die übrigen in
+    Einfügereihenfolge drin; die jüngste bleibt gesperrt.
+32. Votum auf eine ID, die erst danach neu vergeben wird (Alt-Nachricht
+    nach Neustart): Das erste Votum des neuen Alarms zählt trotzdem.
+33. Tagesbericht nach Doppel-Tipp: „✅ 0 Treffer · ❌ 1 Fehlalarm“. Ein
+    Doppel-Tipp nach dem Bericht erzeugt keine neue Feedback-Zeile.
+34. Gegenprobe: Am Stand vor dieser Änderung schlagen die Kriterien 28,
+    29, 33 und der zweite Teil von 30 fehl.
+
+Am realen Agenten (Beweispflicht, offen):
+
+35. Zweimal schnell auf ❌ unter einem echten Alarm tippen. Der
+    Tagesbericht zeigt „❌ 1 Fehlalarm“, der Hard-Negative-Ordner enthält
+    die Bildserie einmal.
+
+**Ergebnis (15.10.2026):** Gegenprobe am Stand `ecde966`: 6 Checks rot
+(28 zweimal, 29, 30 zweiter Tipp, 33 zweimal), 31 bricht mangels
+`MAX_ABGESTIMMT` ab. Mutationsprobe am neuen Stand, jede Mutation von
+mindestens einem Check erkannt: ohne Freigabe in `registriere()` (32),
+ohne Obergrenze (31), Doppel-Erkennung über `_offen` statt eigener Menge
+(30, 31, 32), jüngste statt älteste ID verdrängt (31). Alle Edge-Suites
+grün.
+
+**Abnahme `qa-waechter` (Delta `ecde966..49d9657`): FREIGABE.** Gegenprobe
+und Mutationsprobe nachgestellt. Differenzieller Vergleich Basis gegen neu
+mit Zufallsfolgen (synchron und mit Versandkanal, Neustarts, Votes im
+selben Abruf, Unsinns-Daten): HTTP-Aufrufe samt Texten, geschriebene
+Dateien, `bei_fehlalarm`-Rückrufe, `_offen` und `_offset` identisch; nur der
+Zähler weicht ab, exakt nach §7. `_abgestimmt` nur im Hauptthread berührt,
+nie über 200 IDs (16–31 KB). Befunde, alle niedrig oder kosmetisch:
+
+1. Buttons verdrängter Alarme werden nie entfernt (vorbestehend): Befund
+   und „Bewusst nicht abgedeckt“ präzisiert.
+2. Grenze 6 heilt nur den ersten Tipp auf eine Alt-Nachricht: Risiko 1
+   präzisiert.
+3. Antworttext beim Wechsel ✅ → ❌: als Betreiber-Entscheidung unter
+   „Bewusst nicht abgedeckt“ aufgenommen.
+4. Test 31 legte die Verdrängungsreihenfolge nur schwach fest (eine
+   Mutante „lexikografisch kleinste ID raus“ bestand): Test geschärft,
+   prüft jetzt die exakte Menge in Reihenfolge.
+5. Gefälschte `callback_data`: Risiko 2.
+
+### 7.4 Risiken
+
+1. **Kollision der Feedback-IDs nach Neustart (vorbestehend, nicht Teil
+   dieser Änderung).** `_naechste_id` beginnt nach jedem Start bei 0. Ein
+   Tipp auf die noch stehenden Buttons eines Alarms von *vor* dem Neustart
+   trifft die gleichnamige ID eines neuen Alarms: Dessen Bilder würden als
+   Hard Negatives abgelegt, und `bei_fehlalarm` griffe in die falsche
+   Episode. `_abgestimmt` behebt das nicht. Trifft die Alt-Nachricht eine
+   ID, die im neuen Lauf schon vergeben ist, gelten beide Voten als eines
+   (Zähler um eins zu niedrig statt, wie bisher, beide gezählt). Grenze 6
+   heilt nur den ersten Tipp auf eine Alt-Nachricht, solange ihre ID im
+   neuen Lauf noch nicht vergeben ist. Die Buttons der Alt-Nachricht
+   bleiben dabei stehen (kein `_offen`-Eintrag); ein weiterer Tipp nach der
+   Neuvergabe trifft den neuen Alarm wie oben. Abhilfe für die Kollision
+   selbst wäre eine Start-Kennung in `callback_data` (Grenze 64 Byte); das
+   ist ein eigener Schritt.
+2. **Gefälschte `callback_data`** (nur aus dem Chat, mit manipuliertem
+   Client): erhöhen den Zähler wie bisher. Neu ist, dass sie echte IDs aus
+   `_abgestimmt` verdrängen können. Die Menge bleibt dabei auf 200 IDs
+   begrenzt, Telegram begrenzt `callback_data` auf 64 Byte. Unkritisch.
