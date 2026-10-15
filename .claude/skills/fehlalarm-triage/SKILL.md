@@ -27,7 +27,9 @@ Die Buttons sind gebaut (`FeedbackSchleife` in `edge-agent/main.py`,
 `telegram.feedback_buttons`): ✅/❌ unter jedem Alarm, Urteile erscheinen im
 Tagesbericht. Manuelles Sichern ist nur noch der Fallback (z. B. wenn die
 Buttons älterer Alarme abgelaufen sind — nur die letzten 20 bleiben
-abstimmbar).
+abstimmbar, und nach einem Neustart des Agenten keiner der vorherigen).
+Ein abgelaufener Button antwortet „Bilder lagen nicht mehr vor“ und trifft
+nie einen anderen Alarm (`docs/feedback-id-spezifikation.md`).
 
 ## 2. Buchführung (Orchestrator, wöchentlich)
 

@@ -1,0 +1,117 @@
+# Spezifikation: Feedback-IDs über Neustarts eindeutig
+
+Härtung nach der Reifegrad-Regel. Der Fehler steckt seit der
+Ein-Tipp-Feedback-Schleife (#35) im Edge-Agenten und wurde in einer
+adversarialen Prüfung mit Reproduktion bestätigt. Entwurf und Übernahme:
+Orchestrator (15.10.2026). **Status: umgesetzt, Abnahme am realen Agenten
+offen.**
+
+## 0. Befund
+
+`FeedbackSchleife` vergibt die Feedback-ID (`fid`) als reinen Prozesszähler
+ab 0. Der Zähler wird nirgends gesichert. Neustarts sind vorgesehen
+(`Restart=always` in `edge-agent/setup.sh`, dazu Watchdog und Stromausfall).
+Nach jedem Neustart beginnt die Zählung wieder bei 0:
+
+1. **Falsche Hard Negatives.** Alarmnachrichten ohne Votum behalten ihre
+   Buttons. Ein Tipp auf „❌ Fehlalarm“ unter einer *alten* Nachricht
+   (`fb:0:fehlalarm`) trifft den *neuen* Alarm mit `fid` 0. Dessen Bilder
+   landen als Negativbeispiele im Nachtraining, auch wenn der Alarm echt
+   war. `bei_fehlalarm` erhält Typ und Episode des falschen Alarms. Für den
+   Recall ist das unkritisch (`LogicEngine.fehlalarm_gemeldet` erlaubt nur
+   eine frühere Neumeldung und unterdrückt nie), falsch ist es trotzdem.
+   Denselben Weg kann ein Votum nehmen, das Telegram nach dem Neustart
+   erneut zustellt. Der alte Prozess bestätigt den Offset erst beim nächsten
+   Abruf; stirbt er vorher und ist im neuen Prozess schon ein Alarm
+   registriert, trifft das Votum diesen ohne Zutun des Landwirts.
+2. **Überschriebene Bilder.** Die Hard Negatives heißen `{typ}-{fid}-{i}.jpg`
+   im Tagesordner und werden mit `write_bytes` ohne Existenzprüfung
+   geschrieben. Ein Fehlalarm-Votum nach dem Neustart überschreibt die
+   Hard Negatives desselben Tages; bei unterschiedlich langen Serien
+   entstehen gemischte Serien. Mit `dashboard.archiv: false` (Standard)
+   gibt es keine Cloud-Kopie, die Bilder sind verloren.
+
+## 1. Grundsatz
+
+1. **Jede `fid` ist über Neustarts hinweg eindeutig:**
+   `fid = <Start-Token><laufende Nummer>`. Der Start-Token wird je Prozess
+   einmal zufällig gezogen (8 Hex-Zeichen, 32 Bit, Modul `secrets`).
+   Zufall statt Startzeit: Stallrechner ohne RTC-Batterie (Raspberry Pi,
+   ausgemusterter Laptop) starten nach einem Stromausfall mit falscher Uhr,
+   eine zeitbasierte ID könnte sich wiederholen.
+2. **Ein Button aus einem früheren Prozess läuft ins Leere**, genau wie der
+   Button eines abgelaufenen Alarms (älter als die letzten 20): Antwort
+   „Danke – notiert (Bilder lagen nicht mehr vor).“, keine Bilder, kein
+   Aufruf von `bei_fehlalarm`. Der neue Alarm bleibt abstimmbar.
+3. **Hard Negatives werden exklusiv angelegt** (`open(…, "xb")`): Eine
+   vorhandene Datei wird nie überschrieben. Trifft das Schreiben doch auf
+   eine vorhandene Datei, gilt es als gescheitert. Die Antwort meldet das
+   mit dem vorhandenen Text „Bilder konnten NICHT gespeichert werden (Log
+   prüfen)“, und die vorhandene Datei bleibt unverändert. Mit Grundsatz 1
+   ist das praktisch unerreichbar, der Schutz hängt aber nicht am Zufall.
+
+## 2. Grenzen
+
+- **Telegram-Grenze:** `callback_data` höchstens 64 Bytes. `fb:` (3) +
+  Token (8) + Nummer + `:fehlalarm` (10) ergibt 21 Bytes plus die Ziffern
+  der Nummer. Überschritten wäre die Grenze erst bei einer 44-stelligen
+  Nummer.
+- **Zeichensatz:** Die `fid` besteht nur aus Hex-Zeichen und Ziffern. Sie
+  enthält nie `:` (Trenner im `callback_data`) und nie `/` (Dateiname).
+- **Unverändert:** Antworttexte, Zähler im Tagesbericht (ein Votum auf einen
+  alten Button zählt wie bisher bei abgelaufenen Alarmen), Semantik von
+  `bei_fehlalarm`, Austreibungs-Takt, alle Schwellenwerte, `MAX_OFFEN = 20`,
+  Ablage im Tagesordner nach dem Muster `{typ}-{fid}-{i}.jpg`.
+- **Bestehende Dateien bleiben unberührt:** keine Migration, keine
+  Umbenennung. Alte Namen (`kalbeverdacht-0-1.jpg`) und neue
+  (`kalbeverdacht-3f9a0c1e0-1.jpg`) liegen nebeneinander. Kein Code wertet
+  die Dateinamen aus (geprüft: `edge-agent/`, Webapp, Skills).
+- **Nicht Teil dieser Änderung:** Buttons alter Nachrichten bleiben sichtbar.
+  Sie werden wie bisher nur beim ersten gültigen Votum entfernt.
+
+## 3. Konfiguration
+
+Keine neuen Schalter. Fest im Code: Start-Token mit 8 Hex-Zeichen.
+
+## 4. Abnahmekriterien
+
+Automatisiert (`edge-agent/tests/test_feedback.py`):
+
+1. **Neustart:** Eine zweite `FeedbackSchleife` auf demselben Ordner vergibt
+   andere IDs als die erste.
+2. **Alter Button nach dem Neustart** („❌ Fehlalarm“ auf eine alte Nachricht
+   ohne Votum) trifft keinen neuen Eintrag. Es werden keine Bilder
+   geschrieben, `bei_fehlalarm` wird nicht aufgerufen, der neue Alarm
+   bleibt abstimmbar, die Antwort lautet „Bilder lagen nicht mehr vor“.
+3. **Kein Überschreiben:** Ein Fehlalarm-Votum nach dem Neustart lässt die
+   Hard Negatives des Vorgänger-Prozesses vom selben Tag inhaltsgleich
+   stehen, die neuen kommen hinzu.
+4. **Exklusives Anlegen:** Eine vorhandene Datei mit dem Zielnamen bleibt
+   unverändert, es gibt keine Erfolgsmeldung.
+5. `callback_data` ist höchstens 64 Bytes lang, auch nach sehr vielen
+   Alarmen (laufende Nummer 10¹⁵).
+6. **Gegenprobe:** Die Kriterien 1–4 schlagen am alten Stand fehl.
+7. `python3 edge-agent/tests/alle_tests.py` ist grün.
+
+Am realen Agenten (Beweispflicht, offen):
+
+8. Alarm auslösen (Testbild), die Nachricht **nicht** bewerten. Agent neu
+   starten (`sudo systemctl restart stallblick-agent`). Neuen Alarm
+   auslösen. Auf „❌ Fehlalarm“ der **alten** Nachricht tippen: Antwort
+   „Bilder lagen nicht mehr vor“, im Tagesordner
+   (`aufnahmen/fehlalarme/JJJJ-MM-TT/`) keine neue Datei.
+9. Danach „❌ Fehlalarm“ der **neuen** Nachricht: neue Dateien mit anderem
+   Präfix, vorhandene Dateien unverändert (`ls -l --time-style=full-iso`
+   vorher und nachher vergleichen).
+
+## 5. Risiken
+
+1. **Gleicher Start-Token in zwei Prozessen:** Die Wahrscheinlichkeit liegt
+   bei 1 : 2³² je Prozesspaar mit noch offenen Buttons. Selbst dann wird
+   nichts überschrieben (Grundsatz 3); möglich wäre nur ein Fehltreffer
+   eines alten Buttons.
+2. **Erneut zugestellte Voten** (Offset vom alten Prozess nicht mehr
+   bestätigt) zählen im Tagesbericht doppelt. Das gilt wie bisher für jeden
+   Doppel-Tipp auf einen abgelaufenen Alarm; die Zähler-Semantik bleibt
+   bewusst unverändert.
+3. **Längere Dateinamen** (+8 Zeichen): unkritisch.
