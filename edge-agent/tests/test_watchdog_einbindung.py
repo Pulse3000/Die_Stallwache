@@ -123,6 +123,9 @@ def fahre_hauptschleife(frames, analyse: bool, cfg_zusatz=None):
         def bewerte(self, kuehe, objekte):
             return []
 
+        def fehlalarm_gemeldet(self, typ, episode):
+            pass
+
     class Archiv:
         aktiv = False
 

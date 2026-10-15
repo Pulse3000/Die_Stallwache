@@ -16,6 +16,9 @@ Erkennungslogik (siehe config.yaml):
      rollierenden 30-Minuten-Fensters (filtert Koten/Fliegenabwehr).
   2. Austreibung:    Fruchtblase (amniotic_sac) oder Kaelberfuesse (calf_legs)
      mit Konfidenz > 0.8 -> Sofort-Alarm, Zeitfilter wird uebersprungen.
+     Takt je Episode statt Cooldown: Erinnerung alle 15 min, solange
+     sichtbar; Eskalation nach 60 min (docs/austreibung-episoden-
+     spezifikation.md).
   3. Brunstverdacht: Aufsprungverhalten (zwei Kuh-Boxen ueberlappen, eine
      deutlich oberhalb) ueber mehrere Sekunden.
 
@@ -458,6 +461,25 @@ class Alarm:
     nachricht: str
     konfidenz: float | None
     box: tuple[float, float, float, float] | None
+    # True = Takt bestimmt die LogicEngine, der Notifier-Cooldown gilt nicht
+    # (Austreibung, Eskalation).
+    sofort: bool = False
+    # Austreibungs-Episode, zu der die Meldung gehoert (Fehlalarm-Feedback).
+    episode: int | None = None
+
+
+# Austreibungs-Episode endet, wenn ein Bild OHNE Erkennung kommt und die
+# letzte Erkennung laenger als das her ist (Geburt abgeschlossen oder
+# Fehlerkennung vorbei). Nach einem Stream-Ausfall entscheidet also das erste
+# Bild: Zeigt es Blase/Fuesse, laeuft die Episode weiter (ggf. sofort
+# Eskalation), sonst endet sie. Bewusst so belassen — beide moeglichen
+# Fehler gehen in Recall-Richtung (docs/austreibung-episoden-spezifikation.md,
+# Regel 4).
+EPISODE_ENDE_S = 1800
+# Nach einem „Fehlalarm"-Votum meldet die naechste Erkennung sofort neu —
+# aber nur, wenn das Objekt mindestens so lange weg war. Verhindert die
+# Schleife Dauer-Fehlerkennung -> Tipp -> Sofortmeldung -> Tipp ...
+NEUMELDUNG_LUECKE_S = 60
 
 
 @dataclass
@@ -467,10 +489,16 @@ class LogicEngine:
     puffer: dict[int, deque] = field(default_factory=lambda: defaultdict(deque))
     # laufende Aufsprung-Kandidaten: (id_oben, id_unten) -> startzeit
     brunst_paare: dict[tuple[int, int], float] = field(default_factory=dict)
-    # Beginn der Austreibungsphase (erste Fruchtblasen-/Fuesse-Erkennung)
+    # Austreibungs-Episode (docs/austreibung-episoden-spezifikation.md):
+    # Beginn (erste Fruchtblasen-/Fuesse-Erkennung), letzte Erkennung,
+    # letzte Meldung (Beginn/Erinnerung/Eskalation), laufende Nummer.
     austreibung_start: float | None = None
     austreibung_zuletzt: float | None = None
+    austreibung_gemeldet: float | None = None
+    episode_nr: int = 0
     eskaliert: bool = False
+    # Landwirt hat eine Meldung dieser Episode als Fehlalarm markiert.
+    neu_nach_fehlalarm: bool = False
 
     def __post_init__(self):
         lg = self.cfg["logik"]
@@ -480,6 +508,12 @@ class LogicEngine:
         self.override_konf = float(lg["override_konfidenz"])
         self.brunst_dauer = float(lg["brunst_min_dauer_s"])
         self.eskalation_s = float(lg.get("eskalation_minuten", 60)) * 60
+        # Erinnerungstakt der Austreibung; leer = bisheriger Cooldown, damit
+        # sich fuer bestehende Konfigurationen nichts aendert.
+        erinnerung = lg.get("austreibung_erinnerung_minuten") or (
+            (self.cfg.get("telegram") or {}).get("cooldown_minuten", 15)
+        )
+        self.erinnerung_s = max(1.0, float(erinnerung)) * 60
         self.min_stichprobe = 20  # so viele Frames noetig, bevor der Filter urteilt
         # Wach-Modus (kurz vor Kalbetermin): empfindlichere Schwellen nur dann,
         # wenn der Landwirt ihn bewusst scharfschaltet.
@@ -495,51 +529,17 @@ class LogicEngine:
         jetzt = time.time()
         alarme: list[Alarm] = []
 
-        # 1) Harter Override: Fruchtblase / Kaelberfuesse
-        for o in objekte:
-            if o.konfidenz >= self.override_konf:
-                self.austreibung_start = self.austreibung_start or jetzt
-                self.austreibung_zuletzt = jetzt
-                alarme.append(
-                    Alarm(
-                        "austreibung",
-                        None,
-                        f"{'Fruchtblase' if o.klasse == 'amniotic_sac' else 'Kälberfüße'} "
-                        f"erkannt (Konfidenz {o.konfidenz:.0%}) – Austreibungsphase!",
-                        o.konfidenz,
-                        o.box,
-                    )
-                )
-                # Eskalation (Komplikationsverdacht): Austreibung laeuft, aber
-                # nach eskalation_minuten sind immer noch Fruchtblase/Fuesse
-                # sichtbar -> Geburt macht keinen Fortschritt, Kontrolle noetig.
-                if (
-                    not self.eskaliert
-                    and jetzt - self.austreibung_start >= self.eskalation_s
-                ):
-                    self.eskaliert = True
-                    alarme.append(
-                        Alarm(
-                            "austreibung",
-                            "Eskalation",
-                            f"⚠️ KEIN GEBURTSFORTSCHRITT: Austreibungsphase läuft "
-                            f"seit {(jetzt - self.austreibung_start) / 60:.0f} Minuten, "
-                            f"{'Fruchtblase' if o.klasse == 'amniotic_sac' else 'Kälberfüße'} "
-                            "weiterhin sichtbar – bitte sofort kontrollieren!",
-                            o.konfidenz,
-                            o.box,
-                        )
-                    )
-
-        # Austreibungs-Episode beenden, wenn 30 min keine Erkennung mehr kam
-        # (Geburt abgeschlossen) -> naechste Kalbung startet frisch.
-        if (
+        # 1) Harter Override: Fruchtblase / Kaelberfuesse. Den Takt bestimmt
+        # allein die Episode, nicht der Notifier-Cooldown.
+        treffer = [o for o in objekte if o.konfidenz >= self.override_konf]
+        if treffer:
+            # Blase und Fuesse im selben Bild = eine Meldung.
+            alarme.extend(self._austreibung(max(treffer, key=lambda o: o.konfidenz), jetzt))
+        elif (
             self.austreibung_zuletzt is not None
-            and jetzt - self.austreibung_zuletzt > 1800
+            and jetzt - self.austreibung_zuletzt > EPISODE_ENDE_S
         ):
-            self.austreibung_start = None
-            self.austreibung_zuletzt = None
-            self.eskaliert = False
+            self._beende_episode()
 
         # 2) Statistischer Zeitfilter pro Kuh (Schwanzwinkel)
         for kuh in kuehe:
@@ -568,6 +568,80 @@ class LogicEngine:
         # 3) Brunst: Aufsprung = zwei Boxen ueberlappen, eine deutlich oberhalb
         alarme.extend(self._brunst(kuehe, jetzt))
         return alarme
+
+    def _austreibung(self, o: ObjektErkennung, jetzt: float) -> list[Alarm]:
+        """Austreibungs-Takt: Sofort-Meldung bei Episodenbeginn, Erinnerung
+        im Takt, Eskalation einmal pro Episode, Neumeldung nach Fehlalarm."""
+        objekt = "Fruchtblase" if o.klasse == "amniotic_sac" else "Kälberfüße"
+        letzte_erkennung = self.austreibung_zuletzt
+        self.austreibung_zuletzt = jetzt
+
+        def meldung(kuh_id: str | None, text: str) -> Alarm:
+            self.austreibung_gemeldet = jetzt
+            return Alarm(
+                "austreibung", kuh_id, text, o.konfidenz, o.box,
+                sofort=True, episode=self.episode_nr,
+            )
+
+        if letzte_erkennung is None:
+            self.episode_nr += 1
+            self.austreibung_start = jetzt
+            self.eskaliert = False
+            self.neu_nach_fehlalarm = False
+            return [meldung(None, f"{objekt} erkannt (Konfidenz {o.konfidenz:.0%}) – Austreibungsphase!")]
+
+        # Eskalation (Komplikationsverdacht): Austreibung laeuft, aber nach
+        # eskalation_minuten sind immer noch Fruchtblase/Fuesse sichtbar ->
+        # Geburt macht keinen Fortschritt, Kontrolle noetig. Ersetzt im selben
+        # Bild die Erinnerung. Ein Fehlalarm-Votum verschiebt sie nie.
+        dauer_s = jetzt - self.austreibung_start
+        if not self.eskaliert and dauer_s >= self.eskalation_s:
+            self.eskaliert = True
+            return [meldung(
+                "Eskalation",
+                f"⚠️ KEIN GEBURTSFORTSCHRITT: Austreibungsphase läuft "
+                f"seit {dauer_s / 60:.0f} Minuten, {objekt} "
+                "weiterhin sichtbar – bitte sofort kontrollieren!",
+            )]
+
+        if self.neu_nach_fehlalarm and jetzt - letzte_erkennung >= NEUMELDUNG_LUECKE_S:
+            self.neu_nach_fehlalarm = False
+            return [meldung(
+                None,
+                f"{objekt} erneut erkannt (Konfidenz {o.konfidenz:.0%}) – die vorige "
+                "Meldung wurde als Fehlalarm markiert, bitte prüfen!",
+            )]
+
+        if jetzt - self.austreibung_gemeldet >= self.erinnerung_s:
+            return [meldung(
+                None,
+                f"Austreibung läuft weiter seit {dauer_s / 60:.0f} min – {objekt} "
+                f"weiterhin sichtbar (Konfidenz {o.konfidenz:.0%}).",
+            )]
+        return []
+
+    def _beende_episode(self) -> None:
+        self.austreibung_start = None
+        self.austreibung_zuletzt = None
+        self.austreibung_gemeldet = None
+        self.eskaliert = False
+        self.neu_nach_fehlalarm = False
+
+    def fehlalarm_gemeldet(self, typ: str, episode: int | None) -> None:
+        """Rueckmeldung „❌ Fehlalarm" aus der Feedback-Schleife. Betrifft nur
+        eine Meldung der LAUFENDEN Austreibungs-Episode: Die naechste
+        Erkennung nach einer Pause meldet dann sofort neu (Fall: echte
+        Austreibung kurz nach einem Fehlalarm). Erinnerung und Eskalation
+        laufen unveraendert weiter — ein versehentlicher Tipp macht nie
+        stiller als ohne Feedback."""
+        if (
+            typ == "austreibung"
+            and episode is not None
+            and episode == self.episode_nr
+            and self.austreibung_zuletzt is not None
+        ):
+            self.neu_nach_fehlalarm = True
+            log.info("Austreibungs-Episode %d als Fehlalarm markiert", episode)
 
     def _brunst(self, kuehe: list[KuhBeobachtung], jetzt: float) -> list[Alarm]:
         alarme: list[Alarm] = []
@@ -704,6 +778,94 @@ class DatensatzArchiv:
 # Alarmierung: Telegram + Stallblick-Dashboard (Vercel)
 # --------------------------------------------------------------------------
 
+class Versandkanal:
+    """Ein Versand-Thread mit begrenzter Warteschlange (Spezifikation
+    docs/versand-entkopplung-spezifikation.md).
+
+    Die Analyseschleife darf nie auf das Netz warten: Ein haengender POST
+    (WLAN verschluckt Pakete, Timeout laeuft voll aus) hielt sonst pro Alarm
+    bis zu 80 s die Bildauswertung an. Auftraege werden hier nur eingereiht;
+    der Thread arbeitet sie in Reihenfolge ab. Laeuft die Warteschlange
+    ueber, faellt zuerst der aelteste NICHT dringende Auftrag heraus — eine
+    Austreibung (prio=True) wird nie zugunsten von Routine verdraengt. Ein
+    Fehler in einem Auftrag beendet den Thread nie.
+    """
+
+    def __init__(self, name: str, max_auftraege: int):
+        self.name = name
+        self.max_auftraege = max(1, int(max_auftraege))
+        self.verworfen = 0
+        self._auftraege: deque[tuple] = deque()  # (prio, fn, args, kwargs)
+        self._offen = 0  # eingereiht + laufend
+        self._cv = threading.Condition()
+        threading.Thread(
+            target=self._arbeite, name=f"versand-{name}", daemon=True
+        ).start()
+
+    def auftrag(self, fn, *args, prio: bool = False, **kwargs) -> None:
+        """Reiht einen Auftrag ein. Kehrt sofort zurueck, wirft nie.
+
+        Dringende Auftraege (prio=True) ueberholen wartende Routine-Auftraege
+        (untereinander bleibt die Reihenfolge). Bei Ueberlauf faellt der
+        aelteste Routine-Auftrag heraus; warten nur dringende, wird ein neuer
+        Routine-Auftrag selbst verworfen — ein dringender nie fuer Routine."""
+        with self._cv:
+            if len(self._auftraege) >= self.max_auftraege:
+                opfer = next(
+                    (i for i, a in enumerate(self._auftraege) if not a[0]), None
+                )
+                self.verworfen += 1
+                if opfer is None and not prio:
+                    log.warning(
+                        "Versand %s ueberlastet – neuer Routine-Auftrag verworfen (%d)",
+                        self.name,
+                        self.verworfen,
+                    )
+                    return
+                if opfer is None:
+                    opfer = 0  # nur dringende: der aelteste dringende weicht
+                war_dringend = self._auftraege[opfer][0]
+                del self._auftraege[opfer]
+                self._offen -= 1
+                log.warning(
+                    "Versand %s ueberlastet – aeltester %sAuftrag verworfen (%d)",
+                    self.name,
+                    "DRINGENDER " if war_dringend else "",
+                    self.verworfen,
+                )
+            eintrag = (prio, fn, args, kwargs)
+            if prio:
+                vor = next(
+                    (i for i, a in enumerate(self._auftraege) if not a[0]),
+                    len(self._auftraege),
+                )
+                self._auftraege.insert(vor, eintrag)
+            else:
+                self._auftraege.append(eintrag)
+            self._offen += 1
+            self._cv.notify_all()
+
+    def _arbeite(self) -> None:
+        while True:
+            with self._cv:
+                while not self._auftraege:
+                    self._cv.wait()
+                _, fn, args, kwargs = self._auftraege.popleft()
+            try:
+                fn(*args, **kwargs)
+            except Exception:  # noqa: BLE001 – der Worker darf nie sterben
+                log.exception("Versand %s: Auftrag fehlgeschlagen", self.name)
+            finally:
+                with self._cv:
+                    self._offen -= 1
+                    self._cv.notify_all()
+
+    def warte(self, timeout: float = 5.0) -> bool:
+        """Wartet, bis alle Auftraege erledigt sind (Tests, Diagnose)."""
+        with self._cv:
+            return self._cv.wait_for(lambda: self._offen == 0, timeout)
+
+
 class FeedbackSchleife:
     """Ein-Tipp-Feedback: Inline-Buttons „Treffer/Fehlalarm" unter jedem Alarm.
 
@@ -716,9 +878,17 @@ class FeedbackSchleife:
     """
 
     MAX_OFFEN = 20         # nur die juengsten Alarme bleiben abstimmbar (RAM)
-    POLL_INTERVALL_S = 10  # getUpdates-Kurz-Poll; blockiert die 1-FPS-Schleife nicht
+    POLL_INTERVALL_S = 10  # getUpdates-Kurz-Poll
+    # Haengt ein Abruf laenger (oder fiel er aus der Warteschlange), wird die
+    # Sperre freigegeben — sonst waere das Feedback bis zum Neustart taub.
+    ABRUF_SPERRE_MAX_S = 120
 
-    def __init__(self, cfg: dict):
+    def __init__(self, cfg: dict, kanal: Versandkanal | None = None):
+        # Mit Kanal laufen Abruf und Antworten im Versand-Thread; ohne Kanal
+        # (Tests, Einzelbetrieb) synchron wie bisher.
+        self._kanal = kanal
+        self._eingang: queue.Queue = queue.Queue()
+        self._abruf_seit: float | None = None
         tg = cfg.get("telegram") or {}
         self.token = (tg.get("token") or "").strip()
         self.chat = str(tg.get("chat_id") or "").strip()
@@ -728,6 +898,8 @@ class FeedbackSchleife:
         self.ordner = Path(tg.get("fehlalarm_ordner") or "./aufnahmen/fehlalarme")
         self.zaehler: dict[str, int] = {"treffer": 0, "fehlalarm": 0}
         self._offen: dict[str, tuple[str, list[bytes]]] = {}
+        # Austreibungs-Episode je Feedback-ID (nur Austreibungs-Alarme).
+        self._episode: dict[str, int] = {}
         self._reihenfolge: deque[str] = deque()
         self._naechste_id = 0
         self._offset = 0
@@ -735,6 +907,9 @@ class FeedbackSchleife:
         # Wird von main() gesetzt, sobald das Archiv steht. Bewusst optional:
         # Ohne Archiv laeuft die Feedback-Schleife unveraendert weiter.
         self.archiv: DatensatzArchiv | None = None
+        # Von main() gesetzt: (typ, episode) eines als Fehlalarm markierten
+        # Alarms an die LogicEngine (Austreibungs-Takt).
+        self.bei_fehlalarm = None
 
     def registriere(self, alarm: Alarm, bilder: list[bytes]) -> dict | None:
         """Merkt die (unannotierten) Alarm-Bilder fuer spaeteres Feedback und
@@ -744,9 +919,13 @@ class FeedbackSchleife:
         fid = str(self._naechste_id)
         self._naechste_id += 1
         self._offen[fid] = (alarm.typ, [b for b in bilder if b])
+        if alarm.episode is not None:
+            self._episode[fid] = alarm.episode
         self._reihenfolge.append(fid)
         while len(self._reihenfolge) > self.MAX_OFFEN:
-            self._offen.pop(self._reihenfolge.popleft(), None)
+            alt = self._reihenfolge.popleft()
+            self._offen.pop(alt, None)
+            self._episode.pop(alt, None)
         return {
             "inline_keyboard": [[
                 {"text": "✅ Treffer", "callback_data": f"fb:{fid}:treffer"},
@@ -758,10 +937,18 @@ class FeedbackSchleife:
         """Pro Hauptschleifen-Iteration aufrufen: holt alle POLL_INTERVALL_S
         die Button-Antworten ab (Kurz-Poll ohne Warten). Der Bot darf dafuer
         keinen Telegram-Webhook nutzen (getUpdates und Webhook schliessen
-        sich aus)."""
+        sich aus).
+
+        Mit Kanal blockiert tick() nie: Der Abruf laeuft im Versand-Thread,
+        VERARBEITET wird hier im Hauptthread (bei_fehlalarm greift in die
+        LogicEngine). Hoechstens ein Abruf gleichzeitig — der naechste erst,
+        wenn das Ergebnis des vorigen verarbeitet ist."""
         if not self.aktiv:
             return
         t = time.time() if jetzt is None else jetzt
+        if self._kanal is not None:
+            self._tick_entkoppelt(t)
+            return
         if t - self._letzter_poll < self.POLL_INTERVALL_S:
             return
         self._letzter_poll = t
@@ -780,9 +967,62 @@ class FeedbackSchleife:
         except requests.RequestException as e:
             log.warning("Feedback-Abruf fehlgeschlagen: %s", e)
 
+    def _tick_entkoppelt(self, t: float) -> None:
+        while True:
+            try:
+                updates = self._eingang.get_nowait()
+            except queue.Empty:
+                break
+            self._abruf_seit = None
+            self.verarbeite(updates)
+        if self._abruf_seit is not None:
+            if t - self._abruf_seit < self.ABRUF_SPERRE_MAX_S:
+                return
+            log.warning("Feedback-Abruf haengt – Sperre freigegeben")
+            self._abruf_seit = None
+        if t - self._letzter_poll < self.POLL_INTERVALL_S:
+            return
+        self._letzter_poll = t
+        self._abruf_seit = t
+        self._kanal.auftrag(self._abrufen, self._offset)
+
+    def _abrufen(self, offset: int) -> None:
+        """Laeuft im Versand-Thread. Legt IMMER ein Ergebnis ab (notfalls
+        leer), damit die Sperre im Hauptthread wieder frei wird."""
+        ergebnis: list[dict] = []
+        try:
+            r = requests.get(
+                f"https://api.telegram.org/bot{self.token}/getUpdates",
+                params={
+                    "offset": offset,
+                    "timeout": 0,
+                    "allowed_updates": '["callback_query"]',
+                },
+                timeout=10,
+            )
+            r.raise_for_status()
+            ergebnis = r.json().get("result") or []
+        except requests.RequestException as e:
+            log.warning("Feedback-Abruf fehlgeschlagen: %s", e)
+        except Exception:  # noqa: BLE001
+            log.exception("Feedback-Abruf: unerwarteter Fehler")
+        finally:
+            self._eingang.put(ergebnis)
+
+    def _netz(self, fn, *args) -> None:
+        """Netz- oder Plattenaufruf ueber den Kanal (nicht blockierend) oder
+        direkt (ohne Kanal, wie bisher)."""
+        if self._kanal is not None:
+            self._kanal.auftrag(fn, *args)
+        else:
+            fn(*args)
+
     def verarbeite(self, updates: list[dict]) -> None:
         for u in updates:
-            self._offset = max(self._offset, int(u.get("update_id", 0)) + 1)
+            update_id = int(u.get("update_id", 0))
+            if update_id < self._offset:
+                continue  # schon verarbeitet (z. B. Abruf nach Sperren-Freigabe)
+            self._offset = update_id + 1
             cq = u.get("callback_query")
             if not cq:
                 continue
@@ -792,15 +1032,39 @@ class FeedbackSchleife:
                 fid, urteil = teile[1], teile[2]
                 self.zaehler[urteil] += 1
                 eintrag = self._offen.pop(fid, None)
+                episode = self._episode.pop(fid, None)
+                if urteil == "fehlalarm" and eintrag and self.bei_fehlalarm is not None:
+                    try:
+                        self.bei_fehlalarm(eintrag[0], episode)
+                    except Exception:  # noqa: BLE001 – Feedback laeuft weiter
+                        log.exception("Fehlalarm-Rueckmeldung an die Logik gescheitert")
+                if eintrag is not None:
+                    # Nur beim ersten Votum — ein Doppel-Tipp erzeugt keine
+                    # weiteren Telegram-Auftraege.
+                    self._netz(self._entferne_buttons, cq)
                 if urteil == "fehlalarm":
-                    anzahl = self._speichere(fid, eintrag)
-                    antwort = (
-                        f"Danke – {anzahl} Bild(er) fürs Nachtraining gespeichert."
-                        if anzahl
-                        else "Danke – notiert (Bilder lagen nicht mehr vor)."
-                    )
-                self._entferne_buttons(cq)
-            self._antworte(cq, antwort)
+                    # Schreiben im Hintergrund — die Platte (SD-Karte) darf die
+                    # Analyse so wenig aufhalten wie das Netz. Geantwortet wird
+                    # erst danach und nur mit dem, was wirklich auf der Platte ist.
+                    self._netz(self._speichere_und_antworte, cq, fid, eintrag)
+                    continue
+            self._netz(self._antworte, cq, antwort)
+
+    def _speichere_und_antworte(
+        self, cq: dict, fid: str, eintrag: tuple[str, list[bytes]] | None
+    ) -> None:
+        try:
+            anzahl = self._speichere(fid, eintrag)
+        except Exception:  # noqa: BLE001 – volle/defekte Platte stoppt nichts
+            log.exception("Fehlalarm-Bilder konnten nicht gespeichert werden")
+            text = "Danke – notiert. Bilder konnten NICHT gespeichert werden (Log prüfen)."
+        else:
+            text = (
+                f"Danke – {anzahl} Bild(er) fürs Nachtraining gespeichert."
+                if anzahl
+                else "Danke – notiert (Bilder lagen nicht mehr vor)."
+            )
+        self._antworte(cq, text)
 
     def _speichere(self, fid: str, eintrag: tuple[str, list[bytes]] | None) -> int:
         if not eintrag:
@@ -848,7 +1112,27 @@ class FeedbackSchleife:
 
 
 class Notifier:
-    """Versendet Alarme; Cooldown pro (Kuh, Typ) verhindert Spam."""
+    """Versendet Alarme; Cooldown pro (Kuh, Typ) verhindert Spam bei Kalbe-
+    und Brunstverdacht. Austreibung/Eskalation (``alarm.sofort``) takten in
+    der LogicEngine und gehen immer raus.
+
+    Kein Netzzugriff im Hauptthread: Telegram und Dashboard haben je einen
+    eigenen Versand-Thread (docs/versand-entkopplung-spezifikation.md).
+    Ein haengendes Telegram haelt die App-Meldung (und damit den Push) nicht
+    auf, und umgekehrt."""
+
+    TELEGRAM_WARTESCHLANGE_MAX = 50
+    # Steht etwas im Offline-Puffer, wird erneut gesendet — auch ohne neuen
+    # Alarm (vorher erst mit dem naechsten Alarm, in einer ruhigen Nacht also
+    # gar nicht). Nach Fehlschlaegen verdoppelt sich der Abstand bis
+    # NACHLIEFER_MAX_S; ein neues Ereignis loest immer sofort einen Versuch aus.
+    NACHLIEFER_INTERVALL_S = 60
+    NACHLIEFER_MAX_S = 900
+    # Server-Grenzen: /api/events nimmt hoechstens 100 Ereignisse je Stapel,
+    # Vercel hoechstens 4,5 MB je Anfrage. Mit Abstand darunter bleiben —
+    # ein zu grosser Rueckstau blockierte sonst App und Push dauerhaft.
+    MAX_STAPEL = 50
+    MAX_STAPEL_BYTES = 3_000_000
 
     def __init__(self, cfg: dict):
         tg = cfg.get("telegram") or {}
@@ -871,12 +1155,47 @@ class Notifier:
         # Offline-Puffer: was nicht rausging, wird beim naechsten Kontakt
         # nachgeliefert. Begrenzt, damit eine lange Stoerung den Speicher
         # nicht sprengt.
-        self._puffer: deque[dict] = deque(maxlen=int(db.get("puffer_max", 200)))
+        puffer_max = int(db.get("puffer_max", 200))
+        if puffer_max < 1:
+            # 0 haette jedes Ereignis schon beim Einreihen verworfen — App und
+            # Push waeren still, ohne dass es jemand merkt.
+            log.warning(
+                "dashboard.puffer_max=%d ist zu klein – verwende 1", puffer_max
+            )
+            puffer_max = 1
+        self._puffer: deque[dict] = deque(maxlen=puffer_max)
+        # Outbox: Der Hauptthread haengt nur an (unter Lock). Der Dashboard-
+        # Thread sendet und entfernt; ein eigener Sicherungs-Thread schreibt
+        # die Pufferdatei (genau ein Schreiber, nie durch das Netz
+        # aufgehalten). _version zaehlt jede Aenderung, damit die Datei nur bei
+        # Bedarf neu geschrieben wird (bis ~80 MB bei vollem Puffer).
+        self._puffer_lock = threading.Lock()
+        self._puffer_version = 0
+        self._puffer_gesichert = 0
+        self._db_fehler_in_folge = 0
+        self._db_letzter_fehler = ""
         self._puffer_laden()
 
         self.kamera = cfg["stream"].get("kamera", "stallwache")
         self._zuletzt: dict[tuple[str | None, str], float] = {}
-        self.feedback = FeedbackSchleife(cfg)
+        # Alarme und Feedback getrennt: Button-Antworten koennen Alarme in der
+        # Warteschlange nie verdraengen.
+        self._tg = Versandkanal("telegram", self.TELEGRAM_WARTESCHLANGE_MAX)
+        self._tg_feedback = Versandkanal("telegram-feedback", 50)
+        self._outbox_signal: queue.Queue = queue.Queue()
+        self._sicherung_signal = threading.Event()
+        if self.db_url and self.db_token:
+            threading.Thread(
+                target=self._sicherung_arbeite, name="puffer-sicherung", daemon=True
+            ).start()
+            threading.Thread(
+                target=self._outbox_arbeite, name="versand-dashboard", daemon=True
+            ).start()
+            if self._puffer:
+                # Puffer aus dem vorigen Lauf sofort nachliefern, nicht erst
+                # nach NACHLIEFER_INTERVALL_S.
+                self._outbox_signal.put(None)
+        self.feedback = FeedbackSchleife(cfg, kanal=self._tg_feedback)
 
         # Optionaler MQTT-Zusatzausgang (Home Assistant & Co.); Ausfall darf
         # den Alarmweg nie beeintraechtigen.
@@ -911,7 +1230,7 @@ class Notifier:
         die Bildserie – macht Fehlalarme am Handy sofort erkennbar."""
         schluessel = (alarm.kuh_id, alarm.typ)
         jetzt = time.time()
-        if jetzt - self._zuletzt.get(schluessel, 0) < self.cooldown_s:
+        if not alarm.sofort and jetzt - self._zuletzt.get(schluessel, 0) < self.cooldown_s:
             return
         self._zuletzt[schluessel] = jetzt
         self._zaehler[alarm.typ] += 1
@@ -935,7 +1254,8 @@ class Notifier:
                 roh.append(jpg.tobytes())
         markup = self.feedback.registriere(alarm, roh)
 
-        self._telegram(alarm, bild, serie, markup)
+        # Nur einreihen — gesendet wird in den Versand-Threads.
+        self._tg.auftrag(self._telegram, alarm, bild, serie, markup, prio=alarm.sofort)
         self._dashboard(alarm, self._dashboard_bilder(serie, bild))
         self._mqtt(alarm)
 
@@ -952,7 +1272,7 @@ class Notifier:
         Cooldown: der TotmannWaechter stellt Einmaligkeit pro Episode sicher."""
         log.warning(nachricht)
         meldung = Alarm("info", None, nachricht, None, None)
-        self._telegram(meldung, None)
+        self._tg.auftrag(self._telegram, meldung, None, prio=True)
         self._dashboard(meldung)
         self._mqtt(meldung)
 
@@ -978,6 +1298,9 @@ class Notifier:
             text += f"\nFeedback: ✅ {fb['treffer']} Treffer · ❌ {fb['fehlalarm']} Fehlalarm"
             fb["treffer"] = fb["fehlalarm"] = 0
         self._zaehler.clear()
+        self._tg.auftrag(self._digest_senden, text)
+
+    def _digest_senden(self, text: str) -> None:
         try:
             requests.post(
                 f"https://api.telegram.org/bot{self.tg_token}/sendMessage",
@@ -986,6 +1309,22 @@ class Notifier:
             ).raise_for_status()
         except requests.RequestException as e:
             log.error("Digest-Versand fehlgeschlagen: %s", e)
+
+    def warte(self, timeout: float = 5.0) -> bool:
+        """Wartet, bis Telegram- und Dashboard-Versand nichts mehr offen
+        haben und die Outbox gesichert ist (Tests, Diagnose). Die Analyse ruft
+        das nie auf."""
+        ende = time.monotonic() + timeout
+        ok = self._tg.warte(timeout) and self._tg_feedback.warte(
+            max(0.0, ende - time.monotonic())
+        )
+        while self._outbox_signal.unfinished_tasks or (
+            self.db_url and self.db_token and self._puffer_gesichert != self._puffer_version
+        ):
+            if time.monotonic() > ende:
+                return False
+            time.sleep(0.01)
+        return ok
 
     @staticmethod
     def _annotiere(frame: np.ndarray, alarm: Alarm) -> bytes:
@@ -1121,12 +1460,14 @@ class Notifier:
         return bilder[-self.db_bilder :]
 
     # ------------------------------------------------------------------
-    # Dashboard-Meldung mit Offline-Puffer
+    # Dashboard-Meldung mit Offline-Puffer (Outbox)
     #
     # Der Stall ist der Ort mit dem schlechtesten Empfang des Betriebs. Faellt
-    # die Leitung aus, darf ein Kalbealarm nicht einfach verschwinden: er
-    # wandert in einen Puffer auf der Platte und geht beim naechsten Kontakt
-    # als Stapel raus (POST /api/events mit {"ereignisse": [...]}).
+    # die Leitung aus, darf ein Kalbealarm nicht einfach verschwinden: Jedes
+    # Ereignis kommt zuerst in die Outbox, der Dashboard-Thread sichert sie
+    # auf die Platte und sendet alles Ausstehende als Stapel
+    # (POST /api/events mit {"ereignisse": [...]}) — beim naechsten Ereignis
+    # und spaetestens alle NACHLIEFER_INTERVALL_S.
     # ------------------------------------------------------------------
 
     def _puffer_laden(self) -> None:
@@ -1143,18 +1484,22 @@ class Notifier:
             log.error("Offline-Puffer nicht lesbar (wird verworfen): %s", e)
             self._puffer.clear()
 
-    def _puffer_sichern(self) -> None:
-        """Schreibt den Puffer atomar zurueck (erst temporaer, dann ersetzen)."""
+    def _puffer_sichern(self, eintraege: list[dict], version: int) -> None:
+        """Schreibt den Puffer atomar zurueck (erst temporaer, dann ersetzen).
+        Nur aus dem Sicherungs-Thread aufrufen (ein Schreiber)."""
+        if version == self._puffer_gesichert:
+            return
         try:
-            if not self._puffer:
+            if not eintraege:
                 self._puffer_datei.unlink(missing_ok=True)
-                return
-            tmp = self._puffer_datei.with_suffix(".tmp")
-            tmp.write_text(
-                "\n".join(json.dumps(e, ensure_ascii=False) for e in self._puffer),
-                "utf-8",
-            )
-            tmp.replace(self._puffer_datei)
+            else:
+                tmp = self._puffer_datei.with_suffix(".tmp")
+                tmp.write_text(
+                    "\n".join(json.dumps(e, ensure_ascii=False) for e in eintraege),
+                    "utf-8",
+                )
+                tmp.replace(self._puffer_datei)
+            self._puffer_gesichert = version
         except OSError as e:
             log.error("Offline-Puffer nicht schreibbar: %s", e)
 
@@ -1185,29 +1530,212 @@ class Notifier:
                 base64.b64encode(b).decode("ascii") for b in bilder[-self.db_bilder :]
             ]
 
-        # Alles, was noch aussteht, geht in derselben Verbindung mit raus.
-        stapel = list(self._puffer) + [ereignis]
+        # In die Outbox; senden und entfernen macht der Dashboard-Thread,
+        # sichern der Sicherungs-Thread. Der Hauptthread fasst weder Netz noch
+        # Pufferdatei an.
+        verdraengt = None
+        with self._puffer_lock:
+            if len(self._puffer) == self._puffer.maxlen:
+                verdraengt = self._puffer[0]
+            self._puffer.append(ereignis)
+            self._puffer_version += 1
+        if verdraengt is not None:
+            log.warning(
+                "Offline-Puffer voll – aeltestes Ereignis verworfen: %s %s",
+                verdraengt.get("typ"),
+                verdraengt.get("zeit"),
+            )
+        self._sicherung_signal.set()
+        self._outbox_signal.put(None)
+
+    def _sicherung_arbeite(self) -> None:
+        """Sicherungs-Thread: schreibt die Outbox bei jeder Aenderung auf die
+        Platte. Eigener Thread, damit ein haengender POST die Sicherung eines
+        neuen Alarms nie aufhaelt."""
+        while True:
+            self._sicherung_signal.wait()
+            self._sicherung_signal.clear()
+            try:
+                with self._puffer_lock:
+                    eintraege = list(self._puffer)
+                    version = self._puffer_version
+                self._puffer_sichern(eintraege, version)
+            except Exception:  # noqa: BLE001 – der Worker darf nie sterben
+                log.exception("Puffer-Sicherung: unerwarteter Fehler")
+
+    def _wartezeit(self) -> float:
+        """Abstand bis zum naechsten Nachlieferungsversuch: 60 s, nach
+        Fehlschlaegen verdoppelt bis NACHLIEFER_MAX_S."""
+        stufe = max(0, self._db_fehler_in_folge - 1)
+        return min(
+            float(self.NACHLIEFER_MAX_S),
+            self.NACHLIEFER_INTERVALL_S * (2 ** min(stufe, 16)),
+        )
+
+    def _outbox_arbeite(self) -> None:
+        """Dashboard-Thread: sendet bei jedem neuen Ereignis und — solange
+        etwas aussteht — im Nachlieferungstakt."""
+        while True:
+            try:
+                self._outbox_signal.get(timeout=self._wartezeit())
+                signal = True
+            except queue.Empty:
+                signal = False
+            try:
+                self._nachliefern()
+            except Exception:  # noqa: BLE001 – der Worker darf nie sterben
+                log.exception("Dashboard-Versand: unerwarteter Fehler")
+            finally:
+                if signal:
+                    self._outbox_signal.task_done()
+
+    @staticmethod
+    def _ist_app_ablehnung(r) -> bool:
+        """400 mit der JSON-Antwort der App ({fehler} bzw. {ergebnisse}) —
+        nicht die eines Proxys oder Captive-Portals."""
         try:
-            requests.post(
+            koerper = r.json()
+        except Exception:  # noqa: BLE001 – HTML, leer, kaputt
+            return False
+        return isinstance(koerper, dict) and (
+            "fehler" in koerper or "ergebnisse" in koerper
+        )
+
+    def _sende_stapel(self, teil: list[dict]) -> str:
+        """Ein POST. Ergebnis:
+        "ok";
+        "zu_gross" (413: Anfrage zu gross — teilen bzw. ohne Bilder senden);
+        "abgelehnt" (400 von der App selbst: so nie annehmbar);
+        "fehler" (Netz, 401, 5xx, fremde 400: spaeter erneut, nichts verwerfen).
+        """
+        try:
+            r = requests.post(
                 self.db_url,
-                json={"ereignisse": stapel},
+                json={"ereignisse": teil},
                 headers={"x-ingest-token": self.db_token},
                 timeout=30,
-            ).raise_for_status()
-        except requests.RequestException as e:
-            self._puffer.append(ereignis)
-            self._puffer_sichern()
-            log.error(
-                "Dashboard-Meldung fehlgeschlagen (%d im Puffer): %s",
-                len(self._puffer),
-                e,
             )
-            return
+        except requests.RequestException as e:
+            self._db_letzter_fehler = str(e)
+            return "fehler"
+        try:
+            status = int(getattr(r, "status_code", 200) or 200)
+        except (TypeError, ValueError):
+            status = 200
+        if status == 413:
+            return "zu_gross"
+        if status == 400 and self._ist_app_ablehnung(r):
+            return "abgelehnt"
+        try:
+            r.raise_for_status()
+        except requests.RequestException as e:
+            self._db_letzter_fehler = str(e)
+            return "fehler"
+        return "ok"
 
-        if self._puffer:
-            log.info("Offline-Puffer nachgeliefert: %d Ereignis(se)", len(self._puffer))
-            self._puffer.clear()
-            self._puffer_sichern()
+    def _entferne(self, teil: list[dict]) -> None:
+        """Entfernt genau diese Eintraege (Objekt-Identitaet, nicht Position)."""
+        weg = {id(e) for e in teil}
+        with self._puffer_lock:
+            rest = [e for e in self._puffer if id(e) not in weg]
+            self._puffer = deque(rest, maxlen=self._puffer.maxlen)
+            self._puffer_version += 1
+        self._sicherung_signal.set()
+
+    def _teilstapel(self, reihe: list[dict], max_anzahl: int) -> list[dict]:
+        """Nimmt vorn aus der Reihe, was unter Anzahl- und Byte-Grenze passt
+        (mindestens ein Eintrag)."""
+        teil: list[dict] = []
+        groesse = 0
+        for e in reihe[:max_anzahl]:
+            n = len(json.dumps(e, ensure_ascii=False))
+            if teil and groesse + n > self.MAX_STAPEL_BYTES:
+                break
+            teil.append(e)
+            groesse += n
+        return teil
+
+    def _nachliefern(self) -> bool:
+        """Sendet alles Ausstehende in Teilstapeln.
+
+        - Vor JEDEM Teilstapel wird die Outbox neu gelesen und Austreibung/
+          Eskalation vorgezogen: Ein frischer Alarm wartet hoechstens auf den
+          gerade laufenden Teilstapel, nie auf den ganzen Rueckstau.
+        - Nach Fehlschlaegen erst mit EINEM Ereignis tasten, statt jedes Mal
+          den Rueckstau ueber den schwachen Uplink zu schieben.
+        - 413 (zu gross): einzeln senden, ein einzelner Eintrag notfalls ohne
+          Bilder. 400 der App selbst: einzeln; ein einzeln abgelehnter Eintrag
+          geht ohne Bilder raus oder wird verworfen und protokolliert — er
+          blockiert nie die Schlange. Fremde 400 (Proxy) gelten als Fehler:
+          nichts wird verworfen.
+        - Entfernt wird nur, was angenommen wurde (Objekt-Identitaet).
+        """
+        tasten = self._db_fehler_in_folge > 0
+        einzeln: set[int] = set()
+        geliefert = 0
+        while True:
+            with self._puffer_lock:
+                stapel = list(self._puffer)
+            if not stapel:
+                break
+            reihe = [e for e in stapel if e.get("typ") == "austreibung"] + [
+                e for e in stapel if e.get("typ") != "austreibung"
+            ]
+            max_anzahl = 1 if (tasten or id(reihe[0]) in einzeln) else self.MAX_STAPEL
+            teil = self._teilstapel(reihe, max_anzahl)
+            ergebnis = self._sende_stapel(teil)
+            if ergebnis in ("abgelehnt", "zu_gross") and len(teil) > 1:
+                einzeln.update(id(e) for e in teil)
+                continue
+            if ergebnis in ("abgelehnt", "zu_gross"):
+                e = teil[0]
+                grund = ergebnis
+                if e.get("bilder"):
+                    ohne = {k: v for k, v in e.items() if k != "bilder"}
+                    ergebnis = self._sende_stapel([ohne])
+                    if ergebnis == "ok":
+                        log.warning(
+                            "Ereignis ohne Bilder nachgeliefert (mit Bildern %s): %s %s",
+                            grund,
+                            e.get("typ"),
+                            e.get("zeit"),
+                        )
+                if ergebnis == "abgelehnt":
+                    log.error(
+                        "Ereignis von der App dauerhaft abgelehnt – verworfen, damit es "
+                        "die Nachlieferung nicht blockiert: %s %s %s",
+                        e.get("typ"),
+                        e.get("zeit"),
+                        str(e.get("nachricht", ""))[:80],
+                    )
+                    self._entferne(teil)
+                    continue
+                if ergebnis == "zu_gross":
+                    # Selbst ohne Bilder zu gross: kann nur von aussen kommen
+                    # (Proxy) — nichts verwerfen, spaeter erneut.
+                    ergebnis = "fehler"
+            if ergebnis == "ok":
+                self._entferne(teil)
+                geliefert += len(teil)
+                tasten = False
+                if self._db_fehler_in_folge:
+                    log.info("Dashboard wieder erreichbar – Offline-Puffer wird nachgeliefert")
+                self._db_fehler_in_folge = 0
+                continue
+            # "fehler": spaeter erneut (Backoff), nichts entfernen.
+            self._db_fehler_in_folge += 1
+            if self._db_fehler_in_folge == 1 or self._db_fehler_in_folge % 10 == 0:
+                log.error(
+                    "Dashboard-Meldung fehlgeschlagen (%d im Puffer, neuer Versuch "
+                    "in %d s): %s",
+                    len(stapel),
+                    self._wartezeit(),
+                    self._db_letzter_fehler,
+                )
+            return False
+        if geliefert > 1:
+            log.info("Offline-Puffer nachgeliefert: %d Ereignis(se)", geliefert)
+        return True
 
 
 # --------------------------------------------------------------------------
@@ -1266,6 +1794,8 @@ def main() -> None:
     # laeuft und Silent-Mode-Bilder wie Hard Negatives denselben Weg nehmen.
     archiv = DatensatzArchiv(cfg)
     notifier.feedback.archiv = archiv
+    # „❌ Fehlalarm" auf eine Austreibung -> naechste Erkennung meldet sofort.
+    notifier.feedback.bei_fehlalarm = logik.fehlalarm_gemeldet
 
     frame_puffer: deque[np.ndarray] = deque(maxlen=8)  # Verlauf fuer Bildserien
 

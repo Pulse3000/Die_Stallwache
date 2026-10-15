@@ -75,6 +75,7 @@ blinzelt — ohne 45.000 € auszugeben und ohne einen Sensor im Pansen.*
 | **Kalbeverdacht** | Schwanzwinkel > **45°** (Vektor `spine_end→tail_base` gegen `tail_base→tail_tip`, via `atan2`) in **> 20 %** der Frames eines rollierenden **30-Minuten-Fensters** (`collections.deque`) | Alarm (Telegram + Dashboard) |
 | **Austreibung** | `amniotic_sac` oder `calf_legs` mit Konfidenz **> 0.80** | **Sofort-Alarm**, Zeitfilter wird übersprungen |
 | **Eskalation** | Austreibung läuft, aber nach **60 min** ist weiterhin Fruchtblase/Füße sichtbar (kein Geburtsfortschritt) | **dringender Kontroll-Alarm** (Komplikationsverdacht); feuert nur einmal pro Episode; Episode setzt sich nach 30 min ohne Erkennung zurück; umgeht bewusst den Cooldown |
+| **Austreibungs-Takt** | je Episode statt Cooldown: Sofort-Meldung bei Beginn, Erinnerung „läuft weiter seit N min" alle 15 min (`logik.austreibung_erinnerung_minuten`, leer = Cooldown-Wert), solange sichtbar; nach „❌ Fehlalarm" meldet die nächste Erkennung nach ≥ 60 s Pause sofort neu | Erinnerung und Eskalation werden durch ein Fehlalarm-Votum nie verschoben (`docs/austreibung-episoden-spezifikation.md`) |
 | **Brunstverdacht** | Aufsprung: zwei Kuh-Boxen überlappen (IoU > 0.15), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert kurzes Spielverhalten) | Alarm (Telegram + Dashboard) |
 
 **Warum der Zeitfilter?** Kühe heben den Schwanz auch beim Koten oder zur
@@ -83,7 +84,9 @@ Wehen von Alltag. Diesen Filter niemals durch Einzelbild-Trigger ersetzen.
 
 ## Anti-Spam & Zustellung
 
-- **Cooldown:** 15 min pro (Kuh-ID, Alarmtyp) — außer Eskalation.
+- **Cooldown:** 15 min pro (Kuh-ID, Alarmtyp) — nur für Kalbe- und
+  Brunstverdacht. Austreibung und Eskalation takten je Episode in der
+  `LogicEngine` (`Alarm.sofort`) und laufen nie durch den Cooldown.
 - **Bildserie:** jeder Alarm sendet die letzten **4 Frames** als Telegram-Album
   (annotiertes Alarmbild + Verlauf) → Fehlalarm-Triage direkt am Handy.
 - **Tagesbericht:** einmal täglich (Default 20:00) eine kompakte Nachricht:
@@ -133,7 +136,10 @@ Wehen von Alltag. Diesen Filter niemals durch Einzelbild-Trigger ersetzen.
   aktuelles Lebenszeichen gibt es dort kein „OK", nur „UNBEKANNT".
 - Jede Iteration in Exception-Handling kapseln — der Prozess läuft weiter,
   systemd startet zur Not neu.
-- Telegram-/Dashboard-/MQTT-Ausfälle dürfen die Analyse NIE blockieren.
+- Telegram-/Dashboard-/MQTT-Ausfälle dürfen die Analyse NIE blockieren —
+  umgesetzt mit je einem Versand-Thread pro Kanal und dem Dashboard als
+  Outbox (Nachlieferung ohne neuen Alarm ab 60 s mit Backoff, Teilstapel
+  unter den Server-Grenzen, Austreibung zuerst).
 
 ## Verhaltensregeln
 

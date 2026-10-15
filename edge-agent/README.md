@@ -131,7 +131,8 @@ sudo systemctl enable --now stallblick-agent
 | **Austreibung** | `amniotic_sac` oder `calf_legs` mit **> 80 %** Konfidenz | **Sofort-Alarm**, Zeitfilter übersprungen |
 | **Eskalation** | Austreibung läuft, aber nach **60 min** (konfigurierbar) sind weiterhin Fruchtblase/Füße sichtbar → kein Geburtsfortschritt | **dringender Kontroll-Alarm** (Komplikationsverdacht, Lely-Zeta-Prinzip) |
 | **Brunstverdacht** | Aufsprung: zwei Kuh-Boxen überlappen (IoU > 0.15), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert Spielverhalten) | Telegram + Dashboard |
-| Anti-Spam | **15 Min Cooldown** pro Kuh-ID und Alarmtyp | – |
+| Anti-Spam | **15 Min Cooldown** pro Kuh-ID und Alarmtyp — nur Kalbe-/Brunstverdacht | – |
+| Austreibungs-Takt | je **Episode** statt Cooldown: Sofort-Meldung bei Beginn, Erinnerung „läuft weiter seit N min" alle 15 min, solange sichtbar; nach „❌ Fehlalarm" meldet die nächste Erkennung nach ≥ 60 s Pause sofort neu (`docs/austreibung-episoden-spezifikation.md`) | eine laufende Geburt meldet sich, bis sie vorbei ist — nie verzögert durch einen pauschalen Cooldown |
 | Bildserie | Jeder Alarm sendet die **letzten 4 Frames als Telegram-Album** (`bildserie_frames`) | Fehlalarm-Triage direkt am Handy |
 | Wach-Modus | `logik.wach_modus: true` ~14 Tage vor Kalbetermin: halbierte Schwellen, frühere Verdachtsalarme | erhöhte Wachsamkeit nur, wenn bewusst scharfgeschaltet |
 | MQTT (optional) | `mqtt.host` setzen → jedes Ereignis als JSON unter `stallblick/<kamera>/<typ>` | stiller Zusatzausgang für Home Assistant/Node-RED; Telegram bleibt primär |
@@ -177,7 +178,12 @@ python3 edge-agent/tests/alle_tests.py
   **Snapshot-Polling** über die go2rtc-API (funktioniert selbst bei zickigem WLAN).
 * Jede Iteration ist mit Exception-Handling abgesichert – der Prozess läuft
   24/7 weiter, `systemd` startet ihn zur Not neu.
-* Telegram-/Dashboard-Ausfälle blockieren die Analyse nicht.
+* Telegram-/Dashboard-Ausfälle blockieren die Analyse nicht: Je Kanal ein
+  eigener Versand-Thread, das Dashboard als Outbox (vor dem Senden auf die
+  Platte gesichert, gepufferte Alarme gehen ohne neuen Alarm nach — ab 60 s,
+  bei Dauerausfall mit Backoff bis 15 min, in Teilstapeln unter den
+  Server-Grenzen, Austreibung zuerst). Feedback-Abruf ebenfalls entkoppelt
+  (`docs/versand-entkopplung-spezifikation.md`).
 * **Lebenszeichen** (`dashboard.lebenszeichen_minuten`, Default 5): Der
   Agent meldet der App im Hintergrund, dass er lebt, in welchem Modus er
   läuft und ob die Kamera ein Bild liefert. Ohne Lebenszeichen antwortet die

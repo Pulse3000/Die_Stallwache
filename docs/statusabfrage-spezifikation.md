@@ -156,10 +156,10 @@ Am realen System (Beweispflicht, offen):
    Statusabfrage bei ruhigem Stall immer `UNBEKANNT`. Das ist gewollt (ein
    Instanzpuffer kann Alarme verlieren), macht die Abfrage aber erst mit
    KV-Store wirklich nützlich — Roadmap P1 „Ereignis-Persistenz“.
-3. **Lebenszeichen liefert den Offline-Puffer nicht nach.** Gepufferte Alarme
-   gehen weiterhin erst mit dem nächsten Alarm raus. Bewusst getrennt, weil
-   Puffer-Zugriff aus zwei Threads eine Sperre bräuchte, die den Hauptpfad
-   verlangsamen kann — eigener Folgeschritt.
+3. ~~Lebenszeichen liefert den Offline-Puffer nicht nach.~~ **Erledigt** mit
+   der Versand-Entkopplung (`versand-entkopplung-spezifikation.md`): Der
+   Dashboard-Thread liefert ausstehende Alarme alle 60 s nach, auch ohne
+   neuen Alarm — unabhängig vom Lebenszeichen, das unverändert bleibt.
 4. **Lese-Token im Klartext bei der Routine.** Er erlaubt nur Lesen von
    Ereignis-Metadaten (keine Bilder, kein Ingest). Rotation = Env-Wert
    ändern + Redeploy.
