@@ -52,3 +52,18 @@ export const ALARM_TYPEN: readonly EreignisTyp[] = [
   "austreibung",
   "brunstverdacht",
 ];
+
+/**
+ * Zaehler fuer den roten Punkt an „Alarme": unquittierte Alarme aus der
+ * Antwort von GET /api/events. Gezaehlt wird nur, was der Edge-Agent
+ * tatsaechlich gemeldet hat — Beispieldaten („demo") ergeben 0. Der Punkt
+ * steht auf jeder Seite ohne den Hinweis „Beispieldaten" und behauptet sonst
+ * offene Alarme, die es nicht gibt.
+ */
+export function zaehleOffeneAlarme(antwort: {
+  ereignisse: readonly Pick<StallEreignis, "quittiert">[];
+  quelle?: string;
+}): number {
+  if (antwort.quelle !== "edge-agent") return 0;
+  return antwort.ereignisse.filter((e) => !e.quittiert).length;
+}
