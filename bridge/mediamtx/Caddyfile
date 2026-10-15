@@ -1,6 +1,6 @@
 # Vereint MediaMTX' getrennte Ports (HLS :8888, WebRTC/WHEP :8889) unter
-# einem einzigen lokalen Port, damit der Cloudflare Tunnel (wie beim
-# go2rtc-Setup) nur EINEN Public Hostname braucht.
+# einem einzigen lokalen Port (wie beim go2rtc-Setup), damit Geraete im
+# Tailnet nur EINE Adresse brauchen.
 #
 # WHEP-Anfragen erkennt man am Pfadende "/whep"; alles andere (HLS-Playlists,
 # Segmente, API) geht an den HLS-Port.

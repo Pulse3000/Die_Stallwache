@@ -1,9 +1,11 @@
-# Stallwache-Bridge: go2rtc + Cloudflare Tunnel
+# Stallwache-Bridge: go2rtc (RTSP -> WebRTC/HLS) im Stall-LAN.
 #
-# Macht den lokalen RTSP-Stream der Tapo TCA72 24/7 oeffentlich per HTTPS
-# erreichbar – ohne Portfreigabe am Router.
+# go2rtc selbst ist NIE oeffentlich. Von aussen kommt das Bild nur ueber den
+# Fernzugriff: Tailscale Funnel :8443 -> fern-proxy.py (Token) -> go2rtc,
+# eingerichtet mit `bash fern-einrichten.sh` (siehe README.md hier und
+# docs/fernzugriff-spezifikation.md). Kein Cloudflare-Tunnel mehr.
 #
-# Start:   cd bridge && cp .env.example .env  (Werte eintragen) && docker compose up -d
+# Start:   cd bridge && cp .env.example .env  (Werte eintragen) && docker compose up -d --remove-orphans
 # Logs:    docker compose logs -f
 # Stop:    docker compose down
 
@@ -22,14 +24,3 @@ services:
       FUTTER_PASS: ${FUTTER_PASS:-}
     volumes:
       - ./go2rtc.yaml:/config/go2rtc.yaml:ro
-
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: stallwache-tunnel
-    restart: unless-stopped
-    network_mode: host
-    # Token aus dem Cloudflare-Zero-Trust-Dashboard (Named Tunnel).
-    # Public Hostname dort auf service http://localhost:1984 zeigen lassen.
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      - go2rtc

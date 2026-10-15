@@ -47,5 +47,5 @@ Eine ins Internet geöffnete Kamera wird gescannt. Deshalb:
 - Nicht den Standardport 554 nach außen veröffentlichen (z. B. 8554 nutzen).
 
 > Wenn dir das Öffnen der Kamera nach außen zu heikel ist, ist die sichere
-> Alternative das winzige Stall-Gerät mit Cloudflare-Tunnel im Ordner
-> [`/bridge`](../bridge) – dann ist keine Portfreigabe nötig.
+> Alternative der Stall-Rechner mit go2rtc und Fernzugriff über Tailscale
+> Funnel im Ordner [`/bridge`](../bridge). Dann ist keine Portfreigabe nötig.

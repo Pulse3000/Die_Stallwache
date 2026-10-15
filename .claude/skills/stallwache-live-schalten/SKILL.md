@@ -1,6 +1,6 @@
 ---
 name: stallwache-live-schalten
-description: Go-Live der Stallwache-Hauptkamera — entweder über die Tuya-Cloud (ohne Bridge, Device ID + NEXT_PUBLIC_STALLWACHE_TUYA=1) oder über die Bridge (Cloudflare-Tunnel-Hostname). Livebild und KI-Wache-Kette end-to-end verifizieren. Nutzen bei "Stallwache live schalten", "Device ID ist ...", "Tunnel läuft", "Hostname ist ...", "Bridge ist online" oder wenn die Stallwache-Kachel dauerhaft den Platzhalter zeigt.
+description: Go-Live der Stallwache-Hauptkamera — entweder über die Tuya-Cloud (ohne Bridge, Device ID + NEXT_PUBLIC_STALLWACHE_TUYA=1) oder über den Fernzugriff zum Stall-Rechner (go2rtc + fern-proxy.py hinter Tailscale Funnel, NEXT_PUBLIC_STALLWACHE_FERN=1). Livebild und KI-Wache-Kette end-to-end verifizieren. Nutzen bei "Stallwache live schalten", "Device ID ist ...", "Funnel läuft", "Fernzugriff ist eingerichtet", "Bridge ist online" oder wenn die Stallwache-Kachel dauerhaft den Platzhalter zeigt.
 ---
 
 # Stallwache live schalten
@@ -14,17 +14,18 @@ live — und damit die gesamte Modell-Kette frei (Silent Mode → Skill
 
 Es gibt **zwei** Wege ans Livebild. Der Betreiber sagt, welcher vorliegt:
 
-| | **A — Tuya-Cloud** (kein Gerät im Stall) | **B — Bridge** (go2rtc/MediaMTX im Stall-LAN) |
+| | **A — Tuya-Cloud** (kein Gerät im Stall) | **B — Fernzugriff** (go2rtc im Stall-LAN, Tailscale Funnel) |
 | --- | --- | --- |
-| Voraussetzung | Kamera hängt im Tuya-Projekt, Device ID liegt vor | Cloudflare-Tunnel-Hostname liegt vor |
-| Zu setzen | `TUYA_DEVICE_ID_STALLWACHE` **und** `NEXT_PUBLIC_STALLWACHE_TUYA=1` | `NEXT_PUBLIC_BRIDGE_URL` |
-| Hardware | keine | Raspberry Pi / Mini-PC / Stall-Handy |
+| Voraussetzung | Kamera hängt im Tuya-Projekt, Device ID liegt vor | Stall-Rechner mit go2rtc, `bash bridge/fern-einrichten.sh` gelaufen |
+| Zu setzen | `TUYA_DEVICE_ID_STALLWACHE` **und** `NEXT_PUBLIC_STALLWACHE_TUYA=1` | `STALLWACHE_FERN_URL`, `STALLWACHE_FERN_TOKEN`, `NEXT_PUBLIC_STALLWACHE_FERN=1` |
+| Hardware | keine | Mini-PC / Raspberry Pi im Stall-LAN |
 
-Beides zusammen ist erlaubt und die robusteste Variante: Ist Tuya aktiv und
-zusätzlich eine Bridge gesetzt, dient die Bridge als Fallback. Die Stallwache
-ist bei Tuya bewusst **opt-in** (anders als die Zweitkameras), damit
-bestehende Bridge-Höfe ihr Verhalten unverändert behalten — siehe
-`lib/config.ts`.
+`NEXT_PUBLIC_BRIDGE_URL` bleibt in beiden Wegen **leer**. go2rtc ist nie
+öffentlich und erlaubt keine Cross-Origin-Abrufe. Eine gesetzte Adresse wäre
+eine tote Ausweichroute, auf die die Kachel nach dem ersten Aussetzer
+sitzungsweit wechselt (`docs/fernzugriff-spezifikation.md` §2). Ein
+Cloudflare-Tunnel ist nicht mehr vorgesehen. Die Stallwache ist bei Tuya
+bewusst **opt-in** (anders als die Zweitkameras), siehe `lib/config.ts`.
 
 ---
 
@@ -58,31 +59,33 @@ und die Kachel bleibt beim Wartehinweis.
 
 ---
 
-## Weg B — über die Bridge
+## Weg B — über den Fernzugriff (Tailscale Funnel)
 
-### B1 — Bridge von außen prüfen (vor jeder Änderung)
-
-```bash
-# go2rtc-API erreichbar? Stream 'stallwache' registriert?
-curl -s https://HOSTNAME/api/streams | head -c 400
-# Snapshot liefert ein JPEG? (go2rtc-Snapshot-API)
-curl -s -o /dev/null -w "%{http_code} %{content_type}\n" \
-  "https://HOSTNAME/api/frame.jpeg?src=stallwache"
-```
-
-Erwartet: JSON mit `stallwache`-Eintrag bzw. `200 image/jpeg`. Wenn nicht →
-Fehlersuche in `bridge/termux/README.md` (Logs: `logs/go2rtc.log`,
-`logs/cloudflared.log`), NICHT weitermachen.
-
-### B2 — Env-Variable setzen
+### B1 — Funnel von außen prüfen (vor jeder Änderung)
 
 ```bash
-vercel env add NEXT_PUBLIC_BRIDGE_URL production   # Wert: https://HOSTNAME
+# Ohne Token muss der Proxy sperren: 403 = Funnel steht, Proxy antwortet.
+curl -s -o /dev/null -w "%{http_code}\n" "https://GERAET.TAILNET.ts.net:8443/api/stream.m3u8"
 ```
 
-- `NEXT_PUBLIC_BRIDGE_TYPE` nur bei MediaMTX auf `mediamtx` setzen
-  (Default go2rtc stimmt für die Termux-Bridge).
-- Alias `NEXT_PUBLIC_GO2RTC_URL` ist Alt-Name — nicht zusätzlich setzen.
+Erwartet: `403`. Bricht die Verbindung ab (`000`, Reset beim TLS-Aufbau),
+ist der Funnel gestört. Dann **nicht weitermachen**. Der Betreiber prüft am
+Stall-Rechner `tailscale funnel status`, `systemctl status stallwache-fern`,
+`docker ps` (go2rtc) und in der Tailscale-Verwaltung HTTPS-Zertifikate sowie
+`nodeAttrs` „funnel“. Den Token-Test mit `200` macht nur der Betreiber
+(`fern-einrichten.sh` prüft ihn selbst), der Token gehört nicht in die Session.
+
+### B2 — Env-Variablen setzen (Betreiber)
+
+```bash
+vercel env add STALLWACHE_FERN_URL production           # https://GERAET.TAILNET.ts.net:8443
+vercel env add STALLWACHE_FERN_TOKEN production         # Ausgabe von fern-einrichten.sh (geheim)
+vercel env add NEXT_PUBLIC_STALLWACHE_FERN production   # Wert: 1
+```
+
+- `NEXT_PUBLIC_BRIDGE_URL` (und Alias `NEXT_PUBLIC_GO2RTC_URL`) **nicht** setzen.
+- Ohne aktiven App-Login (`STALLBLICK_PASSWORT`) verweigert der Fernzugriff
+  den Dienst (fail-closed).
 
 ---
 
@@ -94,9 +97,10 @@ Leerer Commit auf `main` (Git-Integration deployt automatisch) oder
 ## Schritt 4 — End-to-End verifizieren
 
 1. **Login-Gate:** `/` antwortet 307 → `/login` (Schutz weiter aktiv).
-2. **Weg A zusätzlich:** eingeloggt `GET /api/stallwache/stream` →
-   `{"url":"…","typ":"hls"}`. Bei Fehler steht die Tuya-Meldung im Feld
-   `fehler` (Codes siehe A1).
+2. **Beide Wege:** eingeloggt `GET /api/stallwache/stream` →
+   `{"url":"…","typ":"hls"}`. Bei Fehler steht die Ursache im Feld `fehler`
+   (Weg A: Tuya-Codes siehe A1; Weg B: „Stall-Rechner nicht erreichbar“ bzw.
+   „antwortet mit <Code>“ → zurück zu B1).
 3. **Livebild:** eingeloggt auf `/` — Stallwache-Kachel zeigt Video statt
    Platzhalter. Headless-Prüfung: Playwright, `video`-Element mit
    `readyState >= 2` auf der Hauptkachel.
@@ -117,7 +121,7 @@ Leerer Commit auf `main` (Git-Integration deployt automatisch) oder
 ## Rollback
 
 Kachel schwarz/Fehler nach Go-Live: die gesetzte Variable in Vercel wieder
-entfernen (`NEXT_PUBLIC_STALLWACHE_TUYA` bzw. `NEXT_PUBLIC_BRIDGE_URL`) +
+entfernen (`NEXT_PUBLIC_STALLWACHE_TUYA` bzw. `NEXT_PUBLIC_STALLWACHE_FERN`) +
 Redeploy → Webapp zeigt wieder den sauberen Wartezustand (Fehlerzustand ist
 schlimmer als Wartezustand). Dann Schritt A1 bzw. B1 wiederholen.
 
@@ -125,7 +129,7 @@ schlimmer als Wartezustand). Dann Schritt A1 bzw. B1 wiederholen.
 
 | Schritt | Wer |
 | --- | --- |
-| Device ID bzw. Tunnel/Hostname bereitstellen, Env-Vars eintragen | Betreiber |
+| Device ID bzw. Funnel/Fernzugriff bereitstellen, Env-Vars eintragen | Betreiber |
 | Prüfung, Redeploy, Verifikation, Nacharbeiten | Orchestrator (dieser Skill) |
 | Tuya-Fehlercodes eingrenzen | Skill `tuya-diagnose` |
 | Smoke der Ereignis-Kette | Skill `ki-wache-smoketest` |

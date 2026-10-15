@@ -13,7 +13,7 @@ CVAT kostenlos, offene Datensätze).
 ## Voraussetzungen prüfen
 
 1. Der Agent hat eine Videoquelle — **einer** der beiden Wege genügt:
-   - **Bridge:** `NEXT_PUBLIC_BRIDGE_URL` gesetzt, RTSP-Restream erreichbar
+   - **Bridge im Stall-LAN:** RTSP-Restream vom Agenten aus erreichbar
      (go2rtc Port 8554 bzw. MediaMTX), ODER
    - **Cloud-Quelle ohne Bridge** (Kameras in der Tuya-Cloud: Futterwache,
      Abkalbebox): in `config.yaml` `stream.app_url` +

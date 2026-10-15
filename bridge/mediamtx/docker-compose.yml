@@ -1,15 +1,15 @@
-# Stallblick-Bridge (MediaMTX-Variante) + lokaler Caddy-Reverse-Proxy
-# + Cloudflare Tunnel.
+# Stallblick-Bridge (MediaMTX-Variante) + lokaler Caddy-Reverse-Proxy.
 #
-# Alternative zu /bridge/docker-compose.yml (go2rtc). Macht den lokalen
-# RTSP-Stream der Kameras 24/7 oeffentlich per HTTPS erreichbar - ohne
-# Portfreigabe am Router. Entscheidungshilfe: /bridge/README.md
+# Alternative zu /bridge/docker-compose.yml (go2rtc). Nur im LAN/Tailnet
+# erreichbar: Der Fernzugriff (fern-proxy.py hinter Tailscale Funnel) kennt
+# nur go2rtc-Pfade, und ein Cloudflare-Tunnel ist nicht mehr vorgesehen
+# (docs/fernzugriff-spezifikation.md §2). Entscheidungshilfe: /bridge/README.md
 #
 # Warum Caddy zusaetzlich? MediaMTX bedient HLS (8888) und WebRTC/WHEP (8889)
 # auf getrennten Ports. Caddy vereint beide lokal unter Port 1984 (wie beim
-# go2rtc-Setup), damit der Cloudflare Tunnel nur EINEN Public Hostname braucht.
+# go2rtc-Setup), damit Geraete im Tailnet nur EINE Adresse brauchen.
 #
-# Start:   cd bridge/mediamtx && cp .env.example .env  (Werte eintragen) && docker compose up -d
+# Start:   cd bridge/mediamtx && cp .env.example .env  (Werte eintragen) && docker compose up -d --remove-orphans
 # Logs:    docker compose logs -f
 # Stop:    docker compose down
 
@@ -38,14 +38,3 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       - mediamtx
-
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: stallwache-tunnel
-    restart: unless-stopped
-    network_mode: host
-    # Token aus dem Cloudflare-Zero-Trust-Dashboard (Named Tunnel).
-    # Public Hostname dort auf http://localhost:1984 zeigen lassen (wie go2rtc).
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      - caddy

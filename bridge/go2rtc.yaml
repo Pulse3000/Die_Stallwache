@@ -22,6 +22,9 @@ streams:
 
 api:
   listen: ":1984"
+  # Bewusst KEIN `origin: "*"`: Die API kann Befehle auf dem Stall-Rechner
+  # ausfuehren. Mit CORS-Freigabe koennte jede Webseite, die ein Geraet im
+  # Tailnet oeffnet, sie ansprechen (docs/fernzugriff-spezifikation.md §1.2).
 
 rtsp:
   listen: ":8554"
@@ -29,8 +32,8 @@ rtsp:
 webrtc:
   listen: ":8555"
   candidates:
-    # Bei reinem Cloudflare-Tunnel-Betrieb laeuft WebRTC ueber den TCP-Fallback.
-    # Fuer beste Latenz optional die oeffentliche IP + Portfreigabe 8555 eintragen.
+    # WebRTC nur im LAN/Tailnet. Von aussen laeuft ausschliesslich HLS ueber
+    # den Fernzugriff (fern-proxy.py hinter Tailscale Funnel :8443).
     - stun:8555
 
 log:
