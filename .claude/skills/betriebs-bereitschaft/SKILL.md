@@ -7,7 +7,8 @@ description: Beantwortet in einem Blick, welche Bausteine der Stallwache scharf 
 
 Stallblick besteht aus Bausteinen, die **einzeln schlafen können**, ohne dass
 die App etwas davon zeigt. Ohne Firebase läuft alles weiter — nur meldet sich
-nichts mehr. Ohne Bridge kommt kein Livebild, aber die Alarme funktionieren.
+nichts mehr. Ohne Fernzugriff kommt kein Livebild der Stallwache, aber die
+Alarme funktionieren.
 Ohne Modell erkennt der Agent nichts, sendet aber Lebenszeichen.
 
 Das ist im Betrieb richtig (ein fehlender Baustein darf nicht das Ganze
@@ -65,9 +66,10 @@ meisten?":
    Nachtwache macht.
 4. **Kameras/Tuya DEFEKT** → Skill `tuya-diagnose`. Betrifft das Livebild,
    nicht den Alarmweg — deshalb nach Push.
-5. **Bridge SCHLAEFT** → Skill `stallwache-live-schalten`. Die Hauptkamera
-   ist die für den Abkalbebereich; wichtig, aber der Agent kann übergangsweise
-   über die Cloud-Quelle laufen.
+5. **Stallwache SCHLAEFT/DEFEKT** → Skill `stallwache-live-schalten`
+   (Fernzugriff über Tailscale Funnel prüfen, Schritt B1). Die Hauptkamera ist
+   die für den Abkalbebereich. Wichtig, aber der Agent liest sein Bild lokal
+   und meldet weiter.
 6. **Assistent LOKAL** → Skill `gcp-anbindung`, niedrigste Priorität. Die
    Funktion ist ohne KI voll nutzbar; im Funkloch ist die lokale Auswertung
    sogar die einzige, die antwortet.

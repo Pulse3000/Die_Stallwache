@@ -18,7 +18,3 @@ __pycache__/
 edge-agent/config.yaml
 edge-agent/aufnahmen/
 
-# Termux-Bridge (heruntergeladene Binaries + Logs, nie committen)
-bridge/termux/go2rtc
-bridge/termux/cloudflared
-bridge/termux/logs/

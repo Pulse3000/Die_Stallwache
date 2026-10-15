@@ -2,12 +2,12 @@
 
 Workaround für Betriebe **ohne** ausgemusterten Laptop/Mini-PC/Raspberry Pi:
 Der Edge-Agent ist reines Python (OpenCV, NumPy, Requests, PyYAML) und läuft
-im **Silent Mode** (Trainingsbilder sammeln) deshalb auch unter **Termux** —
-demselben Linux-Terminal für Android, das schon die
-[Stallblick-Bridge](../../bridge/termux/README.md) nutzt.
+im **Silent Mode** (Trainingsbilder sammeln) deshalb auch unter **Termux**,
+dem Linux-Terminal für Android. (Die frühere Termux-*Bridge* ist eingestellt,
+siehe `docs/fernzugriff-spezifikation.md`. Der Agent hier ist davon unabhängig.)
 
-> **iPhone/iOS geht nicht.** Aus demselben Grund wie bei der Bridge: Apple
-> erlaubt keine dauerhaften Hintergrundprozesse für Drittanbieter-Apps.
+> **iPhone/iOS geht nicht.** Apple erlaubt keine dauerhaften
+> Hintergrundprozesse für Drittanbieter-Apps.
 
 ## Wichtig: zwei Betriebsmodi, unterschiedlich gut geeignet
 
@@ -26,10 +26,11 @@ bis ein Modell trainiert ist (siehe [`../README.md`](../README.md), Abschnitt
 
 ## Einschränkungen (bitte vorher lesen)
 
-- Gilt alles, was auch für die [Bridge unter Termux](../../bridge/termux/README.md#einschränkungen-bitte-vorher-lesen)
-  gilt: Akku-Optimierung aus, WLAN im Ruhezustand aktiv, Termux nicht aus
-  „Kürzlich verwendet" wischen, kein offizieller Support seitens der
-  Bibliotheken für Android.
+- **Weniger zuverlässig als dedizierte Hardware.** Android kann Prozesse
+  unter Speicherdruck oder nach System-Updates beenden. Akku-Optimierung für
+  Termux ausschalten, WLAN im Ruhezustand aktiv lassen, Termux nicht aus
+  „Kürzlich verwendet" wischen. Kein offizieller Support der Bibliotheken
+  für Android.
 - Das Handy muss **dauerhaft an Strom + WLAN** bleiben.
 - 1 Bild alle paar Minuten reicht (siehe `config.yaml`) — das ist unkritisch
   für älteres/schwächeres Hardware.
