@@ -33,12 +33,12 @@ hlsAllowOrigin: "*"
 # WebRTC (WHEP/WHIP): niedrige Latenz fuer die Hauptkamera
 webrtc: yes
 webrtcAddress: :8889
-# Bei reinem Cloudflare-Tunnel-Betrieb laeuft WebRTC ueber den TCP-Fallback.
-# Fuer beste Latenz optional die oeffentliche IP + Portfreigabe eintragen.
+# WebRTC nur im LAN/Tailnet (kein Fernzugriff fuer MediaMTX, siehe
+# docs/fernzugriff-spezifikation.md §2).
 webrtcAdditionalHosts: []
 # HLS (8888) und WebRTC (8889) sind getrennte Ports - der beiliegende Caddy
-# (siehe docker-compose.yml) vereint sie lokal unter Port 1984, damit der
-# Cloudflare Tunnel wie beim go2rtc-Setup nur EINEN Hostname braucht.
+# (siehe docker-compose.yml) vereint sie lokal unter Port 1984, damit Geraete
+# im Tailnet wie beim go2rtc-Setup nur EINE Adresse brauchen.
 
 rtsp: yes
 rtspAddress: :8554

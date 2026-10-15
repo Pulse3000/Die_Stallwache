@@ -119,7 +119,7 @@ nichts ist halb:
   Tuya-Gerätesteuerung, Freitext-/Sprachanfragen, KI-Wache-Dashboard,
   Edge-Agent (Silent Mode, Erkennungslogik, Eskalation, Tagesbericht,
   Wach-Modus, Stream-Totmann-Meldung, Ein-Tipp-Feedback), kuh-getuntes
-  ByteTrack, Termux-Bridge mit Ein-Befehl-Installer, Edge-Setup-Skript,
+  ByteTrack, Fernzugriff über Tailscale Funnel (Token-Proxy), Edge-Setup-Skript,
   selbstaktivierende Ereignis-Persistenz (KV-Adapter).
 - **Spezifiziert** (je mit Schwellen, Config, Alarmtexten, Abnahmekriterien):
   Festliege-Wächter, Zwei-Kamera-Brunst-Fusion, Kalbe-Akte,

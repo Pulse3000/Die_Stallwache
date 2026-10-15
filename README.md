@@ -152,29 +152,33 @@ spielen RTSP ohnehin nicht ab.
 Lösung (Standardweg, auch von go2rtc/RTSPtoWeb empfohlen):
 
 ```
-Tapo TCA72  ──RTSP──▶  Bridge (im Stall-LAN)  ──WebRTC/HLS──▶  Cloudflare Tunnel ──HTTPS──▶  Browser / Webapp
+Tapo TCA72 ──RTSP──▶ go2rtc ──▶ fern-proxy.py (Token) ──▶ Tailscale Funnel :8443 ──▶ Webapp (Vercel, Login) ──HLS──▶ Browser
 ```
 
-* Die **Bridge** wandelt RTSP in browser-taugliches **WebRTC** (< 1 s Latenz)
-  bzw. **HLS** (Fallback) um – wahlweise **go2rtc** (Default) oder
-  **MediaMTX** (Standard-WHEP-Protokoll). Entscheidungshilfe & Setup beider
-  Varianten: [`bridge/README.md`](bridge/README.md).
-* **Cloudflare Tunnel** macht die Bridge **24/7 ohne Portfreigabe** per HTTPS erreichbar.
-* Die Webapp spricht ausschließlich mit der Bridge – **keine Kamera-Zugangsdaten im Frontend**.
+* Die **Bridge** (go2rtc, im Stall-LAN) wandelt RTSP in browser-taugliches
+  **HLS** bzw. **WebRTC** um. Sie ist **nie öffentlich**, denn ihre API kann
+  Befehle auf dem Stall-Rechner ausführen.
+* **`fern-proxy.py`** gibt nur das HLS der Stallwache frei, und zwar nur mit
+  geheimem Token. **Tailscale Funnel** macht ihn auf Port 8443 per HTTPS
+  erreichbar, ohne Portfreigabe am Router.
+* Die **Webapp** holt das Bild mit dem Token und zeigt es nur hinter dem
+  App-Login. **Keine Kamera-Zugangsdaten im Frontend.**
+* Einen Cloudflare-Tunnel gibt es nicht mehr. Begründung und Umstieg:
+  [`docs/fernzugriff-spezifikation.md`](docs/fernzugriff-spezifikation.md).
 
 ---
 
 ## 1. Bridge im Stall einrichten (einmalig)
 
 Auf einem Gerät im selben Netz wie die Kamera (Raspberry Pi, Mini-PC, NAS …) mit
-Docker – **go2rtc** (Default) oder **MediaMTX** (Alternative,
+Docker – **go2rtc** (Default; MediaMTX nur im LAN/Tailnet,
 [Entscheidungshilfe](bridge/README.md)):
 
 ```bash
-cd bridge                # oder: cd bridge/mediamtx
+cd bridge
 cp .env.example .env
-#  -> TAPO_PASS und CLOUDFLARE_TUNNEL_TOKEN eintragen
-docker compose up -d
+#  -> TAPO_PASS eintragen
+docker compose up -d --remove-orphans
 docker compose logs -f
 ```
 
@@ -182,17 +186,16 @@ docker compose logs -f
 Einstellungen → Kamerakonto* ein Konto anlegen (hier: Benutzer `Stallwache`).
 Genau diese Daten nutzt die Bridge für RTSP.
 
-**Cloudflare Tunnel:** Im [Zero-Trust-Dashboard](https://one.dash.cloudflare.com)
-einen *Named Tunnel* erstellen, Token in `.env` eintragen und einen *Public
-Hostname* (z. B. `stallwache.deine-domain.de`) auf `http://localhost:1984`
-zeigen lassen.
+**Fernzugriff (Tailscale):** Gerät ins Tailnet bringen, in der
+Tailscale-Verwaltung HTTPS-Zertifikate und Funnel für das Gerät erlauben, dann:
 
-> Kein eigene Domain? Für einen schnellen Test geht auch
-> `cloudflared tunnel --url http://localhost:1984` (liefert eine zufällige
-> `*.trycloudflare.com`-URL).
+```bash
+bash fern-einrichten.sh   # Proxy als Dienst + Funnel :8443, gibt die Werte für Vercel aus
+```
 
-Prüfen: `https://stallwache.deine-domain.de` öffnet das Bridge-Webinterface
-(go2rtc) bzw. liefert die HLS-Playlist (MediaMTX) und zeigt den Stream `stallwache`.
+Prüfen (Handy über Mobilfunk, Tailscale aus):
+`https://<gerät>.<tailnet>.ts.net:8443/api/stream.m3u8` liefert **403**
+(Funnel steht, Proxy sperrt ohne Token). Details: [`bridge/README.md`](bridge/README.md).
 
 ---
 
@@ -200,17 +203,19 @@ Prüfen: `https://stallwache.deine-domain.de` öffnet das Bridge-Webinterface
 
 ```bash
 cp .env.example .env.local
-#  -> NEXT_PUBLIC_BRIDGE_URL = https://stallwache.deine-domain.de
-#  -> NEXT_PUBLIC_BRIDGE_TYPE = go2rtc  (oder mediamtx, falls diese Bridge genutzt wird)
+#  -> STALLWACHE_FERN_URL / STALLWACHE_FERN_TOKEN / NEXT_PUBLIC_STALLWACHE_FERN=1
+#     (Ausgabe von bridge/fern-einrichten.sh); NEXT_PUBLIC_BRIDGE_URL leer lassen
 
 npm install
 npm run dev      # lokal: http://localhost:3000
 ```
 
-**Deploy auf Vercel:** Repo importieren und die Umgebungsvariable
-`NEXT_PUBLIC_BRIDGE_URL` (und optional `NEXT_PUBLIC_BRIDGE_TYPE`,
-`NEXT_PUBLIC_STREAM_NAME` sowie `NEXT_PUBLIC_STREAM_NAME_2` für die
-Futterwache) setzen – fertig. Die App ist als PWA installierbar (Homescreen).
+**Deploy auf Vercel:** Repo importieren, `STALLBLICK_PASSWORT` und die drei
+Fernzugriff-Werte (`STALLWACHE_FERN_URL`, `STALLWACHE_FERN_TOKEN`,
+`NEXT_PUBLIC_STALLWACHE_FERN=1`) setzen, für Tuya-Kameras die `TUYA_*`-Werte.
+`NEXT_PUBLIC_BRIDGE_URL` bleibt leer
+([Begründung](docs/fernzugriff-spezifikation.md)). Die App ist als PWA
+installierbar (Homescreen).
 
 ---
 
@@ -233,14 +238,14 @@ Futterwache) setzen – fertig. Die App ist als PWA installierbar (Homescreen).
 | `lib/stall-status.ts` + `app/api/stall-status/` | **Statusabfrage** „Status in der Stallwache?" → OK/WARNUNG/KRITISCH/UNBEKANNT je Kamera und Kuh; Session oder Lese-Token `STATUS_READ_TOKEN` (Spezifikation: `docs/statusabfrage-spezifikation.md`) |
 | `edge-agent/` | Python-Agent (YOLO-Pose + ByteTrack): Kalbe-/Brunsterkennung, Totmann, Feedback-Schleife; `setup.sh` = Ein-Befehl-Einrichtung |
 | `edge-agent/tests/` | Offline-Testsuite (77 Checks, pures Python ohne Installation) |
-| `bridge/` | go2rtc (Default) + Cloudflare Tunnel; `bridge/termux/` = Android-Weg, `bridge/mediamtx/` = WHEP-Alternative |
+| `bridge/` | go2rtc (Default) + Fernzugriff (`fern-proxy.py`, Tailscale Funnel); `bridge/mediamtx/` = WHEP-Alternative (nur LAN/Tailnet) |
 | `docs/` | Vision, Roadmap (SSOT), Wettbewerbsanalyse, Metriken, 4 Feature-Spezifikationen, Orchestrierungs-Handbuch |
 | `.claude/` | 3 Projekt-Agenten + 12 Skills für die autonome Weiterentwicklung |
 
 ## Live
 
 Deployt auf Vercel: **https://stallwache.vercel.app**
-(zeigt „Warte auf Bridge", bis `NEXT_PUBLIC_BRIDGE_URL` gesetzt und die Bridge im Stall verbunden ist).
+(die Stallwache zeigt Livebild, sobald der Fernzugriff eingerichtet und der Funnel von außen erreichbar ist).
 
 ## Android-App (Der Stallblick)
 
@@ -266,7 +271,7 @@ Die Kamera-Streams laufen dort ohne Browser-Umwege direkt in der APK
 Next.js 16 (App Router) · React 19 · Tailwind CSS · hls.js · PWA (eigener
 Service Worker, IndexedDB, Background Sync) · Firebase Cloud Messaging ·
 Google Pub/Sub · Google Cloud Storage (optional) · Vertex AI / Gemini ·
-Tuya OpenAPI · go2rtc/MediaMTX · Cloudflare Tunnel · Upstash Redis (optional) ·
+Tuya OpenAPI · go2rtc/MediaMTX · Tailscale Funnel · Upstash Redis (optional) ·
 Python (OpenCV, Ultralytics)
 
 ---

@@ -2,9 +2,10 @@
  * Zentrale Konfiguration von Stallblick.
  *
  * Kameras liefern lokal RTSP-Streams. Im Stall-Netz laeuft eine Bridge
- * (go2rtc ODER MediaMTX, siehe /bridge), die via Cloudflare Tunnel
- * oeffentlich per HTTPS erreichbar ist. Die App spricht ausschliesslich mit
- * der Bridge – niemals direkt mit den Kameras, ohne Zugangsdaten im Frontend.
+ * (go2rtc ODER MediaMTX, siehe /bridge), die selbst nie oeffentlich ist. Von
+ * aussen kommt die Stallwache ueber den Fernzugriff (lib/fern.ts: Tailscale
+ * Funnel -> fern-proxy.py mit Token). Die App spricht nie direkt mit den
+ * Kameras, keine Zugangsdaten im Frontend.
  * Tuya-faehige Kameras (siehe CameraConfig.tuyaFaehig) laufen stattdessen
  * primaer ueber die Tuya-Cloud, mit der Bridge nur als Fallback.
  *
@@ -38,7 +39,10 @@ export const BRIDGE_TYPE: BridgeType =
     ? "mediamtx"
     : "go2rtc";
 
-/** Basis-URL der Bridge (Cloudflare-Tunnel), ohne abschliessenden Slash. */
+/**
+ * Direkte Basis-URL der Bridge, ohne abschliessenden Slash. Im Normalfall
+ * leer (docs/fernzugriff-spezifikation.md §2): go2rtc ist nicht oeffentlich.
+ */
 export const BRIDGE_URL = (
   process.env.NEXT_PUBLIC_BRIDGE_URL?.trim() ||
   process.env.NEXT_PUBLIC_GO2RTC_URL?.trim() ||

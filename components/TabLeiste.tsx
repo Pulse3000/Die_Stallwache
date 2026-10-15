@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { sichtbaresIntervall } from "@/lib/sichtbares-intervall";
+import { zaehleOffeneAlarme } from "@/lib/ereignis-modell";
 
 /**
  * Untere Navigationsleiste der PWA.
@@ -57,12 +58,8 @@ export default function TabLeiste() {
           { cache: "no-store" },
         );
         if (!res.ok) return;
-        const json = (await res.json()) as {
-          ereignisse: { quittiert: string | null }[];
-        };
-        if (!beendet) {
-          setOffeneAlarme(json.ereignisse.filter((e) => !e.quittiert).length);
-        }
+        const json = (await res.json()) as Parameters<typeof zaehleOffeneAlarme>[0];
+        if (!beendet) setOffeneAlarme(zaehleOffeneAlarme(json));
       } catch {
         // Offline: der zuletzt bekannte Zaehler bleibt stehen.
       }

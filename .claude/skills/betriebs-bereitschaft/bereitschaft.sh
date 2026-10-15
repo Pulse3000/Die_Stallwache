@@ -121,13 +121,20 @@ for k in futterwache abkalbebox weidewache; do
   fi
 done
 
-# --- 8. Bridge (Stallwache) -------------------------------------------------
-if hole / | grep -q "NEXT_PUBLIC_BRIDGE_URL"; then
-  zeile "Bridge (Stallwache)" "SCHLAEFT" "Platzhalter sichtbar — Tunnel-Hostname fehlt"
-elif [ "$START" = "200" ]; then
-  zeile "Bridge (Stallwache)" "GESETZT" "Livebild erst am Geraet pruefbar"
+# --- 8. Stallwache (Fernzugriff ueber Tailscale Funnel oder Tuya) ----------
+# Seit dem Umstieg von Cloudflare auf Tailscale (docs/fernzugriff-spezifikation.md)
+# kommt das Bild ueber /api/stallwache/stream. Die Antwort sagt direkt, ob der
+# Stall-Rechner erreichbar ist — eine gesetzte Bridge-Adresse sagt das nicht.
+C=$(code "/api/stallwache/stream")
+A=$(hole "/api/stallwache/stream")
+if echo "$A" | grep -q '"url"'; then
+  zeile "Stallwache" "SCHARF" "Stream-URL erhalten (Livebild am Geraet pruefen)"
+elif echo "$A" | grep -q 'nicht konfiguriert'; then
+  zeile "Stallwache" "SCHLAEFT" "weder Fernzugriff (STALLWACHE_FERN_*) noch Tuya eingerichtet"
+elif echo "$A" | grep -q 'fehler'; then
+  zeile "Stallwache" "DEFEKT" "$(echo "$A" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("fehler","?")[:60])' 2>/dev/null || echo 'unlesbar')"
 else
-  zeile "Bridge (Stallwache)" "UNKLAR" "Startseite nicht lesbar"
+  zeile "Stallwache" "UNKLAR" "HTTP $C, keine verwertbare Antwort"
 fi
 
 echo
