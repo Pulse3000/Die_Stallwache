@@ -61,7 +61,8 @@ Nach jedem Neustart beginnt die Zählung wieder bei 0:
 - **Zeichensatz:** Die `fid` besteht nur aus Hex-Zeichen und Ziffern. Sie
   enthält nie `:` (Trenner im `callback_data`) und nie `/` (Dateiname).
 - **Unverändert:** Antworttexte, Zähler im Tagesbericht (ein Votum auf einen
-  alten Button zählt wie bisher bei abgelaufenen Alarmen), Semantik von
+  alten Button zählt einmal, wie bei abgelaufenen Alarmen; Doppel-Tipp-Regel
+  in `versand-entkopplung-spezifikation.md` §7), Semantik von
   `bei_fehlalarm`, Austreibungs-Takt, alle Schwellenwerte, `MAX_OFFEN = 20`,
   Ablage im Tagesordner nach dem Muster `{typ}-{fid}-{i}.jpg`.
 - **Bestehende Dateien bleiben unberührt:** keine Migration, keine
@@ -113,9 +114,10 @@ Am realen Agenten (Beweispflicht, offen):
    nichts überschrieben (Grundsatz 3); möglich wäre nur ein Fehltreffer
    eines alten Buttons.
 2. **Erneut zugestellte Voten** (Offset vom alten Prozess nicht mehr
-   bestätigt) zählen im Tagesbericht doppelt. Das gilt wie bisher für jeden
-   Doppel-Tipp auf einen abgelaufenen Alarm; die Zähler-Semantik bleibt
-   bewusst unverändert.
+   bestätigt) zählen im Tagesbericht ein zweites Mal, weil `_abgestimmt`
+   nach dem Neustart leer beginnt (`versand-entkopplung-spezifikation.md`
+   §7.2). Bilder und `bei_fehlalarm` betrifft das nicht; die Zähler-Semantik
+   bleibt bewusst unverändert.
 3. **Längere Dateinamen** (+8 Zeichen): unkritisch.
 
 ## 6. Abnahme `qa-waechter` (15.10.2026, Delta ecde966..f7b20b4): FREIGABE
@@ -153,3 +155,18 @@ Uhr, entstehen bis zur NTP-Synchronisierung wieder Namen der letzten Stunde
 vor dem Ausfall. Vorhandene Trainingsbilder werden dann still
 überschrieben. Eigener Schritt, gleiches Muster (eindeutiger Name oder
 exklusives Anlegen).
+
+## 7. Zusammenführung mit #77 (Doppel-Tipp zählt einmal)
+
+#77 wurde parallel gemergt und führt `_abgestimmt` ein
+(`versand-entkopplung-spezifikation.md` §7). Beim Zusammenführen:
+
+- `registriere()` behält `_abgestimmt.pop(fid)` (dortige Grenze 6). Mit
+  eindeutigen IDs greift das nur noch bei einer Token-Kollision; der
+  Kommentar sagt das jetzt.
+- Die Tests 28–30 und 33 aus #77 setzten numerische IDs (`"0"`, `"1"`,
+  `"2"`) voraus. Sie lesen die ID jetzt aus dem Markup. Test 32 bildet die
+  Alt-ID mit dem eigenen Token nach (Kollisionsfall), damit der Schutz in
+  `registriere()` weiter geprüft wird.
+- §7.4 Risiko 1 der Versand-Spezifikation (Kollision der IDs nach Neustart)
+  ist damit behoben und dort vermerkt.
