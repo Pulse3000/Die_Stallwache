@@ -243,9 +243,13 @@ Am realen Gerät (Beweispflicht, Betreiber + Orchestrator):
    Die Anzeige bleibt trotzdem ehrlich („Ungeprüft“, nie „Online“), sieht
    aber den Ausfall nicht. Abhilfe wäre ein Playlist-Abruf je Ping. Er weckt
    aber möglicherweise den Kamera-Upload und wird erst nach §6.11 entschieden.
-2. **Ping zeigt „Offline“, „Live starten“ verschwindet.** Ist die Störung
-   kurz, kommt der Knopf erst mit dem nächsten Ping (≤ 2 min) zurück. Das
-   Vollbild bleibt als Live-Versuch erreichbar.
+2. **„Offline“ blendet „Live starten“ aus.**
+   - Ist die Störung kurz und stammt das „Offline“ aus dem Ping, kommt der
+     Knopf mit dem nächsten Ping zurück (≤ 2 min).
+   - Stammt es aus einem gescheiterten Live-Versuch, richtet sich der nächste
+     Ping noch nach dem letzten erfolgreichen. Dann dauert es bis zu 5 min
+     (qa-waechter N2, Folgeaufgabe).
+   - Das Vollbild bleibt in beiden Fällen als Live-Versuch erreichbar.
 3. **Bestehend, nicht Teil dieser Änderung:**
    - Ein Livestream, der ohne fatalen Fehler einfriert, bleibt „Online“.
    - Mit Bridge hält eine hängende Einzelbild-Anfrage den letzten Zustand.
@@ -263,6 +267,20 @@ Am realen Gerät (Beweispflicht, Betreiber + Orchestrator):
    Login (401) bleibt eine Vorschau „Ungeprüft“, auch wenn die Kamera in
    dieser Zeit ausfällt. Das ist gewollt: Ohne Antwort des Servers gibt es
    keinen Beleg. Die Alarmkette (Edge-Agent, Telegram) hängt nicht daran.
+7. **Der Live-Pfad unterscheidet noch nicht** (bestand schon vorher,
+   qa-waechter N1, Folgeaufgabe).
+   - `startTuya` wertet jeden Netzfehler und jedes Nicht-2xx als
+     Fehlschlag. Nach drei Versuchen meldet `scheduleReconnect` „offline“.
+   - Mit Datensparen aus (Werkseinstellung) färbt ein Funkloch am Handy
+     deshalb nach etwa 60 s rot: „0 von 3 online“.
+   - Seit §1.5 bleibt dieses „offline“ auch über die Navigation bestehen.
+   - Abhilfe: den Live-Pfad ebenfalls nach `pingAntwort` einordnen. Unklar
+     hieße dann „instabil“ statt „offline“.
+8. **Nur mit gesetzter Bridge** (bestand schon vorher, qa-waechter N3,
+   Folgeaufgabe): Der `catch`-Zweig von `startBridgeWebrtc` schließt
+   `pcRef` und die WHEP-Sitzung ohne Prüfung des Ende-Flags. Ein alter Lauf
+   kann so einen neuen Haupt-Lauf abbrechen. In der Produktion ohne Bridge
+   (§2) tritt das nicht auf.
 
 ### Befunde `qa-waechter` (15.10.2026), eingearbeitet
 
@@ -273,3 +291,12 @@ Am realen Gerät (Beweispflicht, Betreiber + Orchestrator):
 | F3 (niedrig): Eine alte Störung vor langer Pause zählte als erste von zweien | Zähler ohne Zeitbezug | Folge-Fenster `PING_FOLGE_MAX_MS`; Funkloch und 401 zählen nicht (`unklar`) | Unit-Tests |
 | F4 (kosmetisch): Umbruch „· 1“ / „pausiert“ | normales Leerzeichen | geschütztes Leerzeichen zwischen Zahl und Wort | Unit-Test |
 | F5 (Info): Ping ohne Frist | – | `PING_TIMEOUT_MS` 20 s | Code |
+
+Zweite Runde auf `f0dc1ff`: **Freigabe: ja.**
+- F1–F5 sind im Browser nachgemessen behoben: Wettläufe ohne geladenes
+  Segment, „Offline“ bleibt über die Navigation erhalten, kein
+  zusätzlicher Ping.
+- `npm test` 94/94; `tsc`, `lint` und `build` grün; TDZ-Reihenfolge
+  geprüft, keine `pageerror`.
+- N1–N3 bestanden schon vorher und sind oben unter Risiken 2, 7 und 8
+  festgehalten.
