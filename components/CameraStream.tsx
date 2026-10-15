@@ -12,6 +12,15 @@ import {
   snapshotUrl,
   webrtcUrl,
 } from "@/lib/config";
+import {
+  LEERER_PING_STAND,
+  PING_TIMEOUT_MS,
+  type PingStand,
+  bewertePing,
+  nachLivebild,
+  pingAntwort,
+  wartezeitBisPing,
+} from "@/lib/kamera-status";
 
 export type CameraRole = "haupt" | "vorschau";
 
@@ -34,6 +43,16 @@ const PREVIEW_INTERVAL_ERR = 15000;
 const PREVIEW_INITIAL_DELAY = 600;
 
 /**
+ * Ping-Stand je Kamera (lib/kamera-status.ts) auf Modulebene: ueberdauert
+ * Rollenwechsel, Pause und Navigation (Remount der Kachel) – ein belegtes
+ * „offline" geht beim Tabwechsel nicht verloren, und eine Rueckkehr loest
+ * keinen vorzeitigen Ping aus. Ein Neuladen der Seite beginnt frisch.
+ */
+const pingStaende = new Map<CameraConfig["id"], PingStand>();
+const pingStand = (id: CameraConfig["id"]): PingStand =>
+  pingStaende.get(id) ?? LEERER_PING_STAND;
+
+/**
  * Ein Kamera-Container fuer Stallblick.
  *
  * Quelle Bridge (go2rtc ODER MediaMTX, siehe lib/config.ts BRIDGE_TYPE):
@@ -50,7 +69,10 @@ const PREVIEW_INITIAL_DELAY = 600;
  *                      laufen ab → bei fatalem HLS-Fehler wird eine frische
  *                      URL geholt.
  *   Rolle "vorschau" → wie Bridge-Vorschau oben (go2rtc-Snapshot wenn
- *                      verfuegbar, sonst ruhiger Platzhalter).
+ *                      verfuegbar). Ohne Bridge: ruhiger Platzhalter, Zustand
+ *                      "ungeprueft" (kein Bildbeweis) plus sparsamer
+ *                      Status-Ping an camera.tuyaEndpoint
+ *                      (docs/vorschau-status-spezifikation.md).
  *
  * Der Rollenwechsel bindet nur die Medienquelle im selben Container um;
  * die Komponente bleibt gemountet, es gibt keinen Seiten-Neuaufbau.
@@ -84,13 +106,28 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
   const stateRef = useRef<CameraState | null>(null);
 
   useEffect(() => {
+    // Ende-Flag JE EFFEKTLAUF: Asynchrone Fortsetzungen eines frueheren Laufs
+    // (Tuya-Zuteilung, hls.js-Import, Reconnect-Timer, WebRTC) duerfen nach
+    // Rollenwechsel oder Pause nichts mehr starten oder melden. disposedRef
+    // taugt dafuer nicht: Jeder neue Lauf setzt ihn wieder auf false – ein
+    // alter Haupt-Stream lief dann unsichtbar in der Vorschau weiter und
+    // meldete „online" (qa-waechter, 15.10.2026). disposedRef bleibt nur
+    // fuer die Einzelbild-Handler ausserhalb des Effekts.
+    let aus = false;
     disposedRef.current = false;
     tuyaAufgegebenRef.current = false;
     const report = (s: CameraState) => {
-      if (disposedRef.current || stateRef.current === s) return;
+      if (aus || stateRef.current === s) return;
       stateRef.current = s;
+      // Der letzte Beleg gehoert der Kamera, nicht der Kachel (§1.5).
+      if (s === "online" || s === "offline") {
+        pingStaende.set(camera.id, { ...pingStand(camera.id), belegtOffline: s === "offline" });
+      }
       onStateRef.current(camera.id, s);
     };
+    // Frisch gemountete Kachel (z. B. nach Tabwechsel): ein belegtes
+    // „offline" gilt weiter, bis eine Pruefung etwas anderes zeigt.
+    if (stateRef.current === null && pingStand(camera.id).belegtOffline) report("offline");
 
     const clearTimer = () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -109,8 +146,12 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
     // deklarierte const waere dort noch nicht initialisiert (TDZ ->
     // ReferenceError, das ganze Dashboard faellt aus).
     const markLive = () => {
+      if (aus) return; // Listener eines frueheren Laufs
       attemptsRef.current = 0;
       wasLiveRef.current = true;
+      // Ein Livebild ist der staerkste Beweis: der naechste Vorschau-Ping
+      // ist erst nach dem normalen Takt faellig.
+      pingStaende.set(camera.id, nachLivebild(Date.now()));
       setVideoLive(true);
       report("online");
     };
@@ -137,6 +178,7 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
     if (!isConfigured && !istTuya) {
       report("offline");
       return () => {
+        aus = true;
         disposedRef.current = true;
       };
     }
@@ -147,6 +189,7 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
       teardownLive();
       wasLiveRef.current = false;
       return () => {
+        aus = true;
         disposedRef.current = true;
       };
     }
@@ -156,16 +199,18 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
       if (isConfigured && snapshotSupported) {
         // ---- Vorschau via go2rtc-Snapshot ----
         const poll = () => {
-          if (disposedRef.current) return;
+          if (aus) return;
           setSnapSrc(`${snapshotUrl(camera.streamName)}&t=${Date.now()}`);
         };
-        report(wasLiveRef.current ? "online" : "laedt");
+        // Kein uebernommenes „online": das erste Einzelbild entscheidet.
+        // „offline" bleibt bis dahin stehen (nicht ohne Beweis zuruecknehmen).
+        if (stateRef.current !== "offline") report("laedt");
         timerRef.current = setTimeout(poll, PREVIEW_INITIAL_DELAY);
       } else if (isConfigured) {
         // ---- MediaMTX: kein Snapshot-Endpoint – leichtes HEAD-Polling ----
         // Kein Videodecode fuer die Vorschau, nur ein Status-Ping.
         const pingen = async () => {
-          if (disposedRef.current) return;
+          if (aus) return;
           try {
             const res = await fetch(hlsUrl(camera.streamName), {
               method: "HEAD",
@@ -175,7 +220,7 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
           } catch {
             report("offline");
           } finally {
-            if (!disposedRef.current) {
+            if (!aus) {
               timerRef.current = setTimeout(
                 pingen,
                 stateRef.current === "online"
@@ -188,9 +233,51 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
         void pingen();
       } else {
         // ---- Tuya-only: ruhiger Platzhalter, kein zweiter Live-Stream ----
-        report(wasLiveRef.current ? "online" : "laedt");
+        // Ohne Einzelbild gibt es keinen Bildbeweis: „ungeprueft" statt eines
+        // uebernommenen „online" oder eines ewigen „laedt". „offline" bleibt,
+        // bis eine Pruefung etwas anderes zeigt.
+        if (stateRef.current !== "offline") report("ungeprueft");
+        // Sparsamer Status-Ping: Erfolg ist kein Bildbeweis (bleibt
+        // „ungeprueft"), zwei Stoerungen (HTTP >= 500) in Folge sind ein
+        // Ausfall; kein Netz, Frist oder 401 sagen nichts ueber die Kamera.
+        let laufend: AbortController | null = null;
+        const pingen = async () => {
+          const ctrl = new AbortController();
+          laufend = ctrl;
+          const frist = setTimeout(() => ctrl.abort(), PING_TIMEOUT_MS);
+          let status: number | null = null;
+          try {
+            const res = await fetch(camera.tuyaEndpoint, {
+              cache: "no-store",
+              signal: ctrl.signal,
+            });
+            status = res.status;
+            res.body?.cancel().catch(() => {}); // nur der Status zaehlt
+          } catch {
+            status = null; // Netzfehler oder Frist abgelaufen
+          } finally {
+            clearTimeout(frist);
+          }
+          if (aus) return;
+          const jetzt = Date.now();
+          const e = bewertePing(pingStand(camera.id), pingAntwort(status), jetzt);
+          pingStaende.set(camera.id, e.stand);
+          if (e.zustand) report(e.zustand);
+          timerRef.current = setTimeout(pingen, e.warteMs);
+        };
+        timerRef.current = setTimeout(
+          pingen,
+          wartezeitBisPing(pingStand(camera.id).faellig, Date.now()),
+        );
+        return () => {
+          aus = true;
+          laufend?.abort();
+          disposedRef.current = true;
+          clearTimer();
+        };
       }
       return () => {
+        aus = true;
         disposedRef.current = true;
         clearTimer();
       };
@@ -198,7 +285,7 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
 
     // ---- Haupt-Modus: Live-Stream mit hoechster Prioritaet ----
     const scheduleReconnect = () => {
-      if (disposedRef.current) return;
+      if (aus) return;
       setVideoLive(false);
       report(attemptsRef.current >= 2 ? "offline" : "instabil");
       const delay = Math.min(30000, 2000 * 2 ** attemptsRef.current);
@@ -210,7 +297,7 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
     /** Spielt eine HLS-URL ab (nativ oder via hls.js); onFatal bei Abbruch. */
     const playHlsUrl = (url: string, onFatal: () => void) => {
       const video = videoRef.current;
-      if (!video || disposedRef.current) return;
+      if (!video || aus) return;
 
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = url; // Safari / iOS: natives HLS
@@ -224,7 +311,7 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
       // Safari/iOS spielt nativ, WebRTC-Pfade brauchen ihn nie.
       import("hls.js")
         .then(({ default: HlsJs }) => {
-          if (disposedRef.current) return;
+          if (aus) return;
           startHlsJs(HlsJs, video, url, onFatal);
         })
         .catch(onFatal);
@@ -267,7 +354,7 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
     /** WebRTC-Verbindungsaufbau ueber die konfigurierte Bridge (go2rtc oder MediaMTX/WHEP). */
     const startBridgeWebrtc = async () => {
       const video = videoRef.current;
-      if (!video || disposedRef.current) return;
+      if (!video || aus) return;
 
       // Pro Verbindungsversuch eigenes Flag: wasLiveRef bleibt ueber
       // Reconnects hinweg true, sobald die Kamera einmal online war, und
@@ -302,7 +389,7 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
             // einem endlosen Lade-Spinner haengen zu lassen.
             if (webrtcWatchdogRef.current) clearTimeout(webrtcWatchdogRef.current);
             webrtcWatchdogRef.current = setTimeout(() => {
-              if (pcRef.current === pc && !disposedRef.current && !bildDa) {
+              if (pcRef.current === pc && !aus && !bildDa) {
                 video.removeEventListener("playing", onPlaying);
                 pc.close();
                 if (pcRef.current === pc) pcRef.current = null;
@@ -318,7 +405,7 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
             webrtcWatchdogRef.current = null;
             video.removeEventListener("playing", onPlaying);
             pc.close();
-            if (pcRef.current === pc && !disposedRef.current) {
+            if (pcRef.current === pc && !aus) {
               pcRef.current = null;
               startHls();
             }
@@ -360,24 +447,24 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
         pcRef.current?.close();
         pcRef.current = null;
         teardownWhep();
-        if (!disposedRef.current) startHls();
+        if (!aus) startHls();
       }
     };
 
     /** Holt eine frische Tuya-HLS-URL und spielt sie; Fallback auf die Bridge. */
     const startTuya = async () => {
       const video = videoRef.current;
-      if (!video || disposedRef.current) return;
+      if (!video || aus) return;
       try {
         const res = await fetch(camera.tuyaEndpoint, { cache: "no-store" });
         if (!res.ok) throw new Error(`Tuya HTTP ${res.status}`);
         const data = (await res.json()) as { url?: string };
-        if (disposedRef.current) return;
+        if (aus) return;
         if (!data.url) throw new Error("Tuya ohne URL");
         // Bei fatalem Fehler frische URL holen (Tuya-URLs laufen ab).
         playHlsUrl(data.url, scheduleReconnect);
       } catch {
-        if (disposedRef.current) return;
+        if (aus) return;
         if (isConfigured) {
           // Tuya nicht verfuegbar → fuer diese Session auf die Bridge umschalten.
           tuyaAufgegebenRef.current = true;
@@ -398,6 +485,7 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
     connect();
 
     return () => {
+      aus = true;
       disposedRef.current = true;
       teardownLive();
     };

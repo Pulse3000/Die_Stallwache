@@ -63,8 +63,13 @@ export type CameraId =
   | "abkalbebox"
   | "weidewache";
 
-/** Kamera-State laut State-Modell: online | offline | laedt | instabil */
-export type CameraState = "online" | "offline" | "laedt" | "instabil";
+/**
+ * Kamera-State laut State-Modell: online | offline | laedt | instabil |
+ * ungeprueft. „ungeprueft" = Vorschau ohne Bildbeweis (ohne Bridge kein
+ * Einzelbild): zaehlt weder als online noch als offline
+ * (docs/vorschau-status-spezifikation.md).
+ */
+export type CameraState = "online" | "offline" | "laedt" | "instabil" | "ungeprueft";
 
 export interface CameraConfig {
   id: CameraId;

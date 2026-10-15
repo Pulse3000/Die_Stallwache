@@ -32,6 +32,7 @@ berührt.
   - Ist die Variable trotzdem gesetzt, wechselt die Kachel nach dem ersten Fehlschlag des Fernzugriffs für die ganze Sitzung auf diese tote Bridge (`components/CameraStream.tsx`, `startTuya`).
   - Ohne die Variable versucht sie den Fernzugriff erneut (`scheduleReconnect`).
   - **Folge:** `NEXT_PUBLIC_BRIDGE_URL` in Vercel leer lassen. Dadurch fallen die go2rtc-Vorschaubilder (Snapshots) weg, die ohnehin nur im Tailnet luden.
+  - Ohne Einzelbild kann eine Vorschau-Kachel (Datensparen) ihr Bild nicht prüfen. Sie meldet „Ungeprüft“ statt „Lädt“ oder eines übernommenen „Online“ und zählt im Kopf weder als online noch als offline. Ein sparsamer Status-Ping erkennt echte Störungen. Regel, Takte und Abnahme: [`vorschau-status-spezifikation.md`](./vorschau-status-spezifikation.md).
 - **Wartung von go2rtc** (WebUI, Stream-Test) läuft nur im Tailnet: `http://<tailnet-IP>:1984` von einem Gerät mit aktiver Tailscale-App.
 - **MediaMTX-Variante (`bridge/mediamtx/`):** `fern-proxy.py` kennt nur go2rtc-Pfade. Ohne Cloudflare hat MediaMTX daher **keinen** Fernzugriff, sondern nur Zugriff im LAN bzw. Tailnet. Das ist nicht am Gerät erprobt. Der Standard bleibt go2rtc.
 
@@ -79,6 +80,7 @@ Am realen Gerät (Beweispflicht, Betreiber + Orchestrator):
 5. Über Mobilfunk ohne Tailscale liefert `https://<gerät>.<tailnet>.ts.net:8443/api/stream.m3u8` die Antwort **403**. Der Funnel arbeitet also, und der Proxy sperrt Anfragen ohne Token.
 6. Eingeloggt liefert `GET /api/stallwache/stream` den Status `200 {"url":…,"typ":"hls"}`, und die Kachel zeigt das Livebild.
 7. Bei abgeschaltetem Funnel zeigt die Kachel den Verbindungs-Hinweis und es gibt keine Seitenfehler. Wird der Funnel wieder eingeschaltet, kommt das Bild ohne Neuladen zurück (mit leerer `NEXT_PUBLIC_BRIDGE_URL`).
+8. Mit leerer `NEXT_PUBLIC_BRIDGE_URL` und Datensparen an zeigt der Kopf kein „0 von 3 Kameras online“, solange die Kameras senden, und keine Kachel meldet ungeprüft „Online“ ([`vorschau-status-spezifikation.md`](./vorschau-status-spezifikation.md) §6).
 
 ## 5. Risiken
 

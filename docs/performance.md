@@ -64,9 +64,11 @@ API-Aufruf (begrenztes Kontingent).
    - Beim Laden gelten Befunde erst nach 350 ms: Das Layout verschiebt sich
      anfangs noch (eine Kachel am Bildrand rutschte sonst nach dem ersten
      Befund nach unten, hatte sich aber schon verbunden).
-   - Statusanzeige: pausierte Kacheln zeigen „Pausiert". Eine pausierte, nie
-     verbundene Kachel zählt nicht als Störung („3 Kameras online · 1 pausiert"),
-     eine zuvor online gewesene gilt weiter als online. „Offline" bleibt sichtbar.
+   - Statusanzeige: pausierte Kacheln zeigen „Pausiert" und zählen im Kopf
+     weder als online noch als Störung („3 online · 1 pausiert"). Das gilt seit
+     15.10.2026 auch für eine zuvor online gewesene Kachel: Während der Pause
+     prüft niemand ihr Bild ([`vorschau-status-spezifikation.md`](./vorschau-status-spezifikation.md)
+     §1.4). „Offline" bleibt sichtbar.
 6. **Schlankere hls.js-Puffer** (`maxBufferLength` 8 s, kein Rückpuffer):
    vier Player gleichzeitig, weniger Speicher.
 

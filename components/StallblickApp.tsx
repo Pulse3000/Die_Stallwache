@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import CameraStream from "@/components/CameraStream";
 import LetzteAlarme from "@/components/LetzteAlarme";
 import { useEinstellungen } from "@/lib/einstellungen";
+import { type Anzeige, type KopfTon, belegterWechsel, kopfStatus } from "@/lib/kamera-status";
 import { usePausiert } from "@/lib/pausiert";
 import {
   CAMERAS,
@@ -20,6 +21,7 @@ const STATE_LABEL: Record<CameraState, string> = {
   offline: "Offline",
   laedt: "Lädt",
   instabil: "Instabil",
+  ungeprueft: "Ungeprüft",
 };
 
 const STATE_DOT: Record<CameraState, string> = {
@@ -27,12 +29,20 @@ const STATE_DOT: Record<CameraState, string> = {
   offline: "bg-red-500",
   laedt: "bg-amber-400",
   instabil: "bg-orange-400",
+  ungeprueft: "bg-slate-400",
 };
 
-/** Anzeige-Zustand: wie der Kamerazustand, plus „pausiert" (nicht im Bild). */
-type Anzeige = CameraState | "pausiert";
+/** Anzeige-Zustand (lib/kamera-status.ts): Kamerazustand plus „pausiert". */
 const ANZEIGE_LABEL: Record<Anzeige, string> = { ...STATE_LABEL, pausiert: "Pausiert" };
 const ANZEIGE_DOT: Record<Anzeige, string> = { ...STATE_DOT, pausiert: "bg-white/30" };
+
+/** System-Punkt im Kopf: rot nur bei echtem Ausfall (docs/vorschau-status-spezifikation.md). */
+const KOPF_DOT: Record<KopfTon, string> = {
+  ok: "bg-stall-accent",
+  hinweis: "bg-amber-400",
+  stoerung: "bg-red-500",
+  neutral: "bg-white/30",
+};
 
 interface Ereignis {
   zeit: string;
@@ -105,13 +115,17 @@ export default function StallblickApp() {
     if (!manuellGewaehltRef.current) setHauptkamera(einstellungen.startKamera);
   }, [einstellungen.startKamera]);
 
+  // Ereignisliste nur bei belegtem Wechsel online <-> offline: Zwischen-
+  // zustaende (ungeprueft, laedt, instabil) wiederholen kein „ist online".
+  const gemeldetRef = useRef<Partial<Record<CameraId, "online" | "offline">>>({});
   const onCamState = useCallback(
     (id: CameraId, state: CameraState) => {
       setCamStates((prev) => {
         if (prev[id] === state) return prev;
         return { ...prev, [id]: state };
       });
-      if (state === "online" || state === "offline") {
+      if (belegterWechsel(gemeldetRef.current[id], state)) {
+        gemeldetRef.current[id] = state;
         addEreignis(`${cameraById(id).name} ist ${STATE_LABEL[state].toLowerCase()}`);
       }
     },
@@ -189,18 +203,13 @@ export default function StallblickApp() {
     }
   }, [hauptkamera, addEreignis]);
 
-  // Streams laufen nur bei Sicht (lib/pausiert.ts). Eine pausierte Kachel, die
-  // nie verbunden war, ist „unbekannt" und zaehlt nicht als Stoerung; eine
-  // pausierte, zuvor online gewesene gilt weiter als online.
+  // Streams laufen nur bei Sicht (lib/pausiert.ts). Der Kopf zaehlt genau,
+  // was die Kacheln zeigen: Pausiert und Ungeprueft (Vorschau ohne
+  // Bildbeweis) sind weder online noch Stoerung; „Offline" bleibt sichtbar.
   const pausiert = usePausiert(CAMERAS.map((c) => c.id));
   const anzeige = (id: CameraId): Anzeige =>
     pausiert[id] && camStates[id] !== "offline" ? "pausiert" : camStates[id];
-  const onlineCount = CAMERAS.filter((c) => camStates[c.id] === "online").length;
-  const unbekannt = CAMERAS.filter(
-    (c) => pausiert[c.id] && camStates[c.id] !== "online" && camStates[c.id] !== "offline",
-  ).length;
-  const gezaehlt = CAMERAS.length - unbekannt;
-  const systemOk = gezaehlt > 0 && onlineCount === gezaehlt;
+  const kopf = kopfStatus(CAMERAS.map((c) => anzeige(c.id)));
 
   return (
     <>
@@ -219,26 +228,19 @@ export default function StallblickApp() {
             <h1 className="truncate text-xl font-bold tracking-tight">
               Stallblick
             </h1>
-            <p className="truncate text-xs text-white/50">
-              {gezaehlt === 0
-                ? "Livebilder pausiert"
-                : systemOk
-                  ? unbekannt > 0
-                    ? `${onlineCount} Kameras online · ${unbekannt} pausiert`
-                    : `${CAMERAS.length} Kameras online`
-                  : `${onlineCount} von ${gezaehlt} Kameras online`}
+            {/* Umbruch statt Abschneiden: ein seltener Mischzustand (Stoerung
+                plus Vorschau) darf zwei Zeilen brauchen, aber nichts verlieren. */}
+            <p className="line-clamp-2 text-xs text-white/50" title={kopf.text} data-kopftext>
+              {kopf.text}
             </p>
           </div>
         </div>
         <div
           className="flex shrink-0 items-center gap-2 rounded-full bg-stall-card px-3 py-1.5 text-xs ring-1 ring-white/10"
           aria-label="Systemstatus"
+          data-ton={kopf.ton}
         >
-          <span
-            className={`h-2 w-2 rounded-full ${
-              systemOk ? "bg-stall-accent" : onlineCount > 0 ? "bg-amber-400" : "bg-red-500"
-            }`}
-          />
+          <span className={`h-2 w-2 rounded-full ${KOPF_DOT[kopf.ton]}`} />
           <span className="text-white/70">System</span>
         </div>
       </header>
@@ -257,6 +259,7 @@ export default function StallblickApp() {
             <article
               key={cam.id}
               data-kamera={cam.id}
+              data-zustand={zustand}
               className={
                 vollbild && istHaupt
                   ? "fixed inset-0 z-50 flex flex-col bg-black"
@@ -295,7 +298,7 @@ export default function StallblickApp() {
 
                 {/* Statuszeile ueber dem Bild */}
                 <div className="pointer-events-none absolute left-2.5 top-2.5 flex items-center gap-2">
-                  {live && state === "online" && (
+                  {live && zustand === "online" && (
                     <span className="rounded bg-red-600 px-2 py-0.5 text-[11px] font-bold tracking-wide text-white">
                       LIVE
                     </span>
