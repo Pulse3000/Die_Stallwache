@@ -37,7 +37,10 @@ einer ruhigen Nacht also gar nicht.
    kodieren, Ereignis bauen, in eine Warteschlange legen. Auch die
    Hard-Negative-Bilder eines „❌ Fehlalarm“-Votums schreibt der
    Feedback-Kanal; vorher hielt ein Votum die Analyse auf einer langsamen
-   SD-Karte mehrere Sekunden an.
+   SD-Karte mehrere Sekunden an. Die Antwort an den Landwirt kommt erst
+   nach dem Schreiben und nennt das tatsächliche Ergebnis. Schlägt das
+   Schreiben fehl (volle oder defekte Karte), sagt die Antwort das, statt
+   „gespeichert“ zu behaupten.
 2. **Je Kanal ein Versand-Thread.** Telegram-Alarme, Telegram-Feedback
    und das Dashboard bekommen je einen eigenen Worker. Ein hängendes
    Telegram hält die App-Meldung (und damit den Push aufs Handy) nicht auf,
@@ -110,8 +113,8 @@ Automatisiert (`edge-agent/tests/test_versand.py`):
 21. Fremde 400 (Proxy-Fehlerseite ohne App-JSON) verwerfen nichts, die Austreibung bleibt in der Outbox.
 22. Eine Austreibung, die während eines laufenden Rückstau-Teilstapels eintrifft, führt die nächste Anfrage an.
 23. Ein dringender Auftrag überholt wartende Routine. Warten nur dringende, wird eine neue Routine verworfen, kein dringender.
-24. Ein „❌ Fehlalarm“-Votum kehrt sofort zurück, auch wenn das Speichern der Bilder 2 s dauert.
-25. Mutationsprobe: 13 gezielte Fehler werden von je mindestens einem Test erkannt. Geprüft: ohne Sperre, Antworten synchron, keine Sicherung, ohne Teilstapel, ohne Vorrang, Priorität ignoriert, ohne Tasten, Ablehnung endlos, kein Neulesen je Teilstapel, Routine verdrängt Dringendes, kein Überholen, jede 400 verwerfen, Platte synchron.
+24. Ein „❌ Fehlalarm“-Votum kehrt sofort zurück, auch wenn das Speichern der Bilder 2 s dauert. Die Antwort nennt die tatsächlich gespeicherte Anzahl. Bei defekter Platte gibt es keine Erfolgsmeldung, die Buttons verschwinden trotzdem, und der Kanal arbeitet weiter.
+25. Mutationsprobe: 14 gezielte Fehler werden von je mindestens einem Test erkannt. Geprüft: ohne Sperre, Antworten synchron, keine Sicherung, ohne Teilstapel, ohne Vorrang, Priorität ignoriert, ohne Tasten, Ablehnung endlos, kein Neulesen je Teilstapel, Routine verdrängt Dringendes, kein Überholen, jede 400 verwerfen, Platte synchron, Erfolgsmeldung unabhängig vom Speichern.
 
 Am realen Agenten (Beweispflicht, offen):
 
@@ -194,3 +197,22 @@ Ereignissen an, keins verloren, keins doppelt. Verworfen wurde der
 Befund „GIL-Blockade beim Serialisieren“: Gemessen wurden 0,3 s bei 80 MB,
 eine Fehlfunktion folgt daraus nicht. Mit den Teilstapeln sind es jetzt
 höchstens 3 MB je Serialisierung.
+
+**Abnahme `qa-waechter`, 2. Lauf (Delta 70390da..ebf1a7b): FREIGABE.**
+Die drei Befunde und der Plattenrest sind behoben und nachgemessen:
+
+- Eine Austreibung hinter 200 gepufferten Meldungen kommt nach 6,3 s an
+  (vorher nie). Sie wartet höchstens noch auf den gerade laufenden
+  Teilstapel. Ruht der Rückstau im Backoff, sind es 0,2 s.
+- Die Hauptschleife lief mit hängendem Netz (3 s) und langsamer Platte
+  (2 s je Schreibvorgang) samt Votum 400 Frames lang ohne Iteration über
+  0,5 s.
+- `_nachliefern` kehrt in allen Server-Antwortmustern zurück und ist
+  durch die Zahl der Einträge begrenzt.
+
+Der Prüfer nannte einen kosmetischen Rest: Die Antwort „N Bild(er)
+gespeichert“ ging seit dem asynchronen Speichern auch dann raus, wenn das
+Schreiben scheiterte. Vor #74 gab es in diesem Fall keine Erfolgsmeldung.
+Weil der Landwirt keine unbewiesene Meldung bekommen soll, ist das
+behoben: Speichern und Antworten sind ein Auftrag (Grundsatz 1,
+Kriterium 24). Am alten Stand schlägt der neue Test fehl.

@@ -487,11 +487,52 @@ fb23 = m.FeedbackSchleife(
 fid23 = fb23.registriere(m.Alarm("kalbeverdacht", "Kuh #1", "x", None, None), [b"a", b"b"])[
     "inline_keyboard"][0][1]["callback_data"].split(":")[1]
 langsam = []
-fb23._speichere = lambda fid, eintrag: (time.sleep(2), langsam.append(fid))
+
+
+def _langsam_speichern(fid, eintrag):
+    time.sleep(2)
+    langsam.append(fid)
+    return len(eintrag[1])
+
+
+fb23._speichere = _langsam_speichern
 dauer = gestempelt(lambda: fb23.verarbeite(
     [{"update_id": 1, "callback_query": {"id": "q", "data": f"fb:{fid23}:fehlalarm"}}]))
 p.check(f"23: Votum blockiert nicht bei langsamer Platte ({dauer:.3f} s)", dauer < 0.3)
 k23.warte(10)
 p.check("23: Bilder im Hintergrund gespeichert", langsam == [fid23])
+antworten23 = [kw["data"]["text"] for _, kw in netz.an("answerCallbackQuery")]
+p.check(f"23: Antwort nennt die tatsaechlich gespeicherte Anzahl ({antworten23})",
+        antworten23 == ["Danke – 2 Bild(er) fürs Nachtraining gespeichert."])
+
+# --- 24. Defekte Platte: keine Erfolgsmeldung, Kanal lebt weiter ------------
+netz = neues_netz()
+k24 = m.Versandkanal("feedback-defekt", 10)
+fb24 = m.FeedbackSchleife(
+    {"telegram": {"token": "T", "chat_id": "C", "fehlalarm_ordner": str(TMP / "fb24")}},
+    kanal=k24,
+)
+fid24 = fb24.registriere(m.Alarm("kalbeverdacht", "Kuh #2", "x", None, None), [b"a"])[
+    "inline_keyboard"][0][1]["callback_data"].split(":")[1]
+
+
+def _platte_voll(fid, eintrag):
+    raise OSError(28, "No space left on device")
+
+
+fb24._speichere = _platte_voll
+fb24.verarbeite([{"update_id": 1, "callback_query": {
+    "id": "q24", "data": f"fb:{fid24}:fehlalarm", "message": {"message_id": 9}}}])
+k24.warte(5)
+antworten24 = [kw["data"]["text"] for _, kw in netz.an("answerCallbackQuery")]
+p.check(f"24: keine Erfolgsmeldung bei defekter Platte ({antworten24})",
+        len(antworten24) == 1 and "gespeichert." not in antworten24[0]
+        and "NICHT gespeichert" in antworten24[0])
+p.check("24: Buttons trotzdem entfernt", len(netz.an("editMessageReplyMarkup")) == 1)
+p.check("24: Fehlalarm trotzdem gezaehlt", fb24.zaehler["fehlalarm"] == 1)
+fb24.verarbeite([{"update_id": 2, "callback_query": {"id": "q24b", "data": f"fb:{fid24}:treffer"}}])
+k24.warte(5)
+p.check("24: Kanal arbeitet nach dem Plattenfehler weiter",
+        len(netz.an("answerCallbackQuery")) == 2)
 
 sys.exit(p.bericht())

@@ -1033,26 +1033,38 @@ class FeedbackSchleife:
                 self.zaehler[urteil] += 1
                 eintrag = self._offen.pop(fid, None)
                 episode = self._episode.pop(fid, None)
-                if urteil == "fehlalarm":
-                    # Schreiben im Hintergrund — die Platte (SD-Karte) darf die
-                    # Analyse so wenig aufhalten wie das Netz.
-                    anzahl = len(eintrag[1]) if eintrag else 0
-                    self._netz(self._speichere, fid, eintrag)
-                    if eintrag and self.bei_fehlalarm is not None:
-                        try:
-                            self.bei_fehlalarm(eintrag[0], episode)
-                        except Exception:  # noqa: BLE001 – Feedback laeuft weiter
-                            log.exception("Fehlalarm-Rueckmeldung an die Logik gescheitert")
-                    antwort = (
-                        f"Danke – {anzahl} Bild(er) fürs Nachtraining gespeichert."
-                        if anzahl
-                        else "Danke – notiert (Bilder lagen nicht mehr vor)."
-                    )
+                if urteil == "fehlalarm" and eintrag and self.bei_fehlalarm is not None:
+                    try:
+                        self.bei_fehlalarm(eintrag[0], episode)
+                    except Exception:  # noqa: BLE001 – Feedback laeuft weiter
+                        log.exception("Fehlalarm-Rueckmeldung an die Logik gescheitert")
                 if eintrag is not None:
                     # Nur beim ersten Votum — ein Doppel-Tipp erzeugt keine
                     # weiteren Telegram-Auftraege.
                     self._netz(self._entferne_buttons, cq)
+                if urteil == "fehlalarm":
+                    # Schreiben im Hintergrund — die Platte (SD-Karte) darf die
+                    # Analyse so wenig aufhalten wie das Netz. Geantwortet wird
+                    # erst danach und nur mit dem, was wirklich auf der Platte ist.
+                    self._netz(self._speichere_und_antworte, cq, fid, eintrag)
+                    continue
             self._netz(self._antworte, cq, antwort)
+
+    def _speichere_und_antworte(
+        self, cq: dict, fid: str, eintrag: tuple[str, list[bytes]] | None
+    ) -> None:
+        try:
+            anzahl = self._speichere(fid, eintrag)
+        except Exception:  # noqa: BLE001 – volle/defekte Platte stoppt nichts
+            log.exception("Fehlalarm-Bilder konnten nicht gespeichert werden")
+            text = "Danke – notiert. Bilder konnten NICHT gespeichert werden (Log prüfen)."
+        else:
+            text = (
+                f"Danke – {anzahl} Bild(er) fürs Nachtraining gespeichert."
+                if anzahl
+                else "Danke – notiert (Bilder lagen nicht mehr vor)."
+            )
+        self._antworte(cq, text)
 
     def _speichere(self, fid: str, eintrag: tuple[str, list[bytes]] | None) -> int:
         if not eintrag:
