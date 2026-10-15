@@ -211,6 +211,7 @@ for i in range(3):
     n.melde(m.Alarm("austreibung", None, "A", 0.9, None, sofort=True, episode=1), None)
     n.melde(m.Alarm("kalbeverdacht", "Kuh #42", "K", None, None), None)
     UHR[0] += 60
+n.warte()  # Telegram laeuft im Versand-Thread
 p.check("12: Austreibung 3x binnen 3 min gemeldet", gemeldet.count("austreibung") == 3)
 p.check("12: Kalbeverdacht bleibt im Cooldown (1x)", gemeldet.count("kalbeverdacht") == 1)
 
