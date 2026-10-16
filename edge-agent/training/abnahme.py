@@ -11,6 +11,10 @@ Automatisch geprueft auf datensatz/images/val + labels/val:
   Gate 2  Keypoint-Guete: Schwanzwinkel Modell vs. Hand-Label (alle drei
           Keypoints sichtbar gelabelt), mittlere Abweichung < 10° bei
           mindestens 30 Stichproben.
+  Gate 2b Sichtbarkeit: Bei gelabelt erhobenem Schwanz (> 45°) liefert das
+          Modell in >= 90 % der Faelle alle drei Keypoints sichtbar
+          (n >= 10). Sonst wuerde der Agent diese Frames verwerfen und
+          Kalbeverdacht still unterdruecken - Gate 2 allein merkt das nicht.
 Nur von Hand pruefbar (im Bericht als offene Punkte):
   Gate 3  Fehlalarm-Budget: 24 h ereignisloses Material durch den ganzen
           Agenten -> 0 Austreibungs-, <= 1 Kalbeverdacht-Fehlalarm.
@@ -20,8 +24,8 @@ Winkel und Sichtbarkeitspruefung kommen aus dem Agenten selbst
 (main.schwanzwinkel_grad, InferenceEngine._schwanzwinkel) - nie eine Kopie,
 sonst misst die Abnahme etwas anderes, als im Stall laeuft.
 
-Exit-Code: 0 Gate 1 und 2 bestanden, 1 ein Gate verfehlt,
-2 Gate 2 bestanden, Gate 1 nicht pruefbar (keine Geburt im Val-Set).
+Exit-Code: 0 Gate 1, 2 und 2b bestanden, 1 ein Gate verfehlt,
+2 keines verfehlt, aber Gate 1 oder 2b nicht pruefbar (zu wenig Val-Material).
 """
 
 from __future__ import annotations
@@ -43,6 +47,9 @@ OVERRIDE_KONFIDENZ = 0.80
 IOU_MIN = 0.5
 STICHPROBEN_MIN = 30
 MAX_ABWEICHUNG_GRAD = 10.0
+ERHOBEN_AB_GRAD = 45.0          # Referenzwert logik.winkel_schwelle_grad
+SICHTBARKEIT_MIN = 0.90
+SICHTBARKEIT_STICHPROBEN_MIN = 10
 
 
 # --------------------------------------------------------------------------
@@ -131,7 +138,35 @@ def winkel_paare(bilder, gt_winkel, pred_winkel, iou_min: float = IOU_MIN):
     return paare
 
 
-def bewerte(recall: dict, paare: list, stichproben_min: int = STICHPROBEN_MIN,
+def _sichtbar_gelabelt(objekt: dict) -> bool:
+    kp = objekt["kp"]
+    return len(kp) >= 3 and all(v == 2 for _, _, v in kp[:3])
+
+
+def sichtbarkeit_erhoben(bilder, gt_winkel, pred_winkel, iou_min: float = IOU_MIN) -> tuple[int, int]:
+    """(n, gesehen): gelabelt erhobene Schwaenze (> 45°) und wie oft das
+    Modell dafuer einen auswertbaren Winkel liefert. Nicht erkannte Kuh
+    zaehlt als nicht gesehen."""
+    n = gesehen = 0
+    for gt, pred in bilder:
+        zuordnung = dict(ordne_zu(gt, pred, KUH, iou_min))
+        for gi, o in enumerate(gt):
+            if o["klasse"] != KUH or not _sichtbar_gelabelt(o):
+                continue
+            soll = gt_winkel(*[(x, y) for x, y, _ in o["kp"][:3]])
+            if soll is None or soll <= ERHOBEN_AB_GRAD:
+                continue
+            n += 1
+            pi = zuordnung.get(gi)
+            if pi is not None:
+                kp_p = pred[pi]["kp"]
+                if pred_winkel([(x, y) for x, y, _ in kp_p], [c for _, _, c in kp_p]) is not None:
+                    gesehen += 1
+    return n, gesehen
+
+
+def bewerte(recall: dict, paare: list, sicht: tuple[int, int] = (0, 0),
+            stichproben_min: int = STICHPROBEN_MIN,
             max_abweichung: float = MAX_ABWEICHUNG_GRAD) -> dict:
     vorhanden = {k: v for k, v in recall.items() if v["gt"]}
     if not vorhanden:
@@ -145,14 +180,21 @@ def bewerte(recall: dict, paare: list, stichproben_min: int = STICHPROBEN_MIN,
         gate2 = "verfehlt"
     else:
         gate2 = "bestanden" if abweichung < max_abweichung else "verfehlt"
-    if gate1 == "verfehlt" or gate2 == "verfehlt":
+    n_sicht, gesehen = sicht
+    if n_sicht < SICHTBARKEIT_STICHPROBEN_MIN:
+        gate2b = "nicht prüfbar"
+    else:
+        gate2b = "bestanden" if gesehen / n_sicht >= SICHTBARKEIT_MIN else "verfehlt"
+    stati = (gate1, gate2, gate2b)
+    if "verfehlt" in stati:
         code = 1
-    elif gate1 == "nicht prüfbar":
+    elif "nicht prüfbar" in stati:
         code = 2
     else:
         code = 0
     return {"gate1": gate1, "recall": recall, "gate2": gate2,
-            "stichproben": len(paare), "abweichung": abweichung, "code": code}
+            "stichproben": len(paare), "abweichung": abweichung,
+            "gate2b": gate2b, "sicht": sicht, "code": code}
 
 
 def bericht(e: dict, modell: str, datensatz: str) -> str:
@@ -168,12 +210,22 @@ def bericht(e: dict, modell: str, datensatz: str) -> str:
     abw = f"{e['abweichung']:.1f}°" if e["abweichung"] is not None else "–"
     z.append(f"| 2 Keypoints | mittl. Winkelabweichung < {MAX_ABWEICHUNG_GRAD:.0f}° "
              f"(n ≥ {STICHPROBEN_MIN}) | {abw} bei n = {e['stichproben']} | {e['gate2']} |")
+    n_sicht, gesehen = e["sicht"]
+    z.append(f"| 2b Sichtbarkeit | erhobener Schwanz (> {ERHOBEN_AB_GRAD:.0f}°): alle 3 Keypoints "
+             f"sichtbar in ≥ {SICHTBARKEIT_MIN:.0%} (n ≥ {SICHTBARKEIT_STICHPROBEN_MIN}) | "
+             f"{gesehen}/{n_sicht} | {e['gate2b']} |")
     z.append("| 3 Fehlalarm-Budget | 24 h ereignislos: 0 Austreibung, ≤ 1 Kalbeverdacht | "
              "von Hand | offen |")
     z.append("| 4 Laufzeit | ≥ 1 FPS auf der Zielhardware | `--nur-fps` dort | offen |")
     if e["gate1"] == "nicht prüfbar":
         z += ["", "Keine Geburt im Val-Set: Austreibungs-Logik NICHT scharfschalten, "
               "Silent Mode für diese Klassen verlängern."]
+    if e["gate2b"] == "nicht prüfbar":
+        z += ["", "Zu wenige gelabelte erhobene Schwänze im Val-Set: Sichtbarkeit beim "
+              "Kalbeverdacht unbelegt – mehr solche Bilder labeln."]
+    elif e["gate2b"] == "verfehlt":
+        z += ["", "Erhobene Schwänze werden zu oft nicht vollständig erkannt: Der Agent "
+              "würde Kalbeverdacht still unterdrücken. Nicht scharfschalten."]
     return "\n".join(z) + "\n"
 
 
@@ -280,7 +332,11 @@ def main(argv: list[str] | None = None) -> int:
 
     gt_winkel, pred_winkel = winkel_des_agenten()
     bilder = sammle(modell, datensatz)
-    ergebnis = bewerte(austreibungs_recall(bilder), winkel_paare(bilder, gt_winkel, pred_winkel))
+    ergebnis = bewerte(
+        austreibungs_recall(bilder),
+        winkel_paare(bilder, gt_winkel, pred_winkel),
+        sichtbarkeit_erhoben(bilder, gt_winkel, pred_winkel),
+    )
     text = bericht(ergebnis, args.modell, args.datensatz)
     print(text)
     if args.bericht:

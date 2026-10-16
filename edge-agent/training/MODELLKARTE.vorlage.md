@@ -32,6 +32,7 @@ Beimischung offener Datensätze (nur train): …
 | --- | --- | --- | --- |
 | 1 Austreibung | Recall = 1.0 bei Konfidenz ≥ 0.80 | | |
 | 2 Keypoints | mittl. Winkelabweichung < 10° (n ≥ 30) | | |
+| 2b Sichtbarkeit | erhobener Schwanz: alle 3 Keypoints sichtbar ≥ 90 % (n ≥ 10) | | |
 | 3 Fehlalarm-Budget | 24 h ereignislos: 0 Austreibung, ≤ 1 Kalbeverdacht | | |
 | 4 Laufzeit | ≥ 1 FPS auf der Zielhardware | | |
 

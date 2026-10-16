@@ -403,6 +403,12 @@ class ObjektErkennung:
     box: tuple[float, float, float, float]
 
 
+# Keypoints unter dieser Konfidenz gelten als verdeckt. Das ist die
+# Sichtbarkeitsgrenze von Ultralytics (setzt solche Punkte auf (0, 0)),
+# kein Fach-Schwellenwert – deshalb bewusst nicht konfigurierbar.
+KEYPOINT_SICHTBAR_AB = 0.5
+
+
 def schwanzwinkel_grad(spine, basis, spitze) -> float | None:
     """Winkel zwischen Rueckenlinie und Schwanz in Grad (0 = anliegend).
 
@@ -431,9 +437,6 @@ class InferenceEngine:
     def __init__(self, cfg: dict):
         self.cfg = cfg["modell"]
         self.kp = self.cfg["keypoints"]
-        # Keypoints unter dieser Konfidenz gelten als nicht sichtbar.
-        # Ultralytics setzt sie unter 0.5 ohnehin auf (0, 0).
-        self.kp_min_konf = float(self.cfg.get("keypoint_min_konfidenz", 0.5))
         self.klassen = {int(v): k for k, v in self.cfg["klassen"].items()}
         # Eigene Tracker-Konfiguration (z. B. tracker-kuh.yaml mit grossem
         # track_buffer fuer 1 FPS); leer -> Ultralytics-Default.
@@ -498,7 +501,7 @@ class InferenceEngine:
         try:
             idx = (self.kp["spine_end"], self.kp["tail_base"], self.kp["tail_tip"])
             spine, basis, spitze = (punkte[i] for i in idx)
-            if konf is not None and any(float(konf[i]) < self.kp_min_konf for i in idx):
+            if konf is not None and any(float(konf[i]) < KEYPOINT_SICHTBAR_AB for i in idx):
                 return None
             if any(float(p[0]) == 0.0 and float(p[1]) == 0.0 for p in (spine, basis, spitze)):
                 return None

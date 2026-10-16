@@ -123,7 +123,7 @@ Scharfschalten → Beobachten → wieder Sammeln.** Werkzeuge in `training/`.
    `amniotic_sac` (Fruchtblase) und `calf_legs` (Kälberfüße). Regeln:
    - Verdeckte Keypoints als **nicht sichtbar** markieren, nie raten –
      besonders `tail_tip`. Der Agent wertet nur sichtbare Keypoints
-     (`modell.keypoint_min_konfidenz`); geratene Labels lehren das Modell
+     (Konfidenz ≥ 0.5); geratene Labels lehren das Modell
      falsche Geometrie.
    - Erhobener Schwanz beim Koten ist normal `kuh`. Es gibt **keine Klasse
      „kalbt"** – das Verhalten entscheidet der Agent (30-min-Fenster).
@@ -142,7 +142,8 @@ Scharfschalten → Beobachten → wieder Sammeln.** Werkzeuge in `training/`.
    `training/stall.yaml` passt zu `config.yaml`.
 7. **Abnahme-Gates** vor jedem Scharfschalten (`training/abnahme.py`):
    Austreibung Recall = 1.0 bei Konfidenz 0.80, Schwanzwinkel-Abweichung
-   < 10° (n ≥ 30) automatisch; Fehlalarm-Budget (24 h ereignislos: 0
+   < 10° (n ≥ 30) und Sichtbarkeit erhobener Schwänze ≥ 90 % (n ≥ 10)
+   automatisch; Fehlalarm-Budget (24 h ereignislos: 0
    Austreibung, ≤ 1 Kalbeverdacht) und ≥ 1 FPS auf der Zielhardware von Hand:
 
    ```bash
@@ -150,7 +151,9 @@ Scharfschalten → Beobachten → wieder Sammeln.** Werkzeuge in `training/`.
    python3 training/abnahme.py best_v1.pt datensatz --nur-fps   # auf dem Stall-Rechner
    ```
 
-   Ohne Geburt im Val-Set (Exit 2): Austreibungs-Logik nicht scharfschalten.
+   Exit 2 = zu wenig Val-Material: ohne Geburt im Val-Set die
+   Austreibungs-Logik nicht scharfschalten, ohne erhobene Schwänze erst
+   mehr solche Bilder labeln.
 8. **Versionieren:** `best_v1.pt`, `best_v2.pt`, … – nie überschreiben. Je
    Version eine Modellkarte aus `training/MODELLKARTE.vorlage.md`.
 9. **Scharfschalten:** Datei auf den Stall-Rechner, Pfad in `config.yaml`
@@ -167,7 +170,7 @@ Scharfschalten → Beobachten → wieder Sammeln.** Werkzeuge in `training/`.
 
 | Phase | Regel | Reaktion |
 | --- | --- | --- |
-| **Kalbeverdacht** | Schwanzwinkel > 45° (Vektoren `Spine_End→Tail_Base` und `Tail_Base→Tail_Tip`, `atan2`) in **> 20 %** der Frames eines rollierenden **30-Min-Fensters** (`collections.deque`). Nur Frames mit allen drei Keypoints sichtbar (Konfidenz ≥ `keypoint_min_konfidenz`, Standard 0.5) zählen – ein verdeckter Schwanz erzeugt keinen Winkel | Telegram + Dashboard |
+| **Kalbeverdacht** | Schwanzwinkel > 45° (Vektoren `Spine_End→Tail_Base` und `Tail_Base→Tail_Tip`, `atan2`) in **> 20 %** der Frames eines rollierenden **30-Min-Fensters** (`collections.deque`). Nur Frames mit allen drei Keypoints sichtbar (Konfidenz ≥ 0.5, Sichtbarkeitsgrenze von Ultralytics) zählen – ein verdeckter Schwanz erzeugt keinen Winkel | Telegram + Dashboard |
 | **Austreibung** | `amniotic_sac` oder `calf_legs` mit **> 80 %** Konfidenz | **Sofort-Alarm**, Zeitfilter übersprungen |
 | **Eskalation** | Austreibung läuft, aber nach **60 min** (konfigurierbar) sind weiterhin Fruchtblase/Füße sichtbar → kein Geburtsfortschritt | **dringender Kontroll-Alarm** (Komplikationsverdacht, Lely-Zeta-Prinzip) |
 | **Brunstverdacht** | Aufsprung: zwei Kuh-Boxen überlappen (IoU > 0.15), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert Spielverhalten) | Telegram + Dashboard |

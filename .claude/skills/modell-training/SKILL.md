@@ -58,7 +58,7 @@ Ab dem 2. Trainingsdurchgang zusätzlich labeln:
 
 Qualitätsregeln: Verdeckte Keypoints als **nicht sichtbar** markieren, nie
 schätzen – besonders `tail_tip`. Der Agent wertet nur sichtbare Keypoints
-(`modell.keypoint_min_konfidenz`); geschätzte Labels lehren falsche
+(Konfidenz ≥ 0.5); geschätzte Labels lehren falsche
 Geometrie und verfälschen die Winkel-Abnahme. `amniotic_sac`/`calf_legs`
 nur labeln, wenn eindeutig – diese Klassen lösen Sofort-Alarme aus,
 Falsch-Labels erzeugen Fehlalarme. Keine Klasse „kalbt": das Verhalten
@@ -82,6 +82,7 @@ Zellen in `edge-agent/training/colab_training.py` (Split, Training mit
 | --- | --- | --- |
 | 1 | Austreibung Recall = 1.0 bei Konfidenz 0.80 | automatisch; ohne Geburt im Val-Set Exit 2 → Austreibungs-Logik **nicht** scharf |
 | 2 | Schwanzwinkel Modell vs. Label < 10° (n ≥ 30) | automatisch, mit der Winkel-Logik des Agenten |
+| 2b | erhobener Schwanz (> 45°): alle 3 Keypoints sichtbar in ≥ 90 % (n ≥ 10) | automatisch; sonst unterdrückt der Agent Kalbeverdacht still (Befund `ki-wache`) |
 | 3 | 24 h ereignislos: 0 Austreibung, ≤ 1 Kalbeverdacht | von Hand: `stream.url` auf Videodatei, Agent im Analyse-Modus |
 | 4 | ≥ 1 FPS auf der Zielhardware | `abnahme.py … --nur-fps` auf dem Stall-Rechner |
 

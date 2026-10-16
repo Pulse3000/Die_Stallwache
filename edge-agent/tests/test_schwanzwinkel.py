@@ -40,7 +40,7 @@ e = m.InferenceEngine({"modell": {
     "keypoints": {"spine_end": 0, "tail_base": 1, "tail_tip": 2},
     "klassen": {"kuh": 0, "amniotic_sac": 1, "calf_legs": 2},
 }})
-p.check("Default keypoint_min_konfidenz 0.5", e.kp_min_konf == 0.5)
+p.check("Sichtbarkeitsgrenze = Ultralytics-Definition 0.5", m.KEYPOINT_SICHTBAR_AB == 0.5)
 
 anliegend = [(200, 300), (400, 300), (450, 300)]
 p.check("sichtbar, mit Konfidenz -> Winkel", abs(e._schwanzwinkel(anliegend, [0.9, 0.9, 0.8])) < 1e-9)
@@ -64,13 +64,55 @@ p.check("Konfidenzliste zu kurz -> None", e._schwanzwinkel(anliegend, [0.9]) is 
 ohne_kp = m.InferenceEngine({"modell": {"pfad": "", "keypoints": {}, "klassen": {"kuh": 0}}})
 p.check("Keypoint fehlt in der Konfiguration -> None statt Fehler", ohne_kp._schwanzwinkel(anliegend) is None)
 
-streng = m.InferenceEngine({"modell": {
-    "pfad": "",
-    "keypoints": {"spine_end": 0, "tail_base": 1, "tail_tip": 2},
-    "klassen": {"kuh": 0},
-    "keypoint_min_konfidenz": 0.7,
-}})
-p.check("konfigurierte Schwelle 0.7 greift", streng._schwanzwinkel(anliegend, [0.9, 0.9, 0.6]) is None)
+p.check("Konfidenz genau 0.5 zaehlt als sichtbar", e._schwanzwinkel(anliegend, [0.5, 0.5, 0.5]) is not None)
+p.check(
+    "Keypoint am Bildrand (0, 300) zaehlt, nur exakt (0, 0) faellt raus",
+    e._schwanzwinkel([(0, 300), (200, 300), (250, 300)]) is not None,
+)
+
+# --- Verdrahtung in analysiere(): kps.conf wird durchgereicht ---------------
+
+
+class T:
+    """Tensor-Ersatz mit .cpu().numpy()."""
+
+    def __init__(self, wert):
+        self.wert = wert
+
+    def cpu(self):
+        return self
+
+    def numpy(self):
+        return self.wert
+
+
+class Boxen:
+    def __init__(self, cls, conf, xyxy, ids):
+        self.cls, self.conf, self.xyxy, self.id = cls, conf, xyxy, ids
+
+    def __len__(self):
+        return len(self.cls)
+
+
+def ergebnis(kps):
+    boxen = Boxen([0, 2], [0.9, 0.85], [(150, 250, 480, 380), (10, 10, 50, 50)], [7, 8])
+    return types.SimpleNamespace(boxes=boxen, keypoints=kps)
+
+
+e.modell = types.SimpleNamespace(track=lambda frame, **kw: [ergebnis(KPS[0])])
+KPS = [types.SimpleNamespace(
+    xy=[T(anliegend), T([(0, 0)] * 3)],
+    conf=[T([0.9, 0.9, 0.2]), T([0.0, 0.0, 0.0])],
+)]
+kuehe, objekte = e.analysiere(None)
+p.check("analysiere: niedrige tail_tip-Konfidenz -> kein Winkel", kuehe[0].winkel_grad is None)
+p.check("analysiere: Kaelberfuesse unabhaengig von Keypoints erkannt",
+        [o.klasse for o in objekte] == ["calf_legs"])
+KPS[0] = types.SimpleNamespace(xy=[T(anliegend), T([(0, 0)] * 3)], conf=None)
+kuehe, _ = e.analysiere(None)
+p.check("analysiere: Modell ohne Sichtbarkeitsspalte -> Winkel aus Koordinaten",
+        kuehe[0].winkel_grad is not None and abs(kuehe[0].winkel_grad) < 1e-9)
+e.modell = None
 
 # --- Wirkung im 30-Minuten-Fenster: verdeckter Schwanz -> kein Verdacht ----
 
@@ -93,6 +135,34 @@ for s in range(0, 40 * 60, 60):  # 40 min, ein Frame pro Minute, Schwanz verdeck
     kuh = m.KuhBeobachtung(7, (150, 250, 480, 380), e._schwanzwinkel(verdeckt, [0.9, 0.9, 0.2]), None)
     alarme += [a for a in logik.bewerte([kuh], []) if a.typ == "kalbeverdacht"]
 p.check("40 min verdeckter Schwanz -> kein Kalbeverdacht", alarme == [])
+
+# Recall bleibt: Die Haelfte der Frames verdeckt, von den sichtbaren 30 %
+# erhoben -> Anteil 30 % > 20 % -> Kalbeverdacht muss weiterhin kommen.
+erhoben = [(200, 300), (400, 300), (400, 200)]  # 90°
+logik = m.LogicEngine({
+    "logik": {
+        "winkel_schwelle_grad": 45, "fenster_minuten": 30, "anteil_schwelle": 0.20,
+        "override_konfidenz": 0.80, "brunst_min_dauer_s": 4,
+    },
+    "telegram": {"cooldown_minuten": 15},
+})
+alarme = []
+for n, s in enumerate(range(0, 30 * 60, 30)):  # 30 min, alle 30 s
+    UHR[0] = 60_000.0 + s
+    if n % 2:
+        punkte, konf = verdeckt, [0.9, 0.9, 0.1]
+    else:
+        punkte, konf = (erhoben if (n // 2) % 10 < 3 else anliegend), [0.9, 0.9, 0.9]
+    kuh = m.KuhBeobachtung(9, (150, 250, 480, 380), e._schwanzwinkel(punkte, konf), None)
+    alarme += [a for a in logik.bewerte([kuh], []) if a.typ == "kalbeverdacht"]
+p.check("halb verdeckt, 30 % der sichtbaren erhoben -> Kalbeverdacht bleibt", len(alarme) >= 1)
+
+# Austreibungs-Override haengt nie an Keypoints
+UHR[0] = 90_000.0
+kuh = m.KuhBeobachtung(9, (150, 250, 480, 380), e._schwanzwinkel([(0, 0)] * 3, [0.1] * 3), None)
+treffer = logik.bewerte([kuh], [m.ObjektErkennung("calf_legs", 0.85, (10, 10, 50, 50))])
+p.check("alle Keypoints verdeckt + Kaelberfuesse 0.85 -> Austreibung",
+        any(a.typ == "austreibung" for a in treffer))
 
 # --- Dateiname der Silent-Mode-Bilder --------------------------------------
 

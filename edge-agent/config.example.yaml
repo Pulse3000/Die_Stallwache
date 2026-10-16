@@ -51,10 +51,6 @@ modell:
     spine_end: 0   # Nacken / Ruecken
     tail_base: 1   # Schwanzansatz
     tail_tip: 2    # Schwanzspitze
-  # Keypoints darunter gelten als verdeckt: Der Frame zaehlt fuer den
-  # Schwanzwinkel der Kuh nicht mit (kein Phantomwinkel). Unter 0.5 wirkungslos,
-  # weil Ultralytics solche Punkte selbst auf (0, 0) setzt.
-  keypoint_min_konfidenz: 0.5
   # Klassen-Indizes der Objekterkennung
   klassen:
     kuh: 0

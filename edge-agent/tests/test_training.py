@@ -156,19 +156,37 @@ p.check(
                     gt_w, pred_w) == [],
 )
 
+# Gate 2b: erhobener Schwanz muss sichtbar bleiben
+erhoben_label = objekt(0, kuh_box, kp=[(200, 300, 2), (400, 300, 2), (400, 200, 2)])  # 90°
+sicht = ab.sichtbarkeit_erhoben([
+    ([erhoben_label], [objekt(0, kuh_box, 0.9, [(200, 300, 0.9), (400, 300, 0.9), (405, 205, 0.9)])]),
+    ([erhoben_label], [objekt(0, kuh_box, 0.9, [(200, 300, 0.9), (400, 300, 0.9), (0, 0, 0.2)])]),
+    ([erhoben_label], []),
+    ([label_kuh], [objekt(0, kuh_box, 0.9, [(200, 300, 0.9), (400, 300, 0.9), (0, 0, 0.2)])]),
+], gt_w, pred_w)
+p.check("2b: erhoben gesehen / verdeckt / Kuh verpasst; haengender Schwanz zaehlt nicht", sicht == (3, 1))
+
 voll = {1: {"gt": 2, "treffer": 2}, 2: {"gt": 1, "treffer": 1}}
 gute = [(30.0, 35.0)] * 30
-e = ab.bewerte(voll, gute)
-p.check("alle Gates bestanden -> Exit 0", e["gate1"] == "bestanden" and e["gate2"] == "bestanden" and e["code"] == 0)
+gut_sicht = (10, 9)
+e = ab.bewerte(voll, gute, gut_sicht)
+p.check("alle Gates bestanden -> Exit 0",
+        e["gate1"] == e["gate2"] == e["gate2b"] == "bestanden" and e["code"] == 0)
 p.check("eine verpasste Fruchtblase -> verfehlt, Exit 1",
-        ab.bewerte({1: {"gt": 2, "treffer": 1}, 2: {"gt": 0, "treffer": 0}}, gute)["code"] == 1)
-e = ab.bewerte({1: {"gt": 0, "treffer": 0}, 2: {"gt": 0, "treffer": 0}}, gute)
+        ab.bewerte({1: {"gt": 2, "treffer": 1}, 2: {"gt": 0, "treffer": 0}}, gute, gut_sicht)["code"] == 1)
+p.check("2b: 8 von 10 erhobenen gesehen -> verfehlt, Exit 1",
+        ab.bewerte(voll, gute, (10, 8))["gate2b"] == "verfehlt" and ab.bewerte(voll, gute, (10, 8))["code"] == 1)
+p.check("2b: unter 10 Stichproben -> nicht pruefbar, Exit 2",
+        ab.bewerte(voll, gute, (9, 9))["gate2b"] == "nicht prüfbar" and ab.bewerte(voll, gute, (9, 9))["code"] == 2)
+e = ab.bewerte({1: {"gt": 0, "treffer": 0}, 2: {"gt": 0, "treffer": 0}}, gute, gut_sicht)
 p.check("keine Geburt im Val-Set -> nicht pruefbar, Exit 2", e["gate1"] == "nicht prüfbar" and e["code"] == 2)
 p.check("29 Stichproben -> Gate 2 verfehlt", ab.bewerte(voll, gute[:29])["gate2"] == "verfehlt")
 p.check("Abweichung 10° -> Gate 2 verfehlt", ab.bewerte(voll, [(30.0, 40.0)] * 30)["gate2"] == "verfehlt")
 p.check("keine Paare -> Gate 2 verfehlt", ab.bewerte(voll, [])["gate2"] == "verfehlt")
 text = ab.bericht(ab.bewerte({1: {"gt": 0, "treffer": 0}, 2: {"gt": 0, "treffer": 0}}, gute), "runs/best_v1.pt", "datensatz")
 p.check("Bericht nennt Modell und offene Hand-Gates", "best_v1.pt" in text and text.count("| offen |") == 2)
+p.check("Bericht enthaelt Gate 2b und Hinweis bei zu wenig Material",
+        "| 2b Sichtbarkeit |" in text and "erhobene Schwänze" in text)
 p.check("Bericht warnt ohne Geburt im Val-Set", "NICHT scharfschalten" in text)
 
 sys.exit(p.bericht())

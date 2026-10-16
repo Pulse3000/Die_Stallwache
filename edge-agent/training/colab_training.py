@@ -38,8 +38,8 @@ modell.train(
 # import shutil
 # shutil.copy(f"runs/pose/v{VERSION}/weights/best.pt", f"best_v{VERSION}.pt")
 # !python abnahme.py best_v{VERSION}.pt datensatz --bericht abnahme_v{VERSION}.md
-# Exit 0 = Gate 1+2 bestanden, 1 = verfehlt, 2 = keine Geburt im Val-Set
-# (Austreibungs-Logik dann NICHT scharfschalten). Gate 3 (24 h Fehlalarm-
+# Exit 0 = Gate 1, 2, 2b bestanden, 1 = verfehlt, 2 = zu wenig Val-Material
+# (ohne Geburt: Austreibungs-Logik NICHT scharfschalten). Gate 3 (24 h Fehlalarm-
 # Budget) und Gate 4 (--nur-fps auf dem Stall-Rechner) folgen von Hand.
 # from google.colab import files
 # for datei in (f"best_v{VERSION}.pt", f"abnahme_v{VERSION}.md", "datensatz/split.json"):
