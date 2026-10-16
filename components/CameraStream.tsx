@@ -317,7 +317,7 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
         const beiFehler = () => {
           video.removeEventListener("error", beiFehler);
           if (nativFehler === beiFehler) nativFehler = null;
-          if (!disposedRef.current) onFatal();
+          if (!aus) onFatal();
         };
         nativFehler = beiFehler;
         video.addEventListener("error", beiFehler);
