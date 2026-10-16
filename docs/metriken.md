@@ -21,15 +21,18 @@ nachvollziehbarer Methodik. Blackbox-Abos können das nicht.
    Treffer, wenn er innerhalb des annotierten Ereignisfensters liegt.
 4. **Jede Zeile mit Modellversion und Datum** — Verläufe zeigen, ob
    Nachtraining wirkt.
+5. **Erst nach den Abnahme-Gates:** Ein Modell kommt nur in diese Tabelle,
+   wenn es die Gates aus `edge-agent/training/abnahme.py` bestanden hat
+   (Val-Set, vor dem Scharfschalten). Diese Tabelle misst danach die Praxis.
 
 ## Ergebnisse
 
 | Datum | Modell | Ereignis | Fusion | Testclips | Precision | Recall | Fehlalarme/Nacht | Bemerkung |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| _tbd_ | best-v1 | Kalbeverdacht (Schwanzwinkel) | – | – | – | – | – | nach 1. Training |
-| _tbd_ | best-v1 | Austreibung (Fruchtblase/Füße) | – | – | – | – | – | |
-| _tbd_ | best-v1 | Brunstverdacht (Aufsprung) | aus | – | – | – | – | Baseline solo |
-| _tbd_ | best-v1 | Brunstverdacht (Aufsprung) | plausibilisieren | – | – | – | – | Abnahme Brunst-Fusion: ≥ 50 % weniger Fehlalarme bei gehaltenem Recall ([Spez](./brunst-fusion-spezifikation.md) § 6) |
+| _tbd_ | best_v1 | Kalbeverdacht (Schwanzwinkel) | – | – | – | – | – | nach 1. Training |
+| _tbd_ | best_v1 | Austreibung (Fruchtblase/Füße) | – | – | – | – | – | |
+| _tbd_ | best_v1 | Brunstverdacht (Aufsprung) | aus | – | – | – | – | Baseline solo |
+| _tbd_ | best_v1 | Brunstverdacht (Aufsprung) | plausibilisieren | – | – | – | – | Abnahme Brunst-Fusion: ≥ 50 % weniger Fehlalarme bei gehaltenem Recall ([Spez](./brunst-fusion-spezifikation.md) § 6) |
 
 Die Spalte **Fusion** gilt nur für Brunstverdacht
 (`aus | annotieren | plausibilisieren`, siehe

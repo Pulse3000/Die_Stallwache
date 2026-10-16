@@ -403,12 +403,37 @@ class ObjektErkennung:
     box: tuple[float, float, float, float]
 
 
+def schwanzwinkel_grad(spine, basis, spitze) -> float | None:
+    """Winkel zwischen Rueckenlinie und Schwanz in Grad (0 = anliegend).
+
+    Reine Mathematik ohne numpy: Agent, Abnahme-Skript
+    (training/abnahme.py) und Tests rechnen mit genau dieser Formel.
+    Punkte sind (x, y)-Paare; None bei unbrauchbarer Geometrie.
+    """
+    try:
+        sx, sy = float(spine[0]), float(spine[1])
+        bx, by = float(basis[0]), float(basis[1])
+        tx, ty = float(spitze[0]), float(spitze[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if not all(math.isfinite(v) for v in (sx, sy, bx, by, tx, ty)):
+        return None
+    rx, ry = bx - sx, by - sy   # Vektor entlang der Rueckenlinie
+    wx, wy = tx - bx, ty - by   # Vektor des Schwanzes
+    if math.hypot(rx, ry) < 1 or math.hypot(wx, wy) < 1:
+        return None
+    return abs(math.degrees(math.atan2(rx * wy - ry * wx, rx * wx + ry * wy)))
+
+
 class InferenceEngine:
     """Kapselt Ultralytics-YOLO; ohne Modellpfad bleibt sie inaktiv."""
 
     def __init__(self, cfg: dict):
         self.cfg = cfg["modell"]
         self.kp = self.cfg["keypoints"]
+        # Keypoints unter dieser Konfidenz gelten als nicht sichtbar.
+        # Ultralytics setzt sie unter 0.5 ohnehin auf (0, 0).
+        self.kp_min_konf = float(self.cfg.get("keypoint_min_konfidenz", 0.5))
         self.klassen = {int(v): k for k, v in self.cfg["klassen"].items()}
         # Eigene Tracker-Konfiguration (z. B. tracker-kuh.yaml mit grossem
         # track_buffer fuer 1 FPS); leer -> Ultralytics-Default.
@@ -455,27 +480,31 @@ class InferenceEngine:
             winkel = None
             if kps is not None and i < len(kps.xy):
                 punkte = kps.xy[i].cpu().numpy()
-                winkel = self._schwanzwinkel(punkte)
+                konf_kp = getattr(kps, "conf", None)
+                winkel = self._schwanzwinkel(
+                    punkte, konf_kp[i].cpu().numpy() if konf_kp is not None else None
+                )
             kuehe.append(KuhBeobachtung(track_id, box, winkel, punkte))
         return kuehe, objekte
 
-    def _schwanzwinkel(self, punkte: np.ndarray) -> float | None:
-        """Winkel zwischen Rueckenlinie und Schwanz in Grad (0 = anliegend)."""
+    def _schwanzwinkel(self, punkte, konf=None) -> float | None:
+        """Schwanzwinkel nur aus sichtbaren Keypoints, sonst None.
+
+        Ultralytics meldet verdeckte Keypoints (Konfidenz < 0.5) als (0, 0).
+        Ungeprueft entstuende aus einem verdeckten Schwanz ein Phantomwinkel
+        gegen die Bildecke (oft > 45°), der ins 30-Minuten-Fenster zaehlt.
+        None heisst: dieser Frame zaehlt fuer die Kuh nicht mit.
+        """
         try:
-            spine = punkte[self.kp["spine_end"]]
-            basis = punkte[self.kp["tail_base"]]
-            spitze = punkte[self.kp["tail_tip"]]
-        except (IndexError, KeyError):
+            idx = (self.kp["spine_end"], self.kp["tail_base"], self.kp["tail_tip"])
+            spine, basis, spitze = (punkte[i] for i in idx)
+            if konf is not None and any(float(konf[i]) < self.kp_min_konf for i in idx):
+                return None
+            if any(float(p[0]) == 0.0 and float(p[1]) == 0.0 for p in (spine, basis, spitze)):
+                return None
+        except (IndexError, KeyError, TypeError, ValueError):
             return None
-        if not (np.all(np.isfinite(spine)) and np.all(np.isfinite(basis)) and np.all(np.isfinite(spitze))):
-            return None
-        ruecken = basis - spine     # Vektor entlang der Rueckenlinie
-        schwanz = spitze - basis    # Vektor des Schwanzes
-        if np.linalg.norm(ruecken) < 1 or np.linalg.norm(schwanz) < 1:
-            return None
-        kreuz = ruecken[0] * schwanz[1] - ruecken[1] * schwanz[0]
-        punktprod = float(np.dot(ruecken, schwanz))
-        return abs(math.degrees(math.atan2(kreuz, punktprod)))
+        return schwanzwinkel_grad(spine, basis, spitze)
 
 
 # --------------------------------------------------------------------------
@@ -1812,6 +1841,17 @@ def pruefe_kamerabild(
     return defekt
 
 
+def trainingsbild_name(kamera: str, zeit: float | None = None) -> str:
+    """Dateiname eines Silent-Mode-Bilds: <kamera>_<JJJJMMTT-HHMMSS>.jpg.
+
+    Die Kamera steht im Namen, weil Bilder mehrerer Agent-Instanzen im selben
+    Datensatz landen. Die Zeit steht im Namen, weil der Split nach Tagen
+    (training/datensatz.py) sie daraus liest.
+    """
+    kamera = "".join(c if c.isalnum() or c == "-" else "-" for c in kamera) or "kamera"
+    return f"{kamera}_{time.strftime('%Y%m%d-%H%M%S', time.localtime(zeit))}.jpg"
+
+
 # --------------------------------------------------------------------------
 # Hauptschleife
 # --------------------------------------------------------------------------
@@ -1891,7 +1931,7 @@ def main() -> None:
                     # Defekte Kamera -> kein Trainingsbild (Muell im Datensatz).
                     if pruefe_kamerabild(wd, frame, notifier):
                         continue
-                    name = ordner / f"{time.strftime('%Y%m%d-%H%M%S')}.jpg"
+                    name = ordner / trainingsbild_name(notifier.kamera)
                     cv2.imwrite(str(name), frame)
                     log.info("Trainingsbild gespeichert: %s", name)
                     if archiv.aktiv:

@@ -42,7 +42,8 @@ stream:
   totmann_minuten: 5
 
 modell:
-  # Pfad zum trainierten YOLO-Pose-Modell (best.pt aus dem Colab-Training).
+  # Pfad zum trainierten YOLO-Pose-Modell (best_v1.pt usw. aus dem Colab-
+  # Training, erst nach bestandener Abnahme: training/abnahme.py).
   # Leer lassen -> Silent Mode: Agent sammelt nur Trainingsbilder.
   pfad: ""
   # Keypoint-Indizes im eigenen Modell (Reihenfolge aus dem CVAT-Skeleton).
@@ -50,6 +51,10 @@ modell:
     spine_end: 0   # Nacken / Ruecken
     tail_base: 1   # Schwanzansatz
     tail_tip: 2    # Schwanzspitze
+  # Keypoints darunter gelten als verdeckt: Der Frame zaehlt fuer den
+  # Schwanzwinkel der Kuh nicht mit (kein Phantomwinkel). Unter 0.5 wirkungslos,
+  # weil Ultralytics solche Punkte selbst auf (0, 0) setzt.
+  keypoint_min_konfidenz: 0.5
   # Klassen-Indizes der Objekterkennung
   klassen:
     kuh: 0
