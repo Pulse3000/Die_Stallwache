@@ -87,8 +87,8 @@ weder der Gerätebestand des Hofes noch dessen Netz etwas zu suchen.
 
 Stream unter demselben Namen in der Bridge-Konfiguration anlegen
 (`bridge/`), Kamera-Zugangsdaten dort hinterlegen. Prüfen im LAN/Tailnet
-(go2rtc ist nie öffentlich): `http://<stall-rechner>:1984/api/frame.jpeg?src=<streamName>`
-liefert ein Bild.
+(go2rtc ist nie öffentlich): `curl -u BENUTZER:PASSWORT http://<stall-rechner>:1984/api/frame.jpeg?src=<streamName>`
+liefert ein Bild (Login aus `bridge/.env`, `GO2RTC_API_USER/PASS`).
 
 ## Schritt 6 — Edge-Agent (falls die Kamera analysiert werden soll)
 

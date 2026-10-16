@@ -178,7 +178,7 @@ export default function StallblickApp() {
   const snapshot = useCallback(async () => {
     const cam = cameraById(hauptkamera);
     if (!isConfigured) {
-      addEreignis(`Snapshot nicht möglich – Bridge nicht verbunden`);
+      addEreignis(`Snapshot nicht verfügbar – nur mit Bridge-Direktzugriff`);
       return;
     }
     if (!snapshotSupported) {

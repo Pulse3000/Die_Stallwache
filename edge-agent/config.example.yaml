@@ -6,6 +6,9 @@ stream:
   # IP des Bridge-Rechners im Stall-LAN eintragen:
   url: rtsp://192.168.178.50:8554/stallwache
   # Fallback, falls RTSP nicht klappt: Snapshot-Polling ueber die go2rtc-API.
+  # Mit go2rtc-Login (bridge/.env GO2RTC_API_USER/PASS):
+  #   http://BENUTZER:PASSWORT@192.168.178.50:1984/api/frame.jpeg?src=stallwache
+  # Der Agent schickt die Daten als Basic-Auth und schreibt sie nie ins Log.
   fallback_snapshot_url: http://192.168.178.50:1984/api/frame.jpeg?src=stallwache
   # --- Cloud-Quelle OHNE Bridge (Kameras, die schon in der Tuya-Cloud
   # haengen: Stallwache, Futterwache, Abkalbebox, Weidewache). Alle drei Werte
@@ -17,6 +20,9 @@ stream:
   #   quelle_api: /api/stallwache/stream
   # Voraussetzung in der Webapp: TUYA_DEVICE_ID_STALLWACHE gesetzt und
   # NEXT_PUBLIC_STALLWACHE_TUYA=1. Dann sehen App und Agent dieselbe Quelle.
+  # NICHT bei aktivem Fernzugriff (STALLWACHE_FERN_*): Dann liefert
+  # /api/stallwache/stream eine Adresse hinter dem App-Login, die die
+  # Cloud-Quelle nicht lesen kann — im Stall stattdessen stream.url (RTSP).
   #
   # app_passwort = STALLBLICK_PASSWORT der Webapp (config.yaml ist
   # gitignoriert und wird von setup.sh mit 600er-Rechten angelegt).

@@ -25,7 +25,9 @@ docker compose -f docker-compose.base44.yml logs -f web
   umgebungsspezifisch — nie hart eintragen.
 * **Die App laeuft vollstaendig ohne Zugangsdaten.** Alle Integrationen sind
   optional und degradieren sichtbar statt zu crashen:
-  * Ohne `NEXT_PUBLIC_BRIDGE_URL` zeigt das Dashboard „Warte auf Bridge".
+  * Ohne Bildweg (weder Fernzugriff/Tuya noch Bridge) zeigt die Kachel
+    „Noch kein Livebild eingerichtet". `NEXT_PUBLIC_BRIDGE_URL` bleibt im
+    Normalfall leer (`docs/fernzugriff-spezifikation.md` §2).
   * Ohne `TUYA_ACCESS_ID`/`TUYA_ACCESS_SECRET` antwortet
     `GET /api/tuya/geraete` mit **503 by design**; die Steuerung zeigt
     „Tuya nicht konfiguriert".

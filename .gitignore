@@ -18,3 +18,5 @@ __pycache__/
 edge-agent/config.yaml
 edge-agent/aufnahmen/
 
+# Eingestellte Termux-Bridge: alte Binaries/Logs auf Bestandsgeraeten ignorieren
+bridge/termux/

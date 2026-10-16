@@ -17,7 +17,8 @@
  *              die Vorschau greift dafuer kurzzeitig auf HLS zurueck.
  *
  * Umgebungsvariablen (siehe .env.example):
- *   NEXT_PUBLIC_BRIDGE_URL     Basis-URL der Bridge, z.B. https://stallwache.example.com
+ *   NEXT_PUBLIC_BRIDGE_URL     Basis-URL der Bridge, im Normalfall LEER
+ *                              (docs/fernzugriff-spezifikation.md §2)
  *   NEXT_PUBLIC_GO2RTC_URL     Alt-Name (Alias), falls schon gesetzt
  *   NEXT_PUBLIC_BRIDGE_TYPE    "go2rtc" (Default) | "mediamtx"
  *   NEXT_PUBLIC_STREAM_NAME    Stream/Pfad der Stallwache  (Default: "stallwache")
@@ -110,11 +111,15 @@ const WEIDEWACHE_TUYA = process.env.NEXT_PUBLIC_WEIDEWACHE_TUYA?.trim() !== "0";
  * Aktivieren: NEXT_PUBLIC_STALLWACHE_TUYA=1 (plus TUYA_DEVICE_ID_STALLWACHE
  * serverseitig). Ist zusaetzlich eine Bridge gesetzt, dient sie als Fallback.
  */
+/** Fernzugriff zum Stall-Rechner (lib/fern.ts, Tailscale Funnel) aktiv? */
+export const STALLWACHE_FERN =
+  process.env.NEXT_PUBLIC_STALLWACHE_FERN?.trim() === "1";
+
 const STALLWACHE_TUYA =
   process.env.NEXT_PUBLIC_STALLWACHE_TUYA?.trim() === "1" ||
   // Fernzugriff auf die Tapo ohne Tailscale-App (lib/fern.ts): gleicher
   // Endpoint /api/stallwache/stream, HLS statt WebRTC.
-  process.env.NEXT_PUBLIC_STALLWACHE_FERN?.trim() === "1";
+  STALLWACHE_FERN;
 
 /** Stallwache = Hauptkamera (Default), weitere Kameras als Zweitkameras. */
 export const CAMERAS: readonly CameraConfig[] = [

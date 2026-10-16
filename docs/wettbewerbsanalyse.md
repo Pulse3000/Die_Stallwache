@@ -282,7 +282,7 @@ verwendet werden.
 | **P3** | **Ein-Befehl-Setup** (geführtes Install-Skript inkl. Telegram-Bot-Assistent) | CowCatcherAI setzt die Onboarding-Messlatte („Exe + JSON") — bei gleichem Preis muss Stallblick im Aufwand vorn bleiben |
 | **P3** | **Lahmheits-Frühwarnung** aus Rückenlinien-Winkel | CattleEye; Keypoints vorhanden, braucht aber eigene Validierung |
 | **P3** | **BCS-Schätzung** (Body Condition) | DeLaval/CattleEye; erst nach stabilem Kalbe-/Brunst-Betrieb |
-| **P1** | **Fernzugriff nur über Tailscale (15.10.2026)**: ein einziger öffentlicher Weg (Funnel → Token-Proxy → go2rtc), kein Cloudflare-Tunnel, keine Termux-Bridge | Weniger Angriffsfläche: Der Tunnel legte die komplette go2rtc-API offen. Entscheidung des Betreibers; Details [`fernzugriff-spezifikation.md`](./fernzugriff-spezifikation.md) |
+| **P1** | **Fernzugriff nur über Tailscale (15.10.2026)**: ein einziger öffentlicher Weg (Funnel → Token-Proxy → go2rtc), kein Cloudflare-Tunnel, keine Termux-Bridge, kein öffentlicher Cloud-Transcoder | Weniger Angriffsfläche: Der Tunnel legte die komplette go2rtc-API offen. Entscheidung des Betreibers; Details [`fernzugriff-spezifikation.md`](./fernzugriff-spezifikation.md) |
 
 
 ### Entscheidungen aus der Alarmweg-Analyse (August 2026)

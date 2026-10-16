@@ -110,6 +110,9 @@ for k in futterwache abkalbebox weidewache; do
   if [ "$C" = "404" ]; then
     # Route existiert im Deployment nicht — meist ein aelterer Stand.
     zeile "Kamera $k" "FEHLT" "Route nicht deployt (alter Stand?)"
+  elif [ "$C" = "401" ]; then
+    # Passwortschutz ohne Cookie: ueber die Kamera ist nichts bekannt.
+    zeile "Kamera $k" "UNKLAR" "Anmeldung noetig (Cookie-Datei mitgeben)"
   elif echo "$A" | grep -q '"url"'; then
     zeile "Kamera $k" "SCHARF" "Stream-URL erhalten"
   elif echo "$A" | grep -q 'nicht konfiguriert'; then
@@ -127,8 +130,17 @@ done
 # Stall-Rechner erreichbar ist — eine gesetzte Bridge-Adresse sagt das nicht.
 C=$(code "/api/stallwache/stream")
 A=$(hole "/api/stallwache/stream")
-if echo "$A" | grep -q '"url"'; then
-  zeile "Stallwache" "SCHARF" "Stream-URL erhalten (Livebild am Geraet pruefen)"
+if [ "$C" = "401" ]; then
+  zeile "Stallwache" "UNKLAR" "Anmeldung noetig (Cookie-Datei mitgeben)"
+elif echo "$A" | grep -q '"url"'; then
+  # Server liefert einen Stream — zeigt die App ihn auch? NEXT_PUBLIC_* wird
+  # beim Build eingebacken: Fehlt NEXT_PUBLIC_STALLWACHE_FERN/_TUYA im Build,
+  # bleibt die Kachel beim Platzhalter, obwohl der Endpunkt antwortet.
+  if hole / | sed 's/<!-- -->//g' | grep -q "das Bild der Stallwache kommt"; then
+    zeile "Stallwache" "HALB" "Stream da, App zeigt Platzhalter (NEXT_PUBLIC_STALLWACHE_FERN + Redeploy?)"
+  else
+    zeile "Stallwache" "SCHARF" "Stream-URL erhalten (Livebild am Geraet pruefen)"
+  fi
 elif echo "$A" | grep -q 'nicht konfiguriert'; then
   zeile "Stallwache" "SCHLAEFT" "weder Fernzugriff (STALLWACHE_FERN_*) noch Tuya eingerichtet"
 elif echo "$A" | grep -q 'fehler'; then

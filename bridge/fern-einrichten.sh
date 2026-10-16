@@ -30,8 +30,9 @@ command -v tailscale >/dev/null || { echo "tailscale fehlt." >&2; exit 1; }
 # 1 · Schluessel (bleibt bei erneutem Aufruf derselbe)
 if ! sudo test -f "$ENVDATEI"; then
   TOKEN="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+  # Erst leer mit 600 anlegen, dann schreiben — nie kurz fuer alle lesbar.
+  sudo install -m 600 /dev/null "$ENVDATEI"
   printf 'FERN_TOKEN=%s\nFERN_PORT=%s\n' "$TOKEN" "$FERN_PORT" | sudo tee "$ENVDATEI" >/dev/null
-  sudo chmod 600 "$ENVDATEI"
 fi
 TOKEN="$(sudo grep '^FERN_TOKEN=' "$ENVDATEI" | cut -d= -f2-)"
 

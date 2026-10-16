@@ -67,12 +67,15 @@ else
     read -r -p "  Kamera-Name (futterwache|stallbox) [futterwache]: " KAMERA
     KAMERA="${KAMERA:-futterwache}"
     read -r -s -p "  Webapp-Passwort (STALLBLICK_PASSWORT): " APP_PASS; echo
-    BRIDGE_IP=""
+    BRIDGE_IP=""; G2_USER=""; G2_PASS=""
   else
     read -r -p "  IP des Bridge-Rechners im Stall-LAN [192.168.178.50]: " BRIDGE_IP
     BRIDGE_IP="${BRIDGE_IP:-192.168.178.50}"
     read -r -p "  Kamera-Name (stallwache|futterwache) [stallwache]: " KAMERA
     KAMERA="${KAMERA:-stallwache}"
+    warn "go2rtc-Login = GO2RTC_API_USER/GO2RTC_API_PASS aus bridge/.env (leer = ohne Login)."
+    read -r -p "  go2rtc-Benutzer: " G2_USER
+    read -r -s -p "  go2rtc-Passwort: " G2_PASS; echo
     APP_URL=""; APP_PASS=""
   fi
   echo
@@ -87,9 +90,9 @@ else
 
   umask 077
   BRIDGE_IP="$BRIDGE_IP" KAMERA="$KAMERA" APP_URL="${APP_URL:-}" \
-  APP_PASS="${APP_PASS:-}" TG_TOKEN="$TG_TOKEN" \
+  APP_PASS="${APP_PASS:-}" G2_USER="${G2_USER:-}" G2_PASS="${G2_PASS:-}" TG_TOKEN="$TG_TOKEN" \
   TG_CHAT="$TG_CHAT" DB_TOKEN="$DB_TOKEN" python3 - <<'EOF'
-import os, yaml
+import os, urllib.parse, yaml
 with open("config.example.yaml", encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
 ip, kamera = os.environ["BRIDGE_IP"], os.environ["KAMERA"]
@@ -103,7 +106,12 @@ if app_url:
     cfg["stream"]["app_passwort"] = os.environ["APP_PASS"]
 else:
     cfg["stream"]["url"] = f"rtsp://{ip}:8554/{kamera}"
-    cfg["stream"]["fallback_snapshot_url"] = f"http://{ip}:1984/api/frame.jpeg?src={kamera}"
+    login = ""
+    if os.environ.get("G2_USER"):
+        # go2rtc-Login: der Agent schickt ihn als Basic-Auth, nie ins Log.
+        login = (urllib.parse.quote(os.environ["G2_USER"], safe="") + ":"
+                 + urllib.parse.quote(os.environ.get("G2_PASS", ""), safe="") + "@")
+    cfg["stream"]["fallback_snapshot_url"] = f"http://{login}{ip}:1984/api/frame.jpeg?src={kamera}"
 cfg["stream"]["kamera"] = kamera
 cfg["telegram"]["token"] = os.environ["TG_TOKEN"]
 cfg["telegram"]["chat_id"] = os.environ["TG_CHAT"]

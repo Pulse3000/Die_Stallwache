@@ -22,9 +22,17 @@ streams:
 
 api:
   listen: ":1984"
-  # Bewusst KEIN `origin: "*"`: Die API kann Befehle auf dem Stall-Rechner
-  # ausfuehren. Mit CORS-Freigabe koennte jede Webseite, die ein Geraet im
-  # Tailnet oeffnet, sie ansprechen (docs/fernzugriff-spezifikation.md §1.2).
+  # Login (bridge/.env: GO2RTC_API_USER/GO2RTC_API_PASS). Ohne Login nimmt
+  # die API aus dem ganzen Stall-WLAN Befehle an — auch „einfache“ POSTs einer
+  # beliebigen Webseite, die ein Geraet im WLAN oeffnet (go2rtc beenden, Bild
+  # an fremden Server weiterleiten). Fehlendes CORS verhindert nur das Lesen
+  # der Antwort, nicht das Senden. Anfragen vom Stall-Rechner selbst
+  # (fern-proxy.py ueber 127.0.0.1) brauchen keinen Login (local_auth aus).
+  # NIE `tailscale serve`/`funnel` direkt auf 1984: kaeme als 127.0.0.1 an
+  # und umginge den Login. Leer = ohne Login (Verhalten wie bisher).
+  username: "${GO2RTC_API_USER:}"
+  password: "${GO2RTC_API_PASS:}"
+  # Bewusst KEIN `origin: "*"` (docs/fernzugriff-spezifikation.md §1.2).
 
 rtsp:
   listen: ":8554"

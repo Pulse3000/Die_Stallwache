@@ -11,10 +11,12 @@ export const runtime = "nodejs";
  * (Tapo via go2rtc, lib/fern.ts) oder aus der Tuya-Cloud.
  *
  * Die Stallwache ist die Hauptkamera im Abkalbebereich — die Quelle, auf der
- * der Edge-Agent Kalbe- und Brunstanzeichen erkennt. Ueber diesen Endpoint
- * laeuft die komplette KI-Wache auch auf einem Hof ganz ohne Bridge: Der
- * Agent (`CloudQuelle`, stream.quelle_api = /api/stallwache/stream) liest
- * dieselbe Quelle wie die App.
+ * der Edge-Agent Kalbe- und Brunstanzeichen erkennt. Auf dem Tuya-Weg laeuft
+ * die komplette KI-Wache auch auf einem Hof ganz ohne Bridge: Der Agent
+ * (`CloudQuelle`, stream.quelle_api = /api/stallwache/stream) liest dieselbe
+ * Quelle wie die App. Bei aktivem Fernzugriff liefert dieser Endpoint eine
+ * relative Adresse hinter dem App-Login — die kann CloudQuelle nicht lesen;
+ * im Stall liest der Agent dann RTSP lokal (stream.url).
  *
  * Anders als bei den Zweitkameras ist Tuya hier **opt-in**
  * (NEXT_PUBLIC_STALLWACHE_TUYA=1), damit bestehende Bridge-Hoefe ihr
@@ -23,7 +25,8 @@ export const runtime = "nodejs";
 export async function GET() {
   // Fernzugriff ueber den Stall-Rechner (Tapo/go2rtc, lib/fern.ts): nur mit
   // aktivem App-Login. Antwortet der Stall-Rechner nicht, geht es mit 502
-  // weiter – die Kachel faellt dann auf die Bridge zurueck (Tailscale).
+  // weiter – die Kachel zeigt den Verbindungshinweis und versucht es erneut
+  // (ohne NEXT_PUBLIC_BRIDGE_URL, docs/fernzugriff-spezifikation.md §2).
   if (fernKonfiguriert()) {
     if (!authAktiv()) {
       return NextResponse.json(

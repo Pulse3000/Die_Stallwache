@@ -131,6 +131,32 @@ class CloudQuelle:
         return None
 
 
+def trenne_zugangsdaten(url: str) -> tuple[str, tuple[str, str] | None]:
+    """Zieht Benutzer/Passwort aus einer URL (http://user:pass@host/…).
+
+    Die go2rtc-Schnittstelle kann einen Login haben
+    (docs/fernzugriff-spezifikation.md). Die Zugangsdaten gehen dann nur als
+    Basic-Auth an requests; in Logs und Fehlermeldungen steht die URL ohne sie.
+    """
+    if not url:
+        return "", None
+    teile = urllib.parse.urlsplit(url)
+    if teile.username is None:
+        return url, None
+    host = teile.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"  # IPv6
+    if teile.port:
+        host = f"{host}:{teile.port}"
+    ohne = urllib.parse.urlunsplit(
+        (teile.scheme, host, teile.path, teile.query, teile.fragment)
+    )
+    return ohne, (
+        urllib.parse.unquote(teile.username),
+        urllib.parse.unquote(teile.password or ""),
+    )
+
+
 class StreamHandler:
     """Liefert Frames mit Ziel-FPS; uebersteht Verbindungsabbrueche."""
 
@@ -145,7 +171,9 @@ class StreamHandler:
                 "stream.url fehlt – entweder Bridge-URL eintragen oder "
                 "Cloud-Quelle konfigurieren (stream.app_url + stream.quelle_api)."
             )
-        self.fallback_url: str = cfg["stream"].get("fallback_snapshot_url") or ""
+        self.fallback_url, self.fallback_auth = trenne_zugangsdaten(
+            (cfg["stream"].get("fallback_snapshot_url") or "").strip()
+        )
         self.frame_intervall = 1.0 / float(cfg["stream"].get("ziel_fps", 1.0))
         self.cap: cv2.VideoCapture | None = None
         self.fehler_in_folge = 0
@@ -178,7 +206,7 @@ class StreamHandler:
 
     def _frame_snapshot(self) -> np.ndarray | None:
         try:
-            r = requests.get(self.fallback_url, timeout=10)
+            r = requests.get(self.fallback_url, timeout=10, auth=self.fallback_auth)
             r.raise_for_status()
             buf = np.frombuffer(r.content, dtype=np.uint8)
             return cv2.imdecode(buf, cv2.IMREAD_COLOR)

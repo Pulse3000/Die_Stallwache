@@ -23,7 +23,7 @@ Es gibt **zwei** Wege ans Livebild. Der Betreiber sagt, welcher vorliegt:
 `NEXT_PUBLIC_BRIDGE_URL` bleibt in beiden Wegen **leer**. go2rtc ist nie
 öffentlich und erlaubt keine Cross-Origin-Abrufe. Eine gesetzte Adresse wäre
 eine tote Ausweichroute, auf die die Kachel nach dem ersten Aussetzer
-sitzungsweit wechselt (`docs/fernzugriff-spezifikation.md` §2). Ein
+bis zum Neuaufbau der Kachel wechselt (`docs/fernzugriff-spezifikation.md` §2). Ein
 Cloudflare-Tunnel ist nicht mehr vorgesehen. Die Stallwache ist bei Tuya
 bewusst **opt-in** (anders als die Zweitkameras), siehe `lib/config.ts`.
 
