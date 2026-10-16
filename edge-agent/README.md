@@ -95,31 +95,74 @@ sudo systemctl enable --now stallblick-agent
 
 ## Weg zum eigenen Modell (alles kostenlos)
 
-1. **Silent Mode laufen lassen** (1–2 Wochen): sammelt Bilder bei Tag,
-   Dämmerung und IR-Nacht aus dem eigenen Stall.
-2. **Vorwissen holen:** Open-Source-Datensätze **CVB** (Cattle Visual
-   Behaviors) und **CattleEyeView** (Top-Down) herunterladen.
-3. **Labeln mit CVAT** (app.cvat.ai, kostenlos): pro Kuh Bounding-Box +
-   Keypoints `Spine_End`, `Tail_Base`, `Tail_Tip`; zusätzlich Boxen für
-   `amniotic_sac` (Fruchtblase) und `calf_legs` (Kälberfüße). Export im
-   YOLO-Format.
-4. **Training in Google Colab (Free-GPU):**
+Zyklus: **Sammeln → Sichten → Labeln → Split → Trainieren → Abnehmen →
+Scharfschalten → Beobachten → wieder Sammeln.** Werkzeuge in `training/`.
 
-   ```python
-   !pip install ultralytics
-   from ultralytics import YOLO
-   modell = YOLO("yolov8n-pose.pt")          # vortrainiert, klein & CPU-tauglich
-   modell.train(data="stall.yaml", epochs=100, imgsz=640)
-   # Ergebnis: runs/pose/train/weights/best.pt herunterladen
+1. **Silent Mode laufen lassen** (1–2 Wochen): sammelt alle 120 s ein Bild
+   als `<kamera>_<JJJJMMTT-HHMMSS>.jpg`. Kamera und Zeit im Namen braucht
+   der Split nach Tagen. Mindestens **ein Drittel IR-Nacht** (Beschluss B9,
+   die Kalbung kommt nachts):
+
+   ```bash
+   python3 training/datensatz.py bilanz ./aufnahmen    # Exit 1 = zu wenig IR-Nacht
+   ```
+2. **Sichten:** nahezu identische Frames (leere Bucht, schlafende Herde)
+   ausdünnen; Originale bleiben liegen. Faustzahl v1: 1.500–3.000 gelabelte
+   Bilder. Danach die Bilanz auf der Auswahl wiederholen – nachts ändert
+   sich wenig, das Ausdünnen trifft IR-Bilder am stärksten.
+
+   ```bash
+   python3 training/datensatz.py ausduennen ./aufnahmen ./auswahl
+   ```
+3. **Vorwissen beimischen:** Open-Source-Datensätze **CVB** (Cattle Visual
+   Behaviors) und **CattleEyeView** (Top-Down) – nur Beimischung, nie
+   Hauptquelle. Ohne Zeitstempel im Namen gehen sie automatisch nur ins
+   Training, nie in die Abnahme.
+4. **Labeln mit CVAT** (app.cvat.ai, kostenlos): Klasse `kuh` mit Box +
+   genau 3 Keypoints `spine_end`, `tail_base`, `tail_tip`; Boxen für
+   `amniotic_sac` (Fruchtblase) und `calf_legs` (Kälberfüße). Regeln:
+   - Verdeckte Keypoints als **nicht sichtbar** markieren, nie raten –
+     besonders `tail_tip`. Der Agent wertet nur sichtbare Keypoints
+     (Konfidenz ≥ 0.5); geratene Labels lehren das Modell
+     falsche Geometrie.
+   - Erhobener Schwanz beim Koten ist normal `kuh`. Es gibt **keine Klasse
+     „kalbt"** – das Verhalten entscheidet der Agent (30-min-Fenster).
+   - Harte Negative (Kot/Urin, Reflexionen, Ketten) ungelabelt lassen.
+   - Export: **„Ultralytics YOLO Pose"**.
+5. **Split nach Stalltagen, nie zufällig nach Frames** (Nachbarframes sind
+   fast identisch und schönen sonst die Val-Werte). Ein Stalltag läuft
+   12–12 Uhr, jede Nacht bleibt ganz. Val = jüngste Tage, ≥ 15 %, plus
+   ein Geburtstag, falls gelabelt:
+
+   ```bash
+   python3 training/datensatz.py split ./cvat-export ./datensatz [--val-tag 20261014]
+   ```
+6. **Training in Google Colab (Free-GPU):** Zellen in
+   `training/colab_training.py` (Split, Training, Abnahme, Download).
+   `training/stall.yaml` passt zu `config.yaml`.
+7. **Abnahme-Gates** vor jedem Scharfschalten (`training/abnahme.py`):
+   Austreibung Recall = 1.0 bei Konfidenz 0.80, Schwanzwinkel-Abweichung
+   < 10° (n ≥ 30) und Sichtbarkeit erhobener Schwänze ≥ 90 % (n ≥ 10)
+   automatisch; Fehlalarm-Budget (24 h ereignislos: 0
+   Austreibung, ≤ 1 Kalbeverdacht) und ≥ 1 FPS auf der Zielhardware von Hand:
+
+   ```bash
+   python3 training/abnahme.py best_v1.pt datensatz --bericht abnahme_v1.md
+   python3 training/abnahme.py best_v1.pt datensatz --nur-fps   # auf dem Stall-Rechner
    ```
 
-   Fertige Vorlagen: `training/stall.yaml` (Klassen/Keypoints passend zu
-   `config.yaml`) und `training/colab_training.py` (Colab-Zellen).
-
-5. **`best.pt` auf den Stall-Rechner kopieren** und in `config.yaml` unter
-   `modell.pfad` eintragen → Agent wechselt automatisch in den Analyse-Modus.
-6. **Fehlalarme nachtrainieren:** falsch erkannte Bilder zurück in CVAT als
-   Negativ-Beispiele („Background") labeln und erneut trainieren.
+   Exit 2 = zu wenig Val-Material: ohne Geburt im Val-Set die
+   Austreibungs-Logik nicht scharfschalten, ohne erhobene Schwänze erst
+   mehr solche Bilder labeln.
+8. **Versionieren:** `best_v1.pt`, `best_v2.pt`, … – nie überschreiben. Je
+   Version eine Modellkarte aus `training/MODELLKARTE.vorlage.md`.
+9. **Scharfschalten:** Datei auf den Stall-Rechner, Pfad in `config.yaml`
+   unter `modell.pfad` → Agent wechselt in den Analyse-Modus. Danach
+   `docs/metriken.md` mit Praxiswerten füllen.
+10. **Nachtrainieren** bei > 2 Fehlalarmen/Woche desselben Typs, neuer
+    Kamera/Umbau, Saisonwechsel oder der ersten aufgezeichneten Geburt.
+    Fehlalarm-Bilder (Ein-Tipp-Feedback) zurück in CVAT als Negativ-
+    Beispiele.
 
 ---
 
@@ -127,7 +170,7 @@ sudo systemctl enable --now stallblick-agent
 
 | Phase | Regel | Reaktion |
 | --- | --- | --- |
-| **Kalbeverdacht** | Schwanzwinkel > 45° (Vektoren `Spine_End→Tail_Base` und `Tail_Base→Tail_Tip`, `atan2`) in **> 20 %** der Frames eines rollierenden **30-Min-Fensters** (`collections.deque`) | Telegram + Dashboard |
+| **Kalbeverdacht** | Schwanzwinkel > 45° (Vektoren `Spine_End→Tail_Base` und `Tail_Base→Tail_Tip`, `atan2`) in **> 20 %** der Frames eines rollierenden **30-Min-Fensters** (`collections.deque`). Nur Frames mit allen drei Keypoints sichtbar (Konfidenz ≥ 0.5, Sichtbarkeitsgrenze von Ultralytics) zählen – ein verdeckter Schwanz erzeugt keinen Winkel | Telegram + Dashboard |
 | **Austreibung** | `amniotic_sac` oder `calf_legs` mit **> 80 %** Konfidenz | **Sofort-Alarm**, Zeitfilter übersprungen |
 | **Eskalation** | Austreibung läuft, aber nach **60 min** (konfigurierbar) sind weiterhin Fruchtblase/Füße sichtbar → kein Geburtsfortschritt | **dringender Kontroll-Alarm** (Komplikationsverdacht, Lely-Zeta-Prinzip) |
 | **Brunstverdacht** | Aufsprung: zwei Kuh-Boxen überlappen (IoU > 0.15), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert Spielverhalten) | Telegram + Dashboard |

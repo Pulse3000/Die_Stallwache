@@ -27,16 +27,23 @@ CVAT kostenlos, offene Datensätze).
 
 ## Phase 1 — Datensatz zusammenstellen
 
-- Eigene `aufnahmen/` sichten; unbrauchbare Frames (leerer Stall, Unschärfe)
-  aussortieren, aber einige Leerbilder als Negativbeispiele behalten.
+- IR-Anteil prüfen: `python3 edge-agent/training/datensatz.py bilanz ./aufnahmen`
+  (Beschluss B9: ≥ 1/3 IR-Nacht, sonst weiter sammeln).
+- Nahezu identische Frames ausdünnen:
+  `python3 edge-agent/training/datensatz.py ausduennen ./aufnahmen ./auswahl`;
+  einige Leerbilder als Negativbeispiele behalten, Bilanz auf der Auswahl
+  wiederholen.
 - Vorwissen ergänzen: Open-Source-Datensätze **CVB** (Cattle Visual
-  Behaviors) und **CattleEyeView** (Top-Down) herunterladen und beimischen.
+  Behaviors) und **CattleEyeView** (Top-Down) beimischen – nur Beimischung,
+  sie landen beim Split automatisch nur im Training.
 
 ## Phase 2 — Labeln mit CVAT (app.cvat.ai, kostenlos)
 
-Pro Kuh: Bounding-Box + Keypoints `Spine_End`, `Tail_Base`, `Tail_Tip`.
+Pro Kuh: Bounding-Box + Keypoints `spine_end`, `tail_base`, `tail_tip`.
 Zusätzliche Objektklassen als Boxen: `amniotic_sac` (Fruchtblase),
-`calf_legs` (Kälberfüße). Export im **YOLO-Format**.
+`calf_legs` (Kälberfüße). Export im Format **„Ultralytics YOLO Pose"**,
+danach Split nach Stalltagen:
+`python3 edge-agent/training/datensatz.py split ./cvat-export ./datensatz`.
 
 Ab dem 2. Trainingsdurchgang zusätzlich labeln:
 - `kuh_seitenlage` (flach auf der Seite, Beine ausgestreckt) — Grundlage für
@@ -49,26 +56,39 @@ Ab dem 2. Trainingsdurchgang zusätzlich labeln:
   0–2 nicht umsortieren) — Grundlage für die Lahmheits-Frühwarnung
   (`docs/lahmheit-spezifikation.md`); Bestand nachlabeln.
 
-Qualitätsregeln: Keypoints auch bei teilverdeckten Kühen setzen (schätzen,
-nicht weglassen); `amniotic_sac`/`calf_legs` nur labeln, wenn eindeutig —
-diese Klassen lösen Sofort-Alarme aus, Falsch-Labels erzeugen Fehlalarme.
+Qualitätsregeln: Verdeckte Keypoints als **nicht sichtbar** markieren, nie
+schätzen – besonders `tail_tip`. Der Agent wertet nur sichtbare Keypoints
+(Konfidenz ≥ 0.5); geschätzte Labels lehren falsche
+Geometrie und verfälschen die Winkel-Abnahme. `amniotic_sac`/`calf_legs`
+nur labeln, wenn eindeutig – diese Klassen lösen Sofort-Alarme aus,
+Falsch-Labels erzeugen Fehlalarme. Keine Klasse „kalbt": das Verhalten
+entscheidet der Agent.
 
 ## Phase 3 — Training in Google Colab (Free-GPU)
 
-```python
-!pip install ultralytics
-from ultralytics import YOLO
-modell = YOLO("yolov8n-pose.pt")          # vortrainiert, klein & CPU-tauglich
-modell.train(data="stall.yaml", epochs=100, imgsz=640)
-# Ergebnis: runs/pose/train/weights/best.pt herunterladen
-```
+Zellen in `edge-agent/training/colab_training.py` (Split, Training mit
+`name=v<N>`, Abnahme, Download). Ergebnis heißt `best_v<N>.pt` – nie
+überschreiben, je Version eine Modellkarte aus
+`edge-agent/training/MODELLKARTE.vorlage.md`.
 
 `yolov8n` (nano) bewusst beibehalten, solange der Stall-Rechner nur CPU hat —
 1 FPS Analyse genügt fachlich, Kalbeanzeichen entwickeln sich über Minuten.
 
+## Phase 3b — Abnahme-Gates (vor jedem Scharfschalten)
+
+`python3 edge-agent/training/abnahme.py best_v<N>.pt datensatz --bericht abnahme_v<N>.md`
+
+| Gate | Kriterium | Prüfung |
+| --- | --- | --- |
+| 1 | Austreibung Recall = 1.0 bei Konfidenz 0.80 | automatisch; ohne Geburt im Val-Set Exit 2 → Austreibungs-Logik **nicht** scharf |
+| 2 | Schwanzwinkel Modell vs. Label < 10° (n ≥ 30) | automatisch, mit der Winkel-Logik des Agenten |
+| 2b | erhobener Schwanz (> 45°): alle 3 Keypoints sichtbar in ≥ 90 % (n ≥ 10) | automatisch; sonst unterdrückt der Agent Kalbeverdacht still (Befund `ki-wache`) |
+| 3 | 24 h ereignislos: 0 Austreibung, ≤ 1 Kalbeverdacht | von Hand: `stream.url` auf Videodatei, Agent im Analyse-Modus |
+| 4 | ≥ 1 FPS auf der Zielhardware | `abnahme.py … --nur-fps` auf dem Stall-Rechner |
+
 ## Phase 4 — Scharfschalten
 
-1. `best.pt` auf den Stall-Rechner kopieren, Pfad in `config.yaml` unter
+1. `best_v<N>.pt` auf den Stall-Rechner kopieren, Pfad in `config.yaml` unter
    `modell.pfad` eintragen → Agent wechselt automatisch in den Analyse-Modus.
 2. Erste 48 h beobachten: Tagesbericht + Telegram-Alben sichten. Zielwert
    < 1 Fehlalarm/Nacht (siehe `docs/metriken.md`).
