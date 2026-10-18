@@ -179,7 +179,34 @@ p.check("kurze Evidenz steht im Text (erst seit 19 s, Grund, Pruefhinweis)",
         and "Koten oder Fliegenabwehr" in kurz[0].nachricht)
 p.check("Bildzahl im kurzen Text stimmt (20 von 20)", bool(kurz) and "(20 von 20 Bildern" in kurz[0].nachricht)
 p.check("Spanne wird abgerundet (89,6 s -> 89 s, nie mehr als belegt)",
-        "erst seit 89 s" in logik._kalbe_text(m.deque([(1000.0, True)]), 1.0, 1089.6))
+        "erst seit 89 s" in logik._kalbe_text(99, m.deque([(1000.0, True)]), 1.0, 1089.6))
+
+# Folgemeldungen bei anhaltenden Wehen: nach jeder Meldung beginnt das
+# Fenster neu (p.clear()) – der Text darf trotzdem nicht zum Kurztext werden.
+logik = m.LogicEngine({
+    "logik": {
+        "winkel_schwelle_grad": 45, "fenster_minuten": 30, "anteil_schwelle": 0.20,
+        "override_konfidenz": 0.80, "brunst_min_dauer_s": 4,
+    },
+    "telegram": {"cooldown_minuten": 15},
+})
+serie = []
+for s in range(20 * 60):  # 20 min, 1 FPS, jedes 2. Bild erhoben
+    UHR[0] = 120_000.0 + s
+    punkte = erhoben if s % 2 else anliegend
+    kuh = m.KuhBeobachtung(7, (150, 250, 480, 380), e._schwanzwinkel(punkte, [0.9] * 3), None)
+    serie += [(s, a.nachricht) for a in logik.bewerte([kuh], []) if a.typ == "kalbeverdacht"]
+erste_t, erste = serie[0]
+nach_15 = [n for s, n in serie if s - erste_t >= 900][0]
+p.check("Serie: erste Meldung einer neuen Nummer nennt die kurze Beobachtung",
+        "beobachtet erst seit" in erste)
+p.check("Serie: Folgemeldung nach 15 min nennt die Dauer, kein Kurztext",
+        "weiterhin über 45° angehoben: seit 15 min immer wieder auffällig" in nach_15
+        and "Koten" not in nach_15 and "Wehenzeichen" in nach_15)
+p.check("Serie: keine Folgemeldung mit Kurztext", all("erst seit" not in n for _, n in serie[1:]))
+UHR[0] = 120_000.0 + 20 * 60 + 31 * 60  # 31 min Pause ohne Meldung dieser Nummer
+logik.bewerte([], [])
+p.check("Serie endet nach einem Fenster ohne Meldung", 7 not in logik.serien)
 
 # Fenster verschwundener IDs werden freigegeben (Speicher im Dauerbetrieb)
 logik = m.LogicEngine({

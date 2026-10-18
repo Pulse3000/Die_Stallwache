@@ -70,6 +70,58 @@ p.check("fast identisches Bild faellt weg", "a2" not in behalten and "a4" not in
 p.check("deutliche Aenderung bleibt", "a3" in behalten)
 p.check("Kameras getrennt verglichen", behalten == ["a1", "a3", "b1"])
 
+# befehl_ausduennen selbst, mit gestubbtem cv2 (Bildwert = Dateiinhalt)
+import argparse
+import tempfile
+
+
+class Bild:
+    def __init__(self, wert):
+        self.wert = wert
+
+    def astype(self, _):
+        return self
+
+    def __sub__(self, anderes):
+        return Bild(self.wert - anderes.wert)
+
+    def __abs__(self):
+        return Bild(abs(self.wert))
+
+    def mean(self):
+        return self.wert
+
+
+cv2 = sys.modules["cv2"]
+cv2.IMREAD_GRAYSCALE, cv2.INTER_AREA = 0, 3
+cv2.imread = lambda pfad, *_: Bild(float(Path(pfad).read_text()))
+cv2.resize = lambda bild, *_a, **_k: bild
+
+with tempfile.TemporaryDirectory() as tmp:
+    quelle, ziel = Path(tmp) / "aufnahmen", Path(tmp) / "auswahl"
+    for rel, wert in (("fehlalarme/2026-10-16/kalbeverdacht-0-0.jpg", "30"),
+                      ("fehlalarme/2026-10-17/kalbeverdacht-0-0.jpg", "32"),
+                      ("fehlalarme/2026-10-17/kalbeverdacht-0-1.jpg", "33"),
+                      ("stallwache_20261014-230000.jpg", "110")):
+        (quelle / rel).parent.mkdir(parents=True, exist_ok=True)
+        (quelle / rel).write_text(wert)
+    code = ds.befehl_ausduennen(argparse.Namespace(quelle=str(quelle), ziel=str(ziel), schwelle=6.0))
+    kopiert = sorted(x.relative_to(ziel).as_posix() for x in ziel.rglob("*.jpg"))
+    p.check("ausduennen: gleichnamige Bilder zweier Tage bleiben beide erhalten",
+            code == 0 and "fehlalarme/2026-10-16/kalbeverdacht-0-0.jpg" in kopiert
+            and "fehlalarme/2026-10-17/kalbeverdacht-0-0.jpg" in kopiert)
+    def inhalt(rel):
+        datei = ziel / rel
+        return datei.read_text() if datei.exists() else None
+
+    p.check("ausduennen: Inhalt bleibt dem Ursprung zugeordnet",
+            inhalt("fehlalarme/2026-10-16/kalbeverdacht-0-0.jpg") == "30"
+            and inhalt("fehlalarme/2026-10-17/kalbeverdacht-0-0.jpg") == "32")
+    p.check("ausduennen: Vergleich je Ordner (fast gleiches Bild im selben Ordner faellt weg)",
+            "fehlalarme/2026-10-17/kalbeverdacht-0-1.jpg" not in kopiert and len(kopiert) == 3)
+    p.check("ausduennen: nicht leeres Ziel -> Exit 1",
+            ds.befehl_ausduennen(argparse.Namespace(quelle=str(quelle), ziel=str(ziel), schwelle=6.0)) == 1)
+
 q = Path("aufnahmen")
 p.check("Vergleichsgruppe: Kamera aus dem Namen",
         ds.vergleichsgruppe(q, q / "stallwache_20261014-031500.jpg") == "stallwache")
@@ -115,6 +167,17 @@ p.check("Protokoll fuehrt Geburtstage je Klasse",
         prot["geburtstage_je_klasse"] == {"amniotic_sac": ["20261006"], "calf_legs": ["20261007"]})
 p.check("je Klasse ohne Train-Tag eine Warnung",
         sum("liegen in val" in w for w in prot["warnungen"]) == 2)
+zwei_tage = [(f"{tg}-{i}.jpg", tg, ({1} if tg == "20261006" and i == 0 else
+              {2} if tg == "20261007" and i == 0 else set()))
+             for tg in ("20261006", "20261007") for i in range(40)]
+try:
+    _, _, prot = ds.teile_nach_tagen(zwei_tage, 0.15)
+    p.check("Geburt ueber 12 Uhr mit nur zwei Stalltagen: Split bleibt moeglich",
+            len(prot["train_tage"]) == 1 and len(prot["val_tage"]) == 1)
+    p.check("... mit Warnung, dass eine Klasse keinen Val-Tag bekommt",
+            any("kein eigener Val-Tag" in w for w in prot["warnungen"]))
+except ValueError as fehler:
+    p.check(f"Geburt ueber 12 Uhr mit nur zwei Stalltagen: Split bleibt moeglich ({fehler})", False)
 p.check("Label-Klassen gelesen",
         ds.austreibungsklassen("0 .5 .5 .1 .1\n2 .4 .4 .1 .1\n1 .3 .3 .1 .1\n") == {1, 2}
         and ds.austreibungsklassen("0 .5 .5 .1 .1\n") == set())

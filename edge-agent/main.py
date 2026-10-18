@@ -449,7 +449,8 @@ class InferenceEngine:
         # Fruchtblase/Kaelberfuesse des aktuellen Frames, VOR dem Tracker
         # abgegriffen (_merke_objekte). None = Callback lief nicht.
         self._roh_objekte: list[ObjektErkennung] | None = None
-        self._merke_fehler = 0  # fehlgeschlagene Abgriffe (Log nur gedrosselt)
+        self._merke_fehler = 0          # aufeinanderfolgende Fehlschlaege
+        self._merke_traceback: float | None = None  # letzter voller Traceback
         pfad = (self.cfg.get("pfad") or "").strip()
         if pfad:
             from ultralytics import YOLO  # Import nur bei Bedarf (Silent Mode braucht es nicht)
@@ -484,13 +485,17 @@ class InferenceEngine:
                     ))
         except Exception:  # noqa: BLE001 – Rueckfall auf das Tracker-Ergebnis
             # Bei 1 FPS waere ein Traceback je Bild bis zu 86.400/Tag auf der
-            # Karte: einmal vollstaendig, danach nur der Zaehler.
+            # Karte: hoechstens einer pro Stunde, dazwischen ein Zaehler.
             self._merke_fehler += 1
-            if self._merke_fehler == 1:
+            jetzt = time.time()
+            if self._merke_traceback is None or jetzt - self._merke_traceback >= 3600:
+                self._merke_traceback = jetzt
                 log.exception("Objekte vor dem Tracker nicht lesbar – nutze Tracker-Ergebnis")
             elif self._merke_fehler % 3600 == 0:
-                log.error("Objekte vor dem Tracker weiter nicht lesbar (%d Bilder)", self._merke_fehler)
+                log.error("Objekte vor dem Tracker weiter nicht lesbar (%d Bilder in Folge)",
+                          self._merke_fehler)
             return
+        self._merke_fehler = 0
         self._roh_objekte = objekte
 
     def analysiere(
@@ -592,6 +597,10 @@ class LogicEngine:
     puffer: dict[int, deque] = field(default_factory=lambda: defaultdict(deque))
     # laufende Aufsprung-Kandidaten: (id_oben, id_unten) -> startzeit
     brunst_paare: dict[tuple[int, int], float] = field(default_factory=dict)
+    # Kalbeverdacht-Serien je Track-ID: [erste Meldung, letzte Meldung].
+    # Nach einer Meldung beginnt das Fenster neu (p.clear()); ohne Serie
+    # saehe jede Folgemeldung wie eine frische Kurzbeobachtung aus.
+    serien: dict[int, list[float]] = field(default_factory=dict)
     # Austreibungs-Episode (docs/austreibung-episoden-spezifikation.md):
     # Beginn (erste Fruchtblasen-/Fuesse-Erkennung), letzte Erkennung,
     # letzte Meldung (Beginn/Erinnerung/Eskalation), laufende Nummer.
@@ -659,7 +668,7 @@ class LogicEngine:
                         Alarm(
                             "kalbeverdacht",
                             f"Kuh #{kuh.track_id}",
-                            self._kalbe_text(p, anteil, jetzt),
+                            self._kalbe_text(kuh.track_id, p, anteil, jetzt),
                             None,
                             kuh.box,
                         )
@@ -671,21 +680,39 @@ class LogicEngine:
         # ohne Freigabe waechst der Speicher mit jedem ID-Wechsel.
         for tid in [t for t, q in self.puffer.items() if not q or q[-1][0] < jetzt - self.fenster_s]:
             del self.puffer[tid]
+        for tid in [t for t, s in self.serien.items() if jetzt - s[1] > self.fenster_s]:
+            del self.serien[tid]
 
         # 3) Brunst: Aufsprung = zwei Boxen ueberlappen, eine deutlich oberhalb
         alarme.extend(self._brunst(kuehe, jetzt))
         return alarme
 
-    def _kalbe_text(self, p: deque, anteil: float, jetzt: float) -> str:
+    @staticmethod
+    def _dauer(sekunden: float) -> str:
+        """Abgerundet: nie mehr Beobachtung behaupten als belegt."""
+        sekunden = max(0.0, sekunden)
+        return f"{int(sekunden)} s" if sekunden < 120 else f"{int(sekunden // 60)} min"
+
+    def _kalbe_text(self, tid: int, p: deque, anteil: float, jetzt: float) -> str:
         """Kalbeverdacht mit Beleg: Anteil, Bildzahl und beobachtete Spanne.
 
-        Die Spanne kann kurz sein (neue Nummer, Neustart, Schwanz lange
-        verdeckt) – dann sagt der Text das und bittet um Pruefung am Bild.
-        Abgerundet, damit nie mehr Beobachtung behauptet wird als belegt.
+        Erste Meldung einer Serie: kurze Spanne (neue Nummer, Neustart,
+        Schwanz lange verdeckt) sagt der Text und bittet um Pruefung am
+        Bild. Folgemeldung (letzte Meldung dieser Nummer juenger als das
+        Fenster): nennt die Dauer der Serie, nie den Kurztext.
         """
-        spanne_s = max(0.0, jetzt - p[0][0])
-        spanne = f"{int(spanne_s)} s" if spanne_s < 120 else f"{int(spanne_s // 60)} min"
         ueber = sum(1 for _, u in p if u)
+        serie = self.serien.get(tid)
+        if serie is not None and jetzt - serie[1] <= self.fenster_s:
+            serie[1] = jetzt
+            return (
+                f"Schwanz weiterhin über {self.winkel_schwelle:.0f}° angehoben: seit "
+                f"{self._dauer(jetzt - serie[0])} immer wieder auffällig (zuletzt "
+                f"{ueber} von {len(p)} Bildern). Bitte auf Wehenzeichen achten."
+            )
+        self.serien[tid] = [jetzt, jetzt]
+        spanne_s = max(0.0, jetzt - p[0][0])
+        spanne = self._dauer(spanne_s)
         kopf = (
             f"Schwanz in {anteil * 100:.0f} % der auswertbaren Bilder über "
             f"{self.winkel_schwelle:.0f}° angehoben ({ueber} von {len(p)} Bildern, "

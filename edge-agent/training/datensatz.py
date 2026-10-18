@@ -170,20 +170,30 @@ def teile_nach_tagen(
                 val.append(tag)
         else:
             warnungen.append(f"Stalltag {tag} kommt im Export nicht vor")
+    if len(val) >= len(tage):
+        raise ValueError("Alle Stalltage per --val-tag nach val gelegt – weniger --val-tag angeben")
+    # Mindestens ein Stalltag bleibt immer fuer train.
     for k in sorted(je_klasse, key=str):
-        if not je_klasse[k] & set(val):
-            val.append(max(je_klasse[k]))
+        if je_klasse[k] & set(val):
+            continue
+        if len(val) + 1 >= len(tage):
+            name = AUSTREIBUNG_KLASSEN.get(k, "Austreibung")
+            warnungen.append(
+                f"Für {name} ist kein eigener Val-Tag möglich (zu wenige Stalltage): "
+                "Gate 1 meldet die Klasse als nicht prüfbar – mehr Stalltage sammeln."
+            )
+            continue
+        val.append(max(je_klasse[k]))
     datiert = sum(len(n) for n in tage.values())
     for tag in sorted(tage, reverse=True):
         if sum(len(tage[t]) for t in val) >= val_anteil * datiert:
             break
-        if tag not in val:
+        if tag not in val and len(val) + 1 < len(tage):
             val.append(tag)
-    if len(val) >= len(tage):
-        hinweis = "weniger --val-tag angeben, " if val_tage else ""
+    if sum(len(tage[t]) for t in val) < val_anteil * datiert:
         raise ValueError(
-            f"Alle Stalltage landeten in val – {hinweis}mehr Stalltage sammeln "
-            "oder --val-anteil senken"
+            f"Val-Anteil {val_anteil:.0%} mit {len(tage)} Stalltagen nicht erreichbar "
+            "(ein Tag muss für train bleiben) – mehr Stalltage sammeln oder --val-anteil senken"
         )
     for k in sorted(je_klasse, key=str):
         if not je_klasse[k] - set(val):

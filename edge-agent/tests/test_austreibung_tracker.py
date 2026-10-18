@@ -54,6 +54,7 @@ class FakeYOLO:
     """Ultralytics-Ablauf: Callbacks in Reihenfolge, dann kuerzt der Tracker."""
 
     kuerzen = True
+    kaputt_cb = False  # Callback bekommt ein unlesbares Ergebnis
 
     def __init__(self, pfad):
         self.pfad = pfad
@@ -63,7 +64,7 @@ class FakeYOLO:
         self.callbacks.setdefault(ereignis, []).append(fn)
 
     def track(self, dets, **kw):
-        predictor = types.SimpleNamespace(results=[ergebnis(dets)])
+        predictor = types.SimpleNamespace(results=[] if self.kaputt_cb else [ergebnis(dets)])
         for fn in self.callbacks["on_predict_postprocess_end"]:
             fn(predictor)
         if not self.kuerzen:
@@ -152,12 +153,28 @@ kuehe, objekte = kaputt.analysiere([KUH, FUESSE])
 p.check("Callback-Fehler -> Rueckfall auf Tracker-Ergebnis",
         [o.klasse for o in objekte] == ["calf_legs"] and len(kuehe) == 1)
 meldungen = []
+echte_exception, echte_error = m.log.exception, m.log.error
 m.log.exception = lambda *a, **k: meldungen.append("traceback")
 m.log.error = lambda *a, **k: meldungen.append("zaehler")
 for _ in range(3600):
     kaputt.analysiere([KUH])
-p.check("Dauerfehler: ein Traceback, danach nur Zaehler (nicht je Bild)",
+p.check("Dauerfehler: kein Traceback je Bild, nur Zaehler",
         meldungen == ["zaehler"] and kaputt._merke_fehler == 3601)
+kaputt._merke_objekte(types.SimpleNamespace(results=[ergebnis([KUH])]))
+p.check("Erfolg setzt den Fehlerzaehler zurueck", kaputt._merke_fehler == 0)
+UHR[0] += 2 * 3600
+meldungen.clear()
+kaputt.analysiere([KUH])
+p.check("neuer Fehler nach > 1 h bekommt wieder einen Traceback", meldungen == ["traceback"])
+m.log.exception, m.log.error = echte_exception, echte_error
+
+# Kein Uebertrag: erst erfolgreicher Abgriff mit Fuessen, dann scheitert er
+folge = m.InferenceEngine(CFG)
+_, objekte = folge.analysiere([KUH, FUESSE])
+p.check("Abgriff 1: Fuesse erkannt", [o.klasse for o in objekte] == ["calf_legs"])
+folge.modell.kaputt_cb = True
+_, objekte = folge.analysiere([KUH])
+p.check("Abgriff 2 scheitert: keine Phantom-Fuesse aus dem Vorbild", objekte == [])
 
 # Ohne registrierten Callback (aeltere Ultralytics-Mechanik) -> Rueckfall
 ohne = m.InferenceEngine(CFG)
