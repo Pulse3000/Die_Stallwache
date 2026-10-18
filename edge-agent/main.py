@@ -449,6 +449,7 @@ class InferenceEngine:
         # Fruchtblase/Kaelberfuesse des aktuellen Frames, VOR dem Tracker
         # abgegriffen (_merke_objekte). None = Callback lief nicht.
         self._roh_objekte: list[ObjektErkennung] | None = None
+        self._merke_fehler = 0  # fehlgeschlagene Abgriffe (Log nur gedrosselt)
         pfad = (self.cfg.get("pfad") or "").strip()
         if pfad:
             from ultralytics import YOLO  # Import nur bei Bedarf (Silent Mode braucht es nicht)
@@ -482,7 +483,13 @@ class InferenceEngine:
                         name, float(boxen.conf[i]), tuple(float(v) for v in boxen.xyxy[i])
                     ))
         except Exception:  # noqa: BLE001 – Rueckfall auf das Tracker-Ergebnis
-            log.exception("Objekte vor dem Tracker nicht lesbar – nutze Tracker-Ergebnis")
+            # Bei 1 FPS waere ein Traceback je Bild bis zu 86.400/Tag auf der
+            # Karte: einmal vollstaendig, danach nur der Zaehler.
+            self._merke_fehler += 1
+            if self._merke_fehler == 1:
+                log.exception("Objekte vor dem Tracker nicht lesbar – nutze Tracker-Ergebnis")
+            elif self._merke_fehler % 3600 == 0:
+                log.error("Objekte vor dem Tracker weiter nicht lesbar (%d Bilder)", self._merke_fehler)
             return
         self._roh_objekte = objekte
 
@@ -648,20 +655,11 @@ class LogicEngine:
             if len(p) >= self.min_stichprobe:
                 anteil = sum(1 for _, ueber in p if ueber) / len(p)
                 if anteil > self.anteil_schwelle:
-                    # Belegte Spanne nennen: Nach langer Verdeckung kann das
-                    # Fenster nur wenige Sekunden auswertbarer Bilder halten.
-                    spanne_s = jetzt - p[0][0]
-                    spanne = (
-                        f"{spanne_s:.0f} s" if spanne_s < 120 else f"{spanne_s / 60:.0f} min"
-                    )
                     alarme.append(
                         Alarm(
                             "kalbeverdacht",
                             f"Kuh #{kuh.track_id}",
-                            f"Schwanzwinkel > {self.winkel_schwelle:.0f}° in "
-                            f"{anteil:.0%} von {len(p)} Bildern mit sichtbarem "
-                            f"Schwanz (über {spanne}) der letzten "
-                            f"{self.fenster_s / 60:.0f} Minuten",
+                            self._kalbe_text(p, anteil, jetzt),
                             None,
                             kuh.box,
                         )
@@ -677,6 +675,31 @@ class LogicEngine:
         # 3) Brunst: Aufsprung = zwei Boxen ueberlappen, eine deutlich oberhalb
         alarme.extend(self._brunst(kuehe, jetzt))
         return alarme
+
+    def _kalbe_text(self, p: deque, anteil: float, jetzt: float) -> str:
+        """Kalbeverdacht mit Beleg: Anteil, Bildzahl und beobachtete Spanne.
+
+        Die Spanne kann kurz sein (neue Nummer, Neustart, Schwanz lange
+        verdeckt) – dann sagt der Text das und bittet um Pruefung am Bild.
+        Abgerundet, damit nie mehr Beobachtung behauptet wird als belegt.
+        """
+        spanne_s = max(0.0, jetzt - p[0][0])
+        spanne = f"{int(spanne_s)} s" if spanne_s < 120 else f"{int(spanne_s // 60)} min"
+        ueber = sum(1 for _, u in p if u)
+        kopf = (
+            f"Schwanz in {anteil * 100:.0f} % der auswertbaren Bilder über "
+            f"{self.winkel_schwelle:.0f}° angehoben ({ueber} von {len(p)} Bildern, "
+        )
+        if spanne_s >= self.fenster_s / 2:
+            return (
+                f"{kopf}beobachtet in den letzten {spanne}). "
+                "Bitte in der nächsten halben Stunde auf Wehenzeichen achten."
+            )
+        return (
+            f"{kopf}beobachtet erst seit {spanne} – neue Nummer, Neustart oder "
+            "Schwanz lange verdeckt). Bitte am Bild prüfen, ob nur Koten oder "
+            "Fliegenabwehr vorlag."
+        )
 
     def _austreibung(self, o: ObjektErkennung, jetzt: float) -> list[Alarm]:
         """Austreibungs-Takt: Sofort-Meldung bei Episodenbeginn, Erinnerung

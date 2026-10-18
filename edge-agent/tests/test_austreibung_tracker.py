@@ -151,6 +151,13 @@ kaputt.modell.callbacks["on_predict_postprocess_end"] = [
 kuehe, objekte = kaputt.analysiere([KUH, FUESSE])
 p.check("Callback-Fehler -> Rueckfall auf Tracker-Ergebnis",
         [o.klasse for o in objekte] == ["calf_legs"] and len(kuehe) == 1)
+meldungen = []
+m.log.exception = lambda *a, **k: meldungen.append("traceback")
+m.log.error = lambda *a, **k: meldungen.append("zaehler")
+for _ in range(3600):
+    kaputt.analysiere([KUH])
+p.check("Dauerfehler: ein Traceback, danach nur Zaehler (nicht je Bild)",
+        meldungen == ["zaehler"] and kaputt._merke_fehler == 3601)
 
 # Ohne registrierten Callback (aeltere Ultralytics-Mechanik) -> Rueckfall
 ohne = m.InferenceEngine(CFG)

@@ -156,8 +156,10 @@ for n, s in enumerate(range(0, 30 * 60, 30)):  # 30 min, alle 30 s
     kuh = m.KuhBeobachtung(9, (150, 250, 480, 380), e._schwanzwinkel(punkte, konf), None)
     alarme += [a for a in logik.bewerte([kuh], []) if a.typ == "kalbeverdacht"]
 p.check("halb verdeckt, 30 % der sichtbaren erhoben -> Kalbeverdacht bleibt", len(alarme) >= 1)
-p.check("Alarmtext nennt Bildzahl und belegte Spanne",
-        bool(alarme) and "Bildern mit sichtbarem Schwanz (über" in alarme[0].nachricht)
+p.check("Alarmtext nennt Anteil mit Leerzeichen, Bildzahl und Spanne",
+        bool(alarme) and " % der auswertbaren Bilder über 45° angehoben (" in alarme[0].nachricht
+        and "beobachtet in den letzten" in alarme[0].nachricht
+        and "Wehenzeichen" in alarme[0].nachricht)
 
 # Nach langer Verdeckung: der Text verraet, wie kurz die Evidenz ist
 logik = m.LogicEngine({
@@ -172,7 +174,12 @@ for s in range(20):  # 20 s sichtbar erhoben nach 29 min Verdeckung
     UHR[0] = 65_000.0 + s
     kuh = m.KuhBeobachtung(11, (150, 250, 480, 380), e._schwanzwinkel(erhoben, [0.9] * 3), None)
     kurz += [a for a in logik.bewerte([kuh], []) if a.typ == "kalbeverdacht"]
-p.check("kurze Evidenz steht im Text (über 19 s)", bool(kurz) and "(über 19 s)" in kurz[0].nachricht)
+p.check("kurze Evidenz steht im Text (erst seit 19 s, Grund, Pruefhinweis)",
+        bool(kurz) and "beobachtet erst seit 19 s – neue Nummer, Neustart" in kurz[0].nachricht
+        and "Koten oder Fliegenabwehr" in kurz[0].nachricht)
+p.check("Bildzahl im kurzen Text stimmt (20 von 20)", bool(kurz) and "(20 von 20 Bildern" in kurz[0].nachricht)
+p.check("Spanne wird abgerundet (89,6 s -> 89 s, nie mehr als belegt)",
+        "erst seit 89 s" in logik._kalbe_text(m.deque([(1000.0, True)]), 1.0, 1089.6))
 
 # Fenster verschwundener IDs werden freigegeben (Speicher im Dauerbetrieb)
 logik = m.LogicEngine({

@@ -131,9 +131,11 @@ Einzelbild-Trigger ersetzen.
 Ereignissen, `kamera` ist `stallwache | futterwache`. Antworten: 201 (ok),
 401 (falscher Token), 400 (unbekannter `typ`/fehlende `nachricht`),
 503 (Ingest nicht konfiguriert). Nachrichten immer auf Deutsch, konkret und
-handlungsorientiert (z. B. „Kuh #42: Schwanzwinkel > 45° in 26 % von 1412
-Bildern mit sichtbarem Schwanz (über 29 min) der letzten 30 Minuten"). Die
-belegte Spanne steht immer dabei: nach langer Verdeckung kann sie kurz sein.
+handlungsorientiert (z. B. „Kuh #42: Schwanz in 26 % der auswertbaren Bilder
+über 45° angehoben (367 von 1412 Bildern, beobachtet in den letzten 29 min).
+Bitte in der nächsten halben Stunde auf Wehenzeichen achten."). Die
+beobachtete Spanne steht immer dabei; ist sie kurz (neue Nummer, Neustart,
+Schwanz lange verdeckt), sagt der Text das und bittet um Prüfung am Bild.
 
 ## Robustheit (24/7-Stallbetrieb)
 
