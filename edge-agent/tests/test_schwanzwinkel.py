@@ -238,6 +238,33 @@ zweit = serienlauf(luecke, 9, 200_000.0 + 20 * 60, 20)  # 20 min nichts, wieder 
 p.check("Luecke ohne auswertbares Bild: 'erneut' statt 'weiterhin'",
         len(erst) == 1 and len(zweit) == 1 and "Schwanz erneut über 45° angehoben" in zweit[0]
         and "Erste Meldung vor 20 min, dazwischen 19 min kein auswertbares Bild" in zweit[0])
+# Luecke KUERZER als der Cooldown: die interne Meldung danach schluckt der
+# Notifier – die zugestellte muss die Luecke trotzdem nennen.
+kurz_luecke = m.LogicEngine({
+    "logik": {
+        "winkel_schwelle_grad": 45, "fenster_minuten": 30, "anteil_schwelle": 0.20,
+        "override_konfidenz": 0.80, "brunst_min_dauer_s": 4,
+    },
+    "telegram": {"cooldown_minuten": 15},
+})
+p.check("LogicEngine kennt den Notifier-Cooldown (telegram.cooldown_minuten)",
+        kurz_luecke.cooldown_s == 900)
+intern = []
+for start, dauer in ((300_000.0, 60), (300_000.0 + 14 * 60, 120)):  # 1 min, 13 min nichts, 2 min
+    for s in range(dauer):
+        UHR[0] = start + s
+        punkte = erhoben if s % 2 else anliegend
+        kuh = m.KuhBeobachtung(12, BOX, e._schwanzwinkel(punkte, [0.9] * 3), None)
+        intern += [(UHR[0], a.nachricht) for a in kurz_luecke.bewerte([kuh], []) if a.typ == "kalbeverdacht"]
+zugestellt, letzte = [], None
+for zeit, text in intern:  # wie Notifier.melde: je Kuh/Typ alle 15 min
+    if letzte is None or zeit - letzte >= 900:
+        zugestellt.append(text)
+        letzte = zeit
+p.check("13 min Luecke unter dem Cooldown: zugestellte Folgemeldung sagt 'erneut'",
+        len(zugestellt) == 2 and "Schwanz erneut über 45° angehoben" in zugestellt[1]
+        and "dazwischen 13 min kein auswertbares Bild" in zugestellt[1])
+
 andere = serienlauf(luecke, 10, 200_000.0 + 21 * 60, 20)
 p.check("andere Nummer fuehrt eine eigene Serie (Erstbefund)",
         bool(andere) and "beobachtet erst seit" in andere[0])

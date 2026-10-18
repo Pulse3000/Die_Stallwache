@@ -597,10 +597,13 @@ class LogicEngine:
     puffer: dict[int, deque] = field(default_factory=lambda: defaultdict(deque))
     # laufende Aufsprung-Kandidaten: (id_oben, id_unten) -> startzeit
     brunst_paare: dict[tuple[int, int], float] = field(default_factory=dict)
-    # Kalbeverdacht-Serien je Track-ID: [erste Meldung, letzte Meldung].
-    # Nach einer Meldung beginnt das Fenster neu (p.clear()); ohne Serie
-    # saehe jede Folgemeldung wie eine frische Kurzbeobachtung aus.
+    # Kalbeverdacht-Serien je Track-ID: [erste Meldung, letzte Meldung,
+    # letzte zugestellte Meldung, groesste Luecke seit dieser]. Nach einer
+    # Meldung beginnt das Fenster neu (p.clear()); ohne Serie saehe jede
+    # Folgemeldung wie eine frische Kurzbeobachtung aus.
     serien: dict[int, list[float]] = field(default_factory=dict)
+    # Letztes auswertbares Bild je Track-ID (fuer die Luecken der Serie).
+    zuletzt_bild: dict[int, float] = field(default_factory=dict)
     # Austreibungs-Episode (docs/austreibung-episoden-spezifikation.md):
     # Beginn (erste Fruchtblasen-/Fuesse-Erkennung), letzte Erkennung,
     # letzte Meldung (Beginn/Erinnerung/Eskalation), laufende Nummer.
@@ -626,6 +629,11 @@ class LogicEngine:
             (self.cfg.get("telegram") or {}).get("cooldown_minuten", 15)
         )
         self.erinnerung_s = max(1.0, float(erinnerung)) * 60
+        # Derselbe Wert wie Notifier.cooldown_s: Nur jede cooldown-te
+        # Kalbeverdacht-Meldung je Kuh erreicht den Landwirt. Der Text einer
+        # Folgemeldung muss sich auf die letzte ZUGESTELLTE Meldung beziehen
+        # (setzt cooldown <= Fenster voraus, Default 15 <= 30 min).
+        self.cooldown_s = float((self.cfg.get("telegram") or {}).get("cooldown_minuten", 15)) * 60
         self.min_stichprobe = 20  # so viele Frames noetig, bevor der Filter urteilt
         # Wach-Modus (kurz vor Kalbetermin): empfindlichere Schwellen nur dann,
         # wenn der Landwirt ihn bewusst scharfschaltet.
@@ -659,6 +667,11 @@ class LogicEngine:
                 continue
             p = self.puffer[kuh.track_id]
             p.append((jetzt, kuh.winkel_grad > self.winkel_schwelle))
+            vorher = self.zuletzt_bild.get(kuh.track_id)
+            self.zuletzt_bild[kuh.track_id] = jetzt
+            serie = self.serien.get(kuh.track_id)
+            if serie is not None and vorher is not None:
+                serie[3] = max(serie[3], jetzt - vorher)
             while p and p[0][0] < jetzt - self.fenster_s:
                 p.popleft()
             if len(p) >= self.min_stichprobe:
@@ -682,6 +695,8 @@ class LogicEngine:
             del self.puffer[tid]
         for tid in [t for t, s in self.serien.items() if jetzt - s[1] > self.fenster_s]:
             del self.serien[tid]
+        for tid in [t for t, z in self.zuletzt_bild.items() if jetzt - z > self.fenster_s]:
+            del self.zuletzt_bild[tid]
 
         # 3) Brunst: Aufsprung = zwei Boxen ueberlappen, eine deutlich oberhalb
         alarme.extend(self._brunst(kuehe, jetzt))
@@ -709,12 +724,14 @@ class LogicEngine:
         ueber = sum(1 for _, u in p if u)
         serie = self.serien.get(tid)
         if serie is not None and jetzt - serie[1] <= self.fenster_s:
-            # Groesste Luecke ohne auswertbares Bild seit der letzten Meldung:
+            # Groesste Luecke ohne auswertbares Bild seit der letzten
+            # ZUGESTELLTEN Meldung (dazwischen liegende schluckt der Cooldown).
             # Nur ohne Luecke ist "weiterhin … immer wieder" belegt.
-            zeiten = [serie[1]] + [t for t, _ in p]
-            luecke = max(b - a for a, b in zip(zeiten, zeiten[1:]))
+            luecke = serie[3]
             seit = self._dauer(jetzt - serie[0])
             serie[1] = jetzt
+            if jetzt - serie[2] >= self.cooldown_s:  # diese Meldung kommt an
+                serie[2], serie[3] = jetzt, 0.0
             if luecke < self.fenster_s / 6:
                 return (
                     f"Schwanz weiterhin über {self.winkel_schwelle:.0f}° angehoben: seit "
@@ -727,7 +744,7 @@ class LogicEngine:
                 f"{self._dauer(luecke)} kein auswertbares Bild. Bitte am Bild prüfen, "
                 "ob Wehenzeichen vorliegen."
             )
-        self.serien[tid] = [jetzt, jetzt]
+        self.serien[tid] = [jetzt, jetzt, jetzt, 0.0]
         spanne_s = max(0.0, jetzt - p[0][0])
         spanne = self._dauer(spanne_s)
         kopf = (
