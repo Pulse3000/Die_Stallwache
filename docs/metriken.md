@@ -16,7 +16,10 @@ nachvollziehbarer Methodik. Blackbox-Abos können das nicht.
    Clips (inkl. bekannter Fehlalarm-Quellen: Koten, Fliegenabwehr, Schatten).
 2. **Auswertung:** Edge-Agent im Analyse-Modus über die Clips laufen lassen
    (`stream.url` auf Datei setzen — OpenCV liest auch Videodateien);
-   ausgelöste Alarme gegen die Annotation halten.
+   ausgelöste Alarme gegen die Annotation halten. Clips **mit 1 FPS**
+   aufnehmen (`ffmpeg … -r 1`): Der Agent liest ein Videobild je Sekunde
+   Echtzeit, und alle Zeitregeln (30-min-Fenster, 4 s Aufsprung) laufen
+   nach Wanduhr. Ein 25-FPS-Clip würde 25-fach verlangsamt ausgewertet.
 3. **Ereignis-Ebene, nicht Frame-Ebene:** Ein Kalbeverdachts-Alarm zählt als
    Treffer, wenn er innerhalb des annotierten Ereignisfensters liegt.
 4. **Jede Zeile mit Modellversion und Datum** — Verläufe zeigen, ob

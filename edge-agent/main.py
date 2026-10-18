@@ -403,6 +403,10 @@ class ObjektErkennung:
     box: tuple[float, float, float, float]
 
 
+# Objektklassen des Austreibungs-Overrides (kein Zeitfilter, kein Tracking).
+OBJEKT_KLASSEN = ("amniotic_sac", "calf_legs")
+
+
 # Keypoints unter dieser Konfidenz gelten als verdeckt. Das ist die
 # Sichtbarkeitsgrenze von Ultralytics (setzt solche Punkte auf (0, 0)),
 # kein Fach-Schwellenwert – deshalb bewusst nicht konfigurierbar.
@@ -442,30 +446,61 @@ class InferenceEngine:
         # track_buffer fuer 1 FPS); leer -> Ultralytics-Default.
         self.tracker = (self.cfg.get("tracker") or "").strip() or "bytetrack.yaml"
         self.modell = None
+        # Fruchtblase/Kaelberfuesse des aktuellen Frames, VOR dem Tracker
+        # abgegriffen (_merke_objekte). None = Callback lief nicht.
+        self._roh_objekte: list[ObjektErkennung] | None = None
         pfad = (self.cfg.get("pfad") or "").strip()
         if pfad:
             from ultralytics import YOLO  # Import nur bei Bedarf (Silent Mode braucht es nicht)
 
             log.info("Lade Modell %s (Tracker: %s) …", pfad, self.tracker)
             self.modell = YOLO(pfad)
+            # Vor dem ersten track() registrieren: Ultralytics haengt seine
+            # Tracker-Callbacks erst dann an, dieser laeuft also davor.
+            self.modell.add_callback("on_predict_postprocess_end", self._merke_objekte)
 
     @property
     def aktiv(self) -> bool:
         return self.modell is not None
 
+    def _merke_objekte(self, predictor) -> None:
+        """Fruchtblase/Kaelberfuesse aus den Erkennungen VOR dem Tracker.
+
+        Ultralytics kuerzt nach dem Tracking die Ergebnisse auf bestaetigte
+        Tracks, sobald eine Kuh getrackt wird. Ein neues Objekt ist im
+        ersten Bild nur unbestaetigt und faellt weg; flackernde Erkennungen
+        kommen nie an. Die Austreibung hat bewusst keinen Zeitfilter
+        (Recall 100 %) — jede einzelne Erkennung muss die Logik erreichen.
+        """
+        objekte: list[ObjektErkennung] = []
+        try:
+            boxen = predictor.results[0].boxes
+            for i in range(len(boxen) if boxen is not None else 0):
+                name = self.klassen.get(int(boxen.cls[i]))
+                if name in OBJEKT_KLASSEN:
+                    objekte.append(ObjektErkennung(
+                        name, float(boxen.conf[i]), tuple(float(v) for v in boxen.xyxy[i])
+                    ))
+        except Exception:  # noqa: BLE001 – Rueckfall auf das Tracker-Ergebnis
+            log.exception("Objekte vor dem Tracker nicht lesbar – nutze Tracker-Ergebnis")
+            return
+        self._roh_objekte = objekte
+
     def analysiere(
         self, frame: np.ndarray
     ) -> tuple[list[KuhBeobachtung], list[ObjektErkennung]]:
         """Ein Frame -> getrackte Kuehe (mit Schwanzwinkel) + Spezialobjekte."""
+        self._roh_objekte = None
         ergebnis = self.modell.track(
             frame, persist=True, tracker=self.tracker, verbose=False
         )[0]
+        roh = self._roh_objekte
 
         kuehe: list[KuhBeobachtung] = []
         objekte: list[ObjektErkennung] = []
         boxen = ergebnis.boxes
         if boxen is None:
-            return kuehe, objekte
+            return kuehe, roh if roh is not None else objekte
 
         kps = getattr(ergebnis, "keypoints", None)
         for i in range(len(boxen)):
@@ -474,8 +509,9 @@ class InferenceEngine:
             box = tuple(float(v) for v in boxen.xyxy[i])
             name = self.klassen.get(klass_idx, f"klasse_{klass_idx}")
 
-            if name in ("amniotic_sac", "calf_legs"):
-                objekte.append(ObjektErkennung(name, konf, box))
+            if name in OBJEKT_KLASSEN:
+                if roh is None:
+                    objekte.append(ObjektErkennung(name, konf, box))
                 continue
 
             track_id = int(boxen.id[i]) if boxen.id is not None else -1
@@ -488,7 +524,7 @@ class InferenceEngine:
                     punkte, konf_kp[i].cpu().numpy() if konf_kp is not None else None
                 )
             kuehe.append(KuhBeobachtung(track_id, box, winkel, punkte))
-        return kuehe, objekte
+        return kuehe, roh if roh is not None else objekte
 
     def _schwanzwinkel(self, punkte, konf=None) -> float | None:
         """Schwanzwinkel nur aus sichtbaren Keypoints, sonst None.
@@ -612,18 +648,31 @@ class LogicEngine:
             if len(p) >= self.min_stichprobe:
                 anteil = sum(1 for _, ueber in p if ueber) / len(p)
                 if anteil > self.anteil_schwelle:
+                    # Belegte Spanne nennen: Nach langer Verdeckung kann das
+                    # Fenster nur wenige Sekunden auswertbarer Bilder halten.
+                    spanne_s = jetzt - p[0][0]
+                    spanne = (
+                        f"{spanne_s:.0f} s" if spanne_s < 120 else f"{spanne_s / 60:.0f} min"
+                    )
                     alarme.append(
                         Alarm(
                             "kalbeverdacht",
                             f"Kuh #{kuh.track_id}",
                             f"Schwanzwinkel > {self.winkel_schwelle:.0f}° in "
-                            f"{anteil:.0%} der Frames der letzten "
+                            f"{anteil:.0%} von {len(p)} Bildern mit sichtbarem "
+                            f"Schwanz (über {spanne}) der letzten "
                             f"{self.fenster_s / 60:.0f} Minuten",
                             None,
                             kuh.box,
                         )
                     )
                     p.clear()  # Fenster neu aufbauen, Cooldown uebernimmt der Notifier
+
+        # Fenster verschwundener IDs freigeben (ID-Wechsel, Kuh weg). Ihr
+        # Inhalt waere bei Rueckkehr ohnehin aelter als das Fenster;
+        # ohne Freigabe waechst der Speicher mit jedem ID-Wechsel.
+        for tid in [t for t, q in self.puffer.items() if not q or q[-1][0] < jetzt - self.fenster_s]:
+            del self.puffer[tid]
 
         # 3) Brunst: Aufsprung = zwei Boxen ueberlappen, eine deutlich oberhalb
         alarme.extend(self._brunst(kuehe, jetzt))

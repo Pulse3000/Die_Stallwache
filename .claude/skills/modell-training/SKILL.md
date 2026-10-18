@@ -83,7 +83,7 @@ Zellen in `edge-agent/training/colab_training.py` (Split, Training mit
 | 1 | Austreibung Recall = 1.0 bei Konfidenz 0.80 | automatisch; ohne Geburt im Val-Set Exit 2 → Austreibungs-Logik **nicht** scharf |
 | 2 | Schwanzwinkel Modell vs. Label < 10° (n ≥ 30) | automatisch, mit der Winkel-Logik des Agenten |
 | 2b | erhobener Schwanz (> 45°): alle 3 Keypoints sichtbar in ≥ 90 % (n ≥ 10) | automatisch; sonst unterdrückt der Agent Kalbeverdacht still (Befund `ki-wache`) |
-| 3 | 24 h ereignislos: 0 Austreibung, ≤ 1 Kalbeverdacht | von Hand: `stream.url` auf Videodatei, Agent im Analyse-Modus |
+| 3 | 24 h ereignislos: 0 Austreibung, ≤ 1 Kalbeverdacht | von Hand: Aufnahme **mit 1 FPS** (`ffmpeg -i rtsp://… -r 1 nacht.mp4`), `stream.url` auf die Datei, Agent im Analyse-Modus. Der Agent liest ein Videobild je Sekunde Echtzeit – nur bei 1-FPS-Material entspricht das Fenster 30 min Stallzeit; 24 h Material laufen 24 h |
 | 4 | ≥ 1 FPS auf der Zielhardware | `abnahme.py … --nur-fps` auf dem Stall-Rechner |
 
 ## Phase 4 — Scharfschalten

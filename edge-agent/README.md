@@ -141,10 +141,12 @@ Scharfschalten → Beobachten → wieder Sammeln.** Werkzeuge in `training/`.
    `training/colab_training.py` (Split, Training, Abnahme, Download).
    `training/stall.yaml` passt zu `config.yaml`.
 7. **Abnahme-Gates** vor jedem Scharfschalten (`training/abnahme.py`):
-   Austreibung Recall = 1.0 bei Konfidenz 0.80, Schwanzwinkel-Abweichung
+   Austreibung Recall = 1.0 bei Konfidenz 0.80 für Fruchtblase **und**
+   Kälberfüße, Schwanzwinkel-Abweichung
    < 10° (n ≥ 30) und Sichtbarkeit erhobener Schwänze ≥ 90 % (n ≥ 10)
-   automatisch; Fehlalarm-Budget (24 h ereignislos: 0
-   Austreibung, ≤ 1 Kalbeverdacht) und ≥ 1 FPS auf der Zielhardware von Hand:
+   automatisch; Fehlalarm-Budget (24 h ereignisloses Material **mit 1 FPS**
+   aufgenommen, `stream.url` auf die Datei: 0 Austreibung, ≤ 1
+   Kalbeverdacht) und ≥ 1 FPS auf der Zielhardware von Hand:
 
    ```bash
    python3 training/abnahme.py best_v1.pt datensatz --bericht abnahme_v1.md
@@ -171,7 +173,7 @@ Scharfschalten → Beobachten → wieder Sammeln.** Werkzeuge in `training/`.
 | Phase | Regel | Reaktion |
 | --- | --- | --- |
 | **Kalbeverdacht** | Schwanzwinkel > 45° (Vektoren `Spine_End→Tail_Base` und `Tail_Base→Tail_Tip`, `atan2`) in **> 20 %** der Frames eines rollierenden **30-Min-Fensters** (`collections.deque`). Nur Frames mit allen drei Keypoints sichtbar (Konfidenz ≥ 0.5, Sichtbarkeitsgrenze von Ultralytics) zählen – ein verdeckter Schwanz erzeugt keinen Winkel | Telegram + Dashboard |
-| **Austreibung** | `amniotic_sac` oder `calf_legs` mit **> 80 %** Konfidenz | **Sofort-Alarm**, Zeitfilter übersprungen |
+| **Austreibung** | `amniotic_sac` oder `calf_legs` mit **> 80 %** Konfidenz – gelesen **vor** dem Tracker, jede Einzelerkennung zählt | **Sofort-Alarm**, Zeitfilter übersprungen |
 | **Eskalation** | Austreibung läuft, aber nach **60 min** (konfigurierbar) sind weiterhin Fruchtblase/Füße sichtbar → kein Geburtsfortschritt | **dringender Kontroll-Alarm** (Komplikationsverdacht, Lely-Zeta-Prinzip) |
 | **Brunstverdacht** | Aufsprung: zwei Kuh-Boxen überlappen (IoU > 0.15), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert Spielverhalten) | Telegram + Dashboard |
 | Anti-Spam | **15 Min Cooldown** pro Kuh-ID und Alarmtyp — nur Kalbe-/Brunstverdacht | – |

@@ -119,7 +119,9 @@ Wehen von Alltag. Diesen Filter niemals durch Einzelbild-Trigger ersetzen.
 - Antworten: **201** (ok), **401** (falscher Token), **400** (unbekannter
   `typ`/fehlende `nachricht`), **503** (Ingest nicht konfiguriert).
 - Nachrichten immer auf Deutsch, konkret und handlungsorientiert
-  (z. B. „Kuh #42: Schwanzwinkel > 45° in 26 % der Frames der letzten 30 Minuten").
+  (z. B. „Kuh #42: Schwanzwinkel > 45° in 26 % von 1412 Bildern mit sichtbarem
+  Schwanz (über 29 min) der letzten 30 Minuten"). Die belegte Spanne steht
+  immer dabei: nach langer Verdeckung kann sie kurz sein.
 
 ## Robustheit (24/7-Stallbetrieb)
 

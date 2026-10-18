@@ -156,6 +156,39 @@ for n, s in enumerate(range(0, 30 * 60, 30)):  # 30 min, alle 30 s
     kuh = m.KuhBeobachtung(9, (150, 250, 480, 380), e._schwanzwinkel(punkte, konf), None)
     alarme += [a for a in logik.bewerte([kuh], []) if a.typ == "kalbeverdacht"]
 p.check("halb verdeckt, 30 % der sichtbaren erhoben -> Kalbeverdacht bleibt", len(alarme) >= 1)
+p.check("Alarmtext nennt Bildzahl und belegte Spanne",
+        bool(alarme) and "Bildern mit sichtbarem Schwanz (über" in alarme[0].nachricht)
+
+# Nach langer Verdeckung: der Text verraet, wie kurz die Evidenz ist
+logik = m.LogicEngine({
+    "logik": {
+        "winkel_schwelle_grad": 45, "fenster_minuten": 30, "anteil_schwelle": 0.20,
+        "override_konfidenz": 0.80, "brunst_min_dauer_s": 4,
+    },
+    "telegram": {"cooldown_minuten": 15},
+})
+kurz = []
+for s in range(20):  # 20 s sichtbar erhoben nach 29 min Verdeckung
+    UHR[0] = 65_000.0 + s
+    kuh = m.KuhBeobachtung(11, (150, 250, 480, 380), e._schwanzwinkel(erhoben, [0.9] * 3), None)
+    kurz += [a for a in logik.bewerte([kuh], []) if a.typ == "kalbeverdacht"]
+p.check("kurze Evidenz steht im Text (über 19 s)", bool(kurz) and "(über 19 s)" in kurz[0].nachricht)
+
+# Fenster verschwundener IDs werden freigegeben (Speicher im Dauerbetrieb)
+logik = m.LogicEngine({
+    "logik": {
+        "winkel_schwelle_grad": 45, "fenster_minuten": 30, "anteil_schwelle": 0.20,
+        "override_konfidenz": 0.80, "brunst_min_dauer_s": 4,
+    },
+    "telegram": {"cooldown_minuten": 15},
+})
+UHR[0] = 100_000.0
+logik.bewerte([m.KuhBeobachtung(i, (0, 0, 10, 10), 10.0, None) for i in (1, 2, 3)], [])
+p.check("drei IDs im Fenster", sorted(logik.puffer) == [1, 2, 3])
+UHR[0] = 100_000.0 + 31 * 60
+logik.bewerte([m.KuhBeobachtung(3, (0, 0, 10, 10), 10.0, None)], [])
+p.check("nach > 30 min ohne Beobachtung: Fenster von ID 1 und 2 freigegeben", sorted(logik.puffer) == [3])
+p.check("ID 3 behaelt nur den neuen Eintrag", len(logik.puffer[3]) == 1)
 
 # Austreibungs-Override haengt nie an Keypoints
 UHR[0] = 90_000.0

@@ -14,15 +14,22 @@
 tracker_type: bytetrack
 
 # Erste Assoziationsstufe: Boxen ab dieser Konfidenz gelten als sicher.
-# Etwas unter dem Default (0.5), weil Konfidenzen bei IR-Nacht sinken.
+# Ultralytics-Default: 0.5 bis 8.3.2x, 0.25 ab 8.3.30. Gegenueber dem alten
+# Default abgesenkt (IR-Nacht), gegenueber dem neuen ANGEHOBEN – an
+# IR-Nacht-Clips pruefen (Skill bytetrack-tuning).
 track_high_thresh: 0.4
 
 # Zweite Stufe (ByteTracks Kernidee): auch schwache Boxen zuordnen,
-# statt sie zu verwerfen. Default 0.1.
+# statt sie zu verwerfen. Default 0.1. Wirksam ist hoechstens 0.1:
+# model.track() verwirft vorher alles unter conf 0.1 (Ultralytics-Default,
+# der Agent uebergibt kein conf).
 track_low_thresh: 0.05
 
 # Neue Tracks erst ab dieser Konfidenz anlegen (verhindert Geister-IDs
-# durch Bildrauschen). Default 0.6.
+# durch Bildrauschen). Default 0.6 bis 8.3.2x, 0.25 ab 8.3.30. Eine Kuh,
+# die nur unter 0.5 erkannt wird, bekommt nie eine ID und fehlt in der
+# Analyse (Fenster, Brunst) – nachts messen. Fruchtblase/Kaelberfuesse
+# betrifft das nicht: Der Agent liest sie vor dem Tracker.
 new_track_thresh: 0.5
 
 # WICHTIGSTER WERT: wie viele Frames eine verlorene Kuh "im Gedaechtnis"

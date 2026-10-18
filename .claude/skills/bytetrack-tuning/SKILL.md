@@ -30,9 +30,12 @@ kein Schwellenwert-Problem (Schwellen bewacht der Agent `ki-wache`).
 | --- | --- | --- | --- |
 | `track_buffer` | **90** | 30 | **Wichtigster Wert.** Frames = Sekunden bei 1 FPS: wie lange eine verdeckte Kuh ihre ID behält. Zu klein → neue ID nach jeder Verdeckung; zu groß → tote Tracks fangen fremde Kühe ein |
 | `match_thresh` | 0.9 | 0.8 | IoU-Matching-Toleranz. Kühe sind langsam → Boxen überlappen stark → großzügig matchen stabilisiert |
-| `track_high_thresh` | 0.4 | 0.5 | Sichere Boxen. Abgesenkt, weil Konfidenzen bei IR-Nacht sinken |
-| `track_low_thresh` | 0.05 | 0.1 | ByteTracks Kernidee: auch schwache Boxen zuordnen statt verwerfen |
-| `new_track_thresh` | 0.5 | 0.6 | Schwelle für neue IDs (gegen Geister-IDs durch Rauschen) |
+| `track_high_thresh` | 0.4 | 0.5 (bis 8.3.2x) · 0.25 (ab 8.3.30) | Sichere Boxen. Gegenüber dem alten Default abgesenkt (IR-Nacht), gegenüber dem neuen **angehoben** – an IR-Nacht-Clips prüfen |
+| `track_low_thresh` | 0.05 | 0.1 | ByteTracks Kernidee: auch schwache Boxen zuordnen statt verwerfen. Wirksam höchstens 0.1, weil `model.track()` ohne `conf` alles darunter vorher verwirft |
+| `new_track_thresh` | 0.5 | 0.6 (bis 8.3.2x) · 0.25 (ab 8.3.30) | Schwelle für neue IDs (gegen Geister-IDs durch Rauschen). Eine Kuh, die nur darunter erkannt wird, bekommt nie eine ID und fehlt in der Analyse |
+
+Die Defaults hängen an der Ultralytics-Version (`requirements.txt` erlaubt
+`>=8.2,<9`): auf dem Stall-Rechner `pip show ultralytics` prüfen.
 
 ## Verifikation (auf dem Stall-Rechner, mit Modell)
 
@@ -78,7 +81,11 @@ Lichtverhältnis (Tag UND IR-Nacht).
 - Zeitbasierte Zustände (Fenster, Cooldowns) überleben den Neustart nicht —
   ein Neustart mitten in der Wehenphase verzögert den Kalbeverdachts-Alarm
   um bis zu ein halbes Fenster. Austreibung ist davon NICHT betroffen
-  (Objekt-Override ohne ID-Bezug, Recall 100 % bleibt).
+  (Objekt-Override ohne ID-Bezug, Recall 100 % bleibt): Der Agent liest
+  Fruchtblase/Kälberfüße **vor** dem Tracker
+  (`InferenceEngine._merke_objekte`). Ultralytics kürzt die Ergebnisse
+  nach dem Tracking auf bestätigte Tracks – ohne diesen Abgriff ginge das
+  erste Bild jeder Erkennung verloren und flackernde Erkennungen nie durch.
 
 ## Rollenverteilung
 

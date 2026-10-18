@@ -10,14 +10,17 @@ bilanz      Bilder je Kamera und Lichtphase (Tag/Daemmerung/IR-Nacht).
             Exit 1, wenn IR-Nacht unter 1/3 liegt (Beschluss B9: die
             Kalbung kommt nachts).
 ausduennen  Kopiert nur Bilder, die sich vom zuletzt behaltenen Bild
-            derselben Kamera sichtbar unterscheiden (leere Bucht, schlafende
-            Herde). Originale bleiben unangetastet.
+            derselben Kamera (bzw. desselben Unterordners) sichtbar
+            unterscheiden (leere Bucht, schlafende Herde). Die
+            Ordnerstruktur bleibt erhalten, das Ziel muss leer sein;
+            Originale bleiben unangetastet.
 split       Teilt einen CVAT-Export (Format "Ultralytics YOLO Pose") nach
             Stalltagen in train/val, nie zufaellig nach Frames: Nachbarframes
             sind fast identisch und wuerden die Val-Werte schoenen.
             Ein Stalltag laeuft 12:00 bis 12:00, damit jede Nacht ganz in
-            einer Haelfte liegt. Val sind die juengsten Tage plus, falls
-            vorhanden, ein Geburtstag (Fruchtblase/Kaelberfuesse gelabelt).
+            einer Haelfte liegt. Val fuellt sich mit --val-tag, dann je
+            Austreibungsklasse (Fruchtblase, Kaelberfuesse) mit deren
+            juengstem Tag, dann mit den juengsten Tagen bis zum Val-Anteil.
             Bilder ohne Zeitstempel im Namen (offene Datensaetze,
             Fehlalarm-Ablage) gehen immer nach train.
 
@@ -45,7 +48,7 @@ HELLIGKEIT_DAEMMERUNG_MAX = 70.0
 # Stalltag-Wechsel um 12:00: die Nacht 18:00-06:00 bleibt ungeteilt.
 STALLTAG_WECHSEL_STUNDE = 12
 # Klassen-Indizes aus stall.yaml, die eine Geburt belegen.
-AUSTREIBUNG_KLASSEN = {1, 2}
+AUSTREIBUNG_KLASSEN = {1: "amniotic_sac", 2: "calf_legs"}
 BILDENDUNGEN = {".jpg", ".jpeg", ".png"}
 
 _ZEIT = re.compile(r"(\d{8})-(\d{6})")
@@ -123,27 +126,36 @@ def waehle_aus(bilder: list[tuple[str, str, object]], distanz, schwelle: float) 
 
 
 def teile_nach_tagen(
-    bilder: list[tuple[str, str | None, bool]],
+    bilder: list[tuple[str, str | None, object]],
     val_anteil: float = 0.15,
     val_tage: list[str] | None = None,
 ) -> tuple[list[str], list[str], dict]:
     """Split nach Stalltagen.
 
-    bilder: (name, stalltag oder None, zeigt_austreibung). Rueckgabe:
-    (train, val, protokoll). Kein Stalltag liegt in beiden Haelften.
+    bilder: (name, stalltag oder None, Austreibungsklassen im Label als
+    Menge von Klassen-Indizes; True/False fuer "irgendeine"). Rueckgabe:
+    (train, val, protokoll). Kein Stalltag liegt in beiden Haelften. Jede
+    Austreibungsklasse, die vorkommt, hat mindestens einen Tag in val –
+    sonst waere ihr Recall in der Abnahme ungeprueft (Geburt ueber 12 Uhr:
+    Fruchtblase am einen, Kaelberfuesse am naechsten Stalltag).
     """
     if not 0 < val_anteil < 1:
         raise ValueError("val_anteil muss zwischen 0 und 1 liegen")
     tage: dict[str, list[str]] = {}
-    geburtstage: set[str] = set()
+    je_klasse: dict[object, set[str]] = {}
     ohne_datum: list[str] = []
     for name, tag, austreibung in bilder:
         if tag is None:
             ohne_datum.append(name)
             continue
         tage.setdefault(tag, []).append(name)
-        if austreibung:
-            geburtstage.add(tag)
+        if isinstance(austreibung, bool):
+            klassen = {"austreibung"} if austreibung else set()
+        else:
+            klassen = set(austreibung or ())
+        for k in klassen:
+            je_klasse.setdefault(k, set()).add(tag)
+    geburtstage = set().union(*je_klasse.values()) if je_klasse else set()
     if len(tage) < 2:
         raise ValueError(
             "Split nach Tagen braucht Bilder von mindestens zwei Stalltagen "
@@ -158,8 +170,9 @@ def teile_nach_tagen(
                 val.append(tag)
         else:
             warnungen.append(f"Stalltag {tag} kommt im Export nicht vor")
-    if geburtstage and not geburtstage & set(val):
-        val.append(max(geburtstage))
+    for k in sorted(je_klasse, key=str):
+        if not je_klasse[k] & set(val):
+            val.append(max(je_klasse[k]))
     datiert = sum(len(n) for n in tage.values())
     for tag in sorted(tage, reverse=True):
         if sum(len(tage[t]) for t in val) >= val_anteil * datiert:
@@ -167,13 +180,18 @@ def teile_nach_tagen(
         if tag not in val:
             val.append(tag)
     if len(val) >= len(tage):
-        raise ValueError("Alle Stalltage landeten in val – weniger --val-tag angeben")
-    if geburtstage and not geburtstage - set(val):
-        warnungen.append(
-            "Einziger Geburtstag liegt in val: Das Modell lernt die "
-            "Austreibungsklassen nur aus Beimischung. Die Abnahme prueft den "
-            "Recall dann trotzdem ehrlich."
+        hinweis = "weniger --val-tag angeben, " if val_tage else ""
+        raise ValueError(
+            f"Alle Stalltage landeten in val – {hinweis}mehr Stalltage sammeln "
+            "oder --val-anteil senken"
         )
+    for k in sorted(je_klasse, key=str):
+        if not je_klasse[k] - set(val):
+            name = AUSTREIBUNG_KLASSEN.get(k, "Austreibung")
+            warnungen.append(
+                f"Alle Tage mit {name} liegen in val: Das Modell lernt die Klasse "
+                "nur aus Beimischung. Die Abnahme prueft den Recall trotzdem ehrlich."
+            )
     train_tage = sorted(t for t in tage if t not in val)
     val = sorted(val)
     train = [n for t in train_tage for n in tage[t]] + ohne_datum
@@ -182,6 +200,9 @@ def teile_nach_tagen(
         "train_tage": train_tage,
         "val_tage": val,
         "geburtstage": sorted(geburtstage),
+        "geburtstage_je_klasse": {
+            AUSTREIBUNG_KLASSEN.get(k, str(k)): sorted(v) for k, v in je_klasse.items()
+        },
         "bilder_train": len(train),
         "bilder_val": len(val_namen),
         "ohne_datum_in_train": len(ohne_datum),
@@ -228,10 +249,29 @@ def befehl_bilanz(args) -> int:
     return 0 if b["b9_erfuellt"] else 1
 
 
+def vergleichsgruppe(quelle: Path, pfad: Path) -> str:
+    """Wogegen ein Bild beim Ausduennen verglichen wird: die Kamera aus dem
+    Namen, sonst der Unterordner (Fehlalarm-Ablage, alte Namen ohne Kamera)."""
+    kamera = kamera_aus_name(pfad.name)
+    if kamera != "unbekannt":
+        return kamera
+    return f"ordner:{pfad.parent.relative_to(quelle).as_posix()}"
+
+
+def zielpfad(quelle: Path, pfad: Path, ziel: Path) -> Path:
+    """Kopie unter demselben relativen Pfad: gleichnamige Bilder aus
+    verschiedenen Unterordnern (z. B. fehlalarme/<Tag>/kalbeverdacht-0-0.jpg)
+    ueberschreiben sich nicht."""
+    return ziel / pfad.relative_to(quelle)
+
+
 def befehl_ausduennen(args) -> int:
     import cv2
 
     quelle, ziel = Path(args.quelle), Path(args.ziel)
+    if ziel.exists() and any(ziel.iterdir()):
+        print(f"{ziel} ist nicht leer – bitte leeren Zielordner angeben.", file=sys.stderr)
+        return 1
     eintraege = []
     for pfad in _bilder(quelle):
         zeit = zeit_aus_name(pfad.name)
@@ -239,16 +279,17 @@ def befehl_ausduennen(args) -> int:
         if bild is None:
             continue
         klein = cv2.resize(bild, (32, 24), interpolation=cv2.INTER_AREA).astype("float32")
-        eintraege.append((zeit or dt.datetime.min, pfad, kamera_aus_name(pfad.name), klein))
-    eintraege.sort(key=lambda e: (e[0], e[1].name))
+        eintraege.append((zeit or dt.datetime.min, pfad, vergleichsgruppe(quelle, pfad), klein))
+    eintraege.sort(key=lambda e: (e[0], e[1].relative_to(quelle).as_posix()))
     behalten = waehle_aus(
         [(str(p), k, s) for _, p, k, s in eintraege],
         lambda a, b: float(abs(a - b).mean()),
         args.schwelle,
     )
-    ziel.mkdir(parents=True, exist_ok=True)
     for name in behalten:
-        shutil.copy2(name, ziel / Path(name).name)
+        kopie = zielpfad(quelle, Path(name), ziel)
+        kopie.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(name, kopie)
     print(f"{len(behalten)} von {len(eintraege)} Bildern nach {ziel} kopiert "
           f"(Schwelle {args.schwelle}).")
     return 0
@@ -263,14 +304,18 @@ def _label_zu(bild: Path) -> Path:
     return Path(*teile).with_suffix(".txt")
 
 
-def _zeigt_austreibung(label: Path) -> bool:
-    if not label.exists():
-        return False
-    for zeile in label.read_text(encoding="utf-8").splitlines():
+def austreibungsklassen(text: str) -> set[int]:
+    """Austreibungsklassen (Indizes aus stall.yaml) in einem YOLO-Label."""
+    klassen = set()
+    for zeile in text.splitlines():
         teile = zeile.split()
         if teile and teile[0].isdigit() and int(teile[0]) in AUSTREIBUNG_KLASSEN:
-            return True
-    return False
+            klassen.add(int(teile[0]))
+    return klassen
+
+
+def _label_klassen(label: Path) -> set[int]:
+    return austreibungsklassen(label.read_text(encoding="utf-8")) if label.exists() else set()
 
 
 def befehl_split(args) -> int:
@@ -287,7 +332,7 @@ def befehl_split(args) -> int:
     eintraege = []
     for name, bild in pfade.items():
         zeit = zeit_aus_name(name)
-        eintraege.append((name, stalltag(zeit) if zeit else None, _zeigt_austreibung(_label_zu(bild))))
+        eintraege.append((name, stalltag(zeit) if zeit else None, _label_klassen(_label_zu(bild))))
     try:
         train, val, protokoll = teile_nach_tagen(eintraege, args.val_anteil, args.val_tag)
     except ValueError as e:

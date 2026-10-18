@@ -5,9 +5,11 @@
   python3 abnahme.py best_v1.pt datensatz --nur-fps     # auf der Zielhardware
 
 Automatisch geprueft auf datensatz/images/val + labels/val:
-  Gate 1  Austreibung: Recall = 1.0 fuer amniotic_sac/calf_legs bei
-          Konfidenz >= 0.80 (IoU >= 0.5). Ohne Geburt im Val-Set nicht
-          pruefbar -> Austreibungs-Logik nicht scharfschalten.
+  Gate 1  Austreibung: Recall = 1.0 fuer amniotic_sac UND calf_legs bei
+          Konfidenz >= 0.80 (IoU >= 0.5). Fehlen einer Klasse Val-Beispiele,
+          ist das Gate nicht pruefbar -> Austreibungs-Logik nicht
+          scharfschalten. Gemessen wird wie im Agenten: Erkennungen vor dem
+          Tracker (InferenceEngine._merke_objekte).
   Gate 2  Keypoint-Guete: Schwanzwinkel Modell vs. Hand-Label (alle drei
           Keypoints sichtbar gelabelt), mittlere Abweichung < 10° bei
           mindestens 30 Stichproben.
@@ -168,13 +170,15 @@ def sichtbarkeit_erhoben(bilder, gt_winkel, pred_winkel, iou_min: float = IOU_MI
 def bewerte(recall: dict, paare: list, sicht: tuple[int, int] = (0, 0),
             stichproben_min: int = STICHPROBEN_MIN,
             max_abweichung: float = MAX_ABWEICHUNG_GRAD) -> dict:
-    vorhanden = {k: v for k, v in recall.items() if v["gt"]}
-    if not vorhanden:
-        gate1 = "nicht prüfbar"
-    elif all(v["treffer"] == v["gt"] for v in vorhanden.values()):
-        gate1 = "bestanden"
-    else:
+    # Recall 1.0 fuer JEDE Austreibungsklasse: Eine Klasse ohne
+    # Val-Beispiele ist ungeprueft, nicht bestanden.
+    fehlend = [AUSTREIBUNG[k] for k, v in recall.items() if not v["gt"]]
+    if any(v["treffer"] < v["gt"] for v in recall.values() if v["gt"]):
         gate1 = "verfehlt"
+    elif fehlend:
+        gate1 = "nicht prüfbar"
+    else:
+        gate1 = "bestanden"
     abweichung = (sum(abs(a - b) for a, b in paare) / len(paare)) if paare else None
     if len(paare) < stichproben_min:
         gate2 = "verfehlt"
@@ -192,7 +196,7 @@ def bewerte(recall: dict, paare: list, sicht: tuple[int, int] = (0, 0),
         code = 2
     else:
         code = 0
-    return {"gate1": gate1, "recall": recall, "gate2": gate2,
+    return {"gate1": gate1, "gate1_fehlend": fehlend, "recall": recall, "gate2": gate2,
             "stichproben": len(paare), "abweichung": abweichung,
             "gate2b": gate2b, "sicht": sicht, "code": code}
 
@@ -218,7 +222,10 @@ def bericht(e: dict, modell: str, datensatz: str) -> str:
              "von Hand | offen |")
     z.append("| 4 Laufzeit | ≥ 1 FPS auf der Zielhardware | `--nur-fps` dort | offen |")
     if e["gate1"] == "nicht prüfbar":
-        z += ["", "Keine Geburt im Val-Set: Austreibungs-Logik NICHT scharfschalten, "
+        fehlend = e.get("gate1_fehlend") or list(AUSTREIBUNG.values())
+        grund = ("Keine Geburt im Val-Set" if len(fehlend) == len(AUSTREIBUNG)
+                 else f"Keine Val-Beispiele für {', '.join(fehlend)}")
+        z += ["", f"{grund}: Austreibungs-Logik NICHT scharfschalten, "
               "Silent Mode für diese Klassen verlängern."]
     if e["gate2b"] == "nicht prüfbar":
         z += ["", "Zu wenige gelabelte erhobene Schwänze im Val-Set: Sichtbarkeit beim "

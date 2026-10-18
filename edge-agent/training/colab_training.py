@@ -19,7 +19,17 @@ VERSION = 1  # best_v1.pt, best_v2.pt, … – nie ueberschreiben
 # !python datensatz.py split cvat-export datensatz     # schreibt datensatz/split.json
 
 # --- Zelle 3: Training --------------------------------------------------
+import re
+from pathlib import Path
+
 from ultralytics import YOLO
+
+# Ultralytics loest einen relativen `path:` gegen sein DATASETS_DIR auf
+# (Colab: /content/datasets), nicht gegen den Arbeitsordner -> absolut setzen.
+stall_yaml = Path("stall.yaml")
+stall_yaml.write_text(re.sub(
+    r"(?m)^path:.*$", f"path: {Path('datensatz').resolve()}", stall_yaml.read_text()
+))
 
 # nano-Modell bewusst: der Stall-Rechner analysiert auf CPU mit 1 FPS.
 modell = YOLO("yolov8n-pose.pt")
@@ -36,7 +46,8 @@ modell.train(
 
 # --- Zelle 4: Abnahme-Gates und Download --------------------------------
 # import shutil
-# shutil.copy(f"runs/pose/v{VERSION}/weights/best.pt", f"best_v{VERSION}.pt")
+# # trainer.best statt fester Pfad: ein zweiter Lauf heisst runs/pose/v12 …
+# shutil.copy(modell.trainer.best, f"best_v{VERSION}.pt")
 # !python abnahme.py best_v{VERSION}.pt datensatz --bericht abnahme_v{VERSION}.md
 # Exit 0 = Gate 1, 2, 2b bestanden, 1 = verfehlt, 2 = zu wenig Val-Material
 # (ohne Geburt: Austreibungs-Logik NICHT scharfschalten). Gate 3 (24 h Fehlalarm-

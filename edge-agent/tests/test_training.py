@@ -70,6 +70,17 @@ p.check("fast identisches Bild faellt weg", "a2" not in behalten and "a4" not in
 p.check("deutliche Aenderung bleibt", "a3" in behalten)
 p.check("Kameras getrennt verglichen", behalten == ["a1", "a3", "b1"])
 
+q = Path("aufnahmen")
+p.check("Vergleichsgruppe: Kamera aus dem Namen",
+        ds.vergleichsgruppe(q, q / "stallwache_20261014-031500.jpg") == "stallwache")
+p.check("Vergleichsgruppe: ohne Kamera der Unterordner",
+        ds.vergleichsgruppe(q, q / "fehlalarme" / "2026-10-16" / "kalbeverdacht-0-0.jpg")
+        == "ordner:fehlalarme/2026-10-16")
+a = ds.zielpfad(q, q / "fehlalarme" / "2026-10-16" / "kalbeverdacht-0-0.jpg", Path("auswahl"))
+b = ds.zielpfad(q, q / "fehlalarme" / "2026-10-17" / "kalbeverdacht-0-0.jpg", Path("auswahl"))
+p.check("gleichnamige Bilder aus zwei Tagen -> zwei verschiedene Ziele", a != b
+        and a == Path("auswahl/fehlalarme/2026-10-16/kalbeverdacht-0-0.jpg"))
+
 # --- Split nach Stalltagen ----------------------------------------------------
 
 def tage(n_tage, je_tag=10, geburt_an=None):
@@ -91,7 +102,22 @@ p.check("alle Bilder verteilt", len(train) + len(val) == 101)
 
 _, _, prot = ds.teile_nach_tagen(tage(10, geburt_an="20261003") + tage(0), 0.15)
 p.check("Geburtstag liegt in val", "20261003" in prot["val_tage"])
-p.check("einziger Geburtstag in val -> Warnung", any("Geburtstag" in w for w in prot["warnungen"]))
+p.check("einziger Geburtstag in val -> Warnung", any("liegen in val" in w for w in prot["warnungen"]))
+
+# Geburt ueber die 12-Uhr-Grenze: Fruchtblase am Stalltag 16, Fuesse am 17.
+ueber_mittag = [(f"{tg}-{i}.jpg", tg, ({1} if tg == "20261006" and i == 0 else
+                 {2} if tg == "20261007" and i == 0 else set()))
+                for tg in (f"202610{d:02d}" for d in range(1, 11)) for i in range(10)]
+_, val_ueber, prot = ds.teile_nach_tagen(ueber_mittag, 0.15)
+p.check("Geburt ueber 12 Uhr: beide Klassen-Tage in val",
+        {"20261006", "20261007"} <= set(prot["val_tage"]))
+p.check("Protokoll fuehrt Geburtstage je Klasse",
+        prot["geburtstage_je_klasse"] == {"amniotic_sac": ["20261006"], "calf_legs": ["20261007"]})
+p.check("je Klasse ohne Train-Tag eine Warnung",
+        sum("liegen in val" in w for w in prot["warnungen"]) == 2)
+p.check("Label-Klassen gelesen",
+        ds.austreibungsklassen("0 .5 .5 .1 .1\n2 .4 .4 .1 .1\n1 .3 .3 .1 .1\n") == {1, 2}
+        and ds.austreibungsklassen("0 .5 .5 .1 .1\n") == set())
 
 _, _, prot = ds.teile_nach_tagen(
     [(n, t, a or t in ("20261002", "20261008")) for n, t, a in tage(10)], 0.15
@@ -102,6 +128,22 @@ p.check("bei zwei Geburtstagen: juengster in val, keine Warnung",
 _, _, prot = ds.teile_nach_tagen(tage(10), 0.15, ["20261004", "20269999"])
 p.check("erzwungener Val-Tag", "20261004" in prot["val_tage"])
 p.check("unbekannter Val-Tag -> Warnung", any("20269999" in w for w in prot["warnungen"]))
+
+def meldung(*args):
+    try:
+        ds.teile_nach_tagen(*args)
+    except ValueError as fehler:
+        return str(fehler)
+    return ""
+
+
+grosser_kleiner = [(f"a-{i}.jpg", "20261010", False) for i in range(100)] + \
+                  [(f"b-{i}.jpg", "20261011", False) for i in range(5)]
+p.check("Val-Anteil unerreichbar ohne --val-tag -> Rat: mehr Tage / Anteil senken",
+        "mehr Stalltage" in meldung(grosser_kleiner, 0.15)
+        and "--val-tag" not in meldung(grosser_kleiner, 0.15))
+p.check("alle Tage per --val-tag erzwungen -> Rat nennt --val-tag",
+        "--val-tag" in meldung(tage(2), 0.15, ["20261001", "20261002"]))
 
 for fall, args in (
     ("ein Stalltag -> Fehler", (tage(1), 0.15)),
@@ -174,6 +216,13 @@ p.check("alle Gates bestanden -> Exit 0",
         e["gate1"] == e["gate2"] == e["gate2b"] == "bestanden" and e["code"] == 0)
 p.check("eine verpasste Fruchtblase -> verfehlt, Exit 1",
         ab.bewerte({1: {"gt": 2, "treffer": 1}, 2: {"gt": 0, "treffer": 0}}, gute, gut_sicht)["code"] == 1)
+nur_fuesse = ab.bewerte({1: {"gt": 0, "treffer": 0}, 2: {"gt": 4, "treffer": 4}}, gute, gut_sicht)
+p.check("Fruchtblase ohne Val-Beispiele -> nicht pruefbar statt bestanden, Exit 2",
+        nur_fuesse["gate1"] == "nicht prüfbar" and nur_fuesse["code"] == 2
+        and nur_fuesse["gate1_fehlend"] == ["amniotic_sac"])
+text_fuesse = ab.bericht(nur_fuesse, "best_v1.pt", "datensatz")
+p.check("Bericht nennt die fehlende Klasse und sperrt die Austreibung",
+        "Keine Val-Beispiele für amniotic_sac" in text_fuesse and "NICHT scharfschalten" in text_fuesse)
 p.check("2b: 8 von 10 erhobenen gesehen -> verfehlt, Exit 1",
         ab.bewerte(voll, gute, (10, 8))["gate2b"] == "verfehlt" and ab.bewerte(voll, gute, (10, 8))["code"] == 1)
 p.check("2b: unter 10 Stichproben -> nicht pruefbar, Exit 2",
