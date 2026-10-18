@@ -12,18 +12,32 @@ kaputte Deploys kosten Vertrauen ins „Dritte Auge".
 
 1. **Build lokal:** `npm run build` — muss ohne Fehler durchlaufen.
    Bei Python-Änderungen zusätzlich `python3 -m py_compile edge-agent/main.py`.
-2. **Smoke-Test lokal:** `npm start -- -p 3100` im Hintergrund, dann:
+2. **Smoke-Test lokal** (ohne `STALLBLICK_PASSWORT`, also ohne Login):
+   `npm start -- -p 3100` im Hintergrund, dann:
    - `curl -s -o /dev/null -w '%{http_code}' http://localhost:3100/` → 200
    - `curl -s -o /dev/null -w '%{http_code}' http://localhost:3100/wache` → 200
    - `curl -s http://localhost:3100/api/events` → JSON mit `ereignisse`
    Bei UI-Änderungen: Playwright-Screenshot (Chromium: `/opt/pw-browsers/chromium`,
    Viewport 390×844) und visuell prüfen.
-3. **Deploy:** `npx vercel deploy --prod --yes < /dev/null` (im Hintergrund
-   starten; wartet die CLI auf Device-Login, dem Nutzer die
+3. **Deploy:** Ein Merge auf `main` deployt Vercel selbst (Git-Integration).
+   Dann nur warten, bis das Produktions-Deployment des Merge-Commits `READY`
+   ist und `stallwache.vercel.app` als Alias trägt (Vercel-MCP
+   `list_deployments`/`get_deployment`, `meta.githubCommitSha` vergleichen).
+   Nur ohne Merge von Hand: `npx vercel deploy --prod --yes < /dev/null` (im
+   Hintergrund starten; wartet die CLI auf Device-Login, dem Nutzer die
    `vercel.com/oauth/device`-URL samt Code geben).
-4. **Live-Check:** `https://stallwache.vercel.app/`, `/wache` und
-   `/api/events` müssen 200 liefern; bei POST ohne Token muss `/api/events`
-   503 (unkonfiguriert) oder 401 (falscher Token) liefern — niemals 201.
+4. **Live-Check:** Produktion läuft mit Passwortschutz (`STALLBLICK_PASSWORT`,
+   `middleware.ts`). Ohne Session muss gelten:
+   - `/login` → 200
+   - `/` und `/wache` → 307 auf `/login?weiter=…`
+   - `GET /api/events` → 401 `{"fehler":"Nicht angemeldet"}`
+   - `/sw.js` → 200, Content-Type beginnt mit `application/javascript`;
+     `/manifest.webmanifest` → 200
+   - `POST /api/events` ohne Token oder mit falschem Token → 503
+     (unkonfiguriert) oder 401 — niemals 201
+
+   Liefern `/` oder `/wache` ohne Session 200, ist der Passwortschutz in
+   Produktion aus. Das dem Nutzer melden, nicht als „grün“ werten.
 5. **Git:** Änderungen committen und auf den Arbeitsbranch pushen; ohne offenen
    PR einen Draft-PR anlegen.
 
