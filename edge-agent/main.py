@@ -691,7 +691,12 @@ class LogicEngine:
     def _dauer(sekunden: float) -> str:
         """Abgerundet: nie mehr Beobachtung behaupten als belegt."""
         sekunden = max(0.0, sekunden)
-        return f"{int(sekunden)} s" if sekunden < 120 else f"{int(sekunden // 60)} min"
+        if sekunden < 120:
+            return f"{int(sekunden)} s"
+        minuten = int(sekunden // 60)
+        if minuten < 120:
+            return f"{minuten} min"
+        return f"{minuten // 60} h {minuten % 60} min"
 
     def _kalbe_text(self, tid: int, p: deque, anteil: float, jetzt: float) -> str:
         """Kalbeverdacht mit Beleg: Anteil, Bildzahl und beobachtete Spanne.
@@ -704,11 +709,23 @@ class LogicEngine:
         ueber = sum(1 for _, u in p if u)
         serie = self.serien.get(tid)
         if serie is not None and jetzt - serie[1] <= self.fenster_s:
+            # Groesste Luecke ohne auswertbares Bild seit der letzten Meldung:
+            # Nur ohne Luecke ist "weiterhin … immer wieder" belegt.
+            zeiten = [serie[1]] + [t for t, _ in p]
+            luecke = max(b - a for a, b in zip(zeiten, zeiten[1:]))
+            seit = self._dauer(jetzt - serie[0])
             serie[1] = jetzt
+            if luecke < self.fenster_s / 6:
+                return (
+                    f"Schwanz weiterhin über {self.winkel_schwelle:.0f}° angehoben: seit "
+                    f"{seit} immer wieder auffällig (zuletzt {ueber} von {len(p)} Bildern "
+                    f"in {self._dauer(jetzt - p[0][0])}). Bitte auf Wehenzeichen achten."
+                )
             return (
-                f"Schwanz weiterhin über {self.winkel_schwelle:.0f}° angehoben: seit "
-                f"{self._dauer(jetzt - serie[0])} immer wieder auffällig (zuletzt "
-                f"{ueber} von {len(p)} Bildern). Bitte auf Wehenzeichen achten."
+                f"Schwanz erneut über {self.winkel_schwelle:.0f}° angehoben ({ueber} von "
+                f"{len(p)} auswertbaren Bildern). Erste Meldung vor {seit}, dazwischen "
+                f"{self._dauer(luecke)} kein auswertbares Bild. Bitte am Bild prüfen, "
+                "ob Wehenzeichen vorliegen."
             )
         self.serien[tid] = [jetzt, jetzt]
         spanne_s = max(0.0, jetzt - p[0][0])

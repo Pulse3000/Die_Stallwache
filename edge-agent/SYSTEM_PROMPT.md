@@ -123,7 +123,10 @@ Wehen von Alltag. Diesen Filter niemals durch Einzelbild-Trigger ersetzen.
   (367 von 1412 Bildern, beobachtet in den letzten 29 min). Bitte in der
   nächsten halben Stunde auf Wehenzeichen achten."). Die beobachtete Spanne
   steht immer dabei; ist sie kurz (neue Nummer, Neustart, Schwanz lange
-  verdeckt), sagt der Text das und bittet um Prüfung am Bild.
+  verdeckt), sagt der Text das und bittet um Prüfung am Bild. Folgemeldungen
+  einer Serie nennen deren Dauer („weiterhin … seit 45 min immer wieder
+  auffällig"), nach einer Lücke ohne auswertbares Bild „erneut … dazwischen
+  19 min kein auswertbares Bild".
 
 ## Robustheit (24/7-Stallbetrieb)
 

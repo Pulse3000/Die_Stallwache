@@ -207,6 +207,42 @@ p.check("Serie: keine Folgemeldung mit Kurztext", all("erst seit" not in n for _
 UHR[0] = 120_000.0 + 20 * 60 + 31 * 60  # 31 min Pause ohne Meldung dieser Nummer
 logik.bewerte([], [])
 p.check("Serie endet nach einem Fenster ohne Meldung", 7 not in logik.serien)
+p.check("Folgemeldung nennt Bildzahl und Spanne der aktuellen Bilder",
+        "(zuletzt 10 von 20 Bildern in 19 s)" in nach_15)
+
+BOX = (150, 250, 480, 380)
+
+
+def serienlauf(engine, tid, start, sekunden, punkte=None):
+    meldungen = []
+    for s in range(sekunden):
+        UHR[0] = start + s
+        kuh = m.KuhBeobachtung(tid, BOX, e._schwanzwinkel(punkte or erhoben, [0.9] * 3), None)
+        meldungen += [a.nachricht for a in engine.bewerte([kuh], []) if a.typ == "kalbeverdacht"]
+    return meldungen
+
+
+nach_verfall = serienlauf(logik, 7, 120_000.0 + 51 * 60, 25)
+p.check("nach Verfall der Serie: wieder Erstbefund",
+        bool(nach_verfall) and "weiterhin" not in nach_verfall[0] and "erneut" not in nach_verfall[0])
+
+luecke = m.LogicEngine({
+    "logik": {
+        "winkel_schwelle_grad": 45, "fenster_minuten": 30, "anteil_schwelle": 0.20,
+        "override_konfidenz": 0.80, "brunst_min_dauer_s": 4,
+    },
+    "telegram": {"cooldown_minuten": 15},
+})
+erst = serienlauf(luecke, 9, 200_000.0, 20)          # kurzes Ereignis -> Meldung
+zweit = serienlauf(luecke, 9, 200_000.0 + 20 * 60, 20)  # 20 min nichts, wieder kurz
+p.check("Luecke ohne auswertbares Bild: 'erneut' statt 'weiterhin'",
+        len(erst) == 1 and len(zweit) == 1 and "Schwanz erneut über 45° angehoben" in zweit[0]
+        and "Erste Meldung vor 20 min, dazwischen 19 min kein auswertbares Bild" in zweit[0])
+andere = serienlauf(luecke, 10, 200_000.0 + 21 * 60, 20)
+p.check("andere Nummer fuehrt eine eigene Serie (Erstbefund)",
+        bool(andere) and "beobachtet erst seit" in andere[0])
+p.check("lange Dauer in Stunden", m.LogicEngine._dauer(7500) == "2 h 5 min"
+        and m.LogicEngine._dauer(7199) == "119 min" and m.LogicEngine._dauer(119.9) == "119 s")
 
 # Fenster verschwundener IDs werden freigegeben (Speicher im Dauerbetrieb)
 logik = m.LogicEngine({
