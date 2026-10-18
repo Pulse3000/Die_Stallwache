@@ -16,20 +16,26 @@ nachvollziehbarer Methodik. Blackbox-Abos können das nicht.
    Clips (inkl. bekannter Fehlalarm-Quellen: Koten, Fliegenabwehr, Schatten).
 2. **Auswertung:** Edge-Agent im Analyse-Modus über die Clips laufen lassen
    (`stream.url` auf Datei setzen — OpenCV liest auch Videodateien);
-   ausgelöste Alarme gegen die Annotation halten.
+   ausgelöste Alarme gegen die Annotation halten. Clips **mit 1 FPS**
+   aufnehmen (`ffmpeg … -r 1`): Der Agent liest ein Videobild je Sekunde
+   Echtzeit, und alle Zeitregeln (30-min-Fenster, 4 s Aufsprung) laufen
+   nach Wanduhr. Ein 25-FPS-Clip würde 25-fach verlangsamt ausgewertet.
 3. **Ereignis-Ebene, nicht Frame-Ebene:** Ein Kalbeverdachts-Alarm zählt als
    Treffer, wenn er innerhalb des annotierten Ereignisfensters liegt.
 4. **Jede Zeile mit Modellversion und Datum** — Verläufe zeigen, ob
    Nachtraining wirkt.
+5. **Erst nach den Abnahme-Gates:** Ein Modell kommt nur in diese Tabelle,
+   wenn es die Gates aus `edge-agent/training/abnahme.py` bestanden hat
+   (Val-Set, vor dem Scharfschalten). Diese Tabelle misst danach die Praxis.
 
 ## Ergebnisse
 
 | Datum | Modell | Ereignis | Fusion | Testclips | Precision | Recall | Fehlalarme/Nacht | Bemerkung |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| _tbd_ | best-v1 | Kalbeverdacht (Schwanzwinkel) | – | – | – | – | – | nach 1. Training |
-| _tbd_ | best-v1 | Austreibung (Fruchtblase/Füße) | – | – | – | – | – | |
-| _tbd_ | best-v1 | Brunstverdacht (Aufsprung) | aus | – | – | – | – | Baseline solo |
-| _tbd_ | best-v1 | Brunstverdacht (Aufsprung) | plausibilisieren | – | – | – | – | Abnahme Brunst-Fusion: ≥ 50 % weniger Fehlalarme bei gehaltenem Recall ([Spez](./brunst-fusion-spezifikation.md) § 6) |
+| _tbd_ | best_v1 | Kalbeverdacht (Schwanzwinkel) | – | – | – | – | – | nach 1. Training |
+| _tbd_ | best_v1 | Austreibung (Fruchtblase/Füße) | – | – | – | – | – | |
+| _tbd_ | best_v1 | Brunstverdacht (Aufsprung) | aus | – | – | – | – | Baseline solo |
+| _tbd_ | best_v1 | Brunstverdacht (Aufsprung) | plausibilisieren | – | – | – | – | Abnahme Brunst-Fusion: ≥ 50 % weniger Fehlalarme bei gehaltenem Recall ([Spez](./brunst-fusion-spezifikation.md) § 6) |
 
 Die Spalte **Fusion** gilt nur für Brunstverdacht
 (`aus | annotieren | plausibilisieren`, siehe

@@ -403,6 +403,38 @@ class ObjektErkennung:
     box: tuple[float, float, float, float]
 
 
+# Objektklassen des Austreibungs-Overrides (kein Zeitfilter, kein Tracking).
+OBJEKT_KLASSEN = ("amniotic_sac", "calf_legs")
+
+
+# Keypoints unter dieser Konfidenz gelten als verdeckt. Das ist die
+# Sichtbarkeitsgrenze von Ultralytics (setzt solche Punkte auf (0, 0)),
+# kein Fach-Schwellenwert – deshalb bewusst nicht konfigurierbar.
+KEYPOINT_SICHTBAR_AB = 0.5
+
+
+def schwanzwinkel_grad(spine, basis, spitze) -> float | None:
+    """Winkel zwischen Rueckenlinie und Schwanz in Grad (0 = anliegend).
+
+    Reine Mathematik ohne numpy: Agent, Abnahme-Skript
+    (training/abnahme.py) und Tests rechnen mit genau dieser Formel.
+    Punkte sind (x, y)-Paare; None bei unbrauchbarer Geometrie.
+    """
+    try:
+        sx, sy = float(spine[0]), float(spine[1])
+        bx, by = float(basis[0]), float(basis[1])
+        tx, ty = float(spitze[0]), float(spitze[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if not all(math.isfinite(v) for v in (sx, sy, bx, by, tx, ty)):
+        return None
+    rx, ry = bx - sx, by - sy   # Vektor entlang der Rueckenlinie
+    wx, wy = tx - bx, ty - by   # Vektor des Schwanzes
+    if math.hypot(rx, ry) < 1 or math.hypot(wx, wy) < 1:
+        return None
+    return abs(math.degrees(math.atan2(rx * wy - ry * wx, rx * wx + ry * wy)))
+
+
 class InferenceEngine:
     """Kapselt Ultralytics-YOLO; ohne Modellpfad bleibt sie inaktiv."""
 
@@ -414,30 +446,73 @@ class InferenceEngine:
         # track_buffer fuer 1 FPS); leer -> Ultralytics-Default.
         self.tracker = (self.cfg.get("tracker") or "").strip() or "bytetrack.yaml"
         self.modell = None
+        # Fruchtblase/Kaelberfuesse des aktuellen Frames, VOR dem Tracker
+        # abgegriffen (_merke_objekte). None = Callback lief nicht.
+        self._roh_objekte: list[ObjektErkennung] | None = None
+        self._merke_fehler = 0          # aufeinanderfolgende Fehlschlaege
+        self._merke_traceback: float | None = None  # letzter voller Traceback
         pfad = (self.cfg.get("pfad") or "").strip()
         if pfad:
             from ultralytics import YOLO  # Import nur bei Bedarf (Silent Mode braucht es nicht)
 
             log.info("Lade Modell %s (Tracker: %s) …", pfad, self.tracker)
             self.modell = YOLO(pfad)
+            # Vor dem ersten track() registrieren: Ultralytics haengt seine
+            # Tracker-Callbacks erst dann an, dieser laeuft also davor.
+            self.modell.add_callback("on_predict_postprocess_end", self._merke_objekte)
 
     @property
     def aktiv(self) -> bool:
         return self.modell is not None
 
+    def _merke_objekte(self, predictor) -> None:
+        """Fruchtblase/Kaelberfuesse aus den Erkennungen VOR dem Tracker.
+
+        Ultralytics kuerzt nach dem Tracking die Ergebnisse auf bestaetigte
+        Tracks, sobald eine Kuh getrackt wird. Ein neues Objekt ist im
+        ersten Bild nur unbestaetigt und faellt weg; flackernde Erkennungen
+        kommen nie an. Die Austreibung hat bewusst keinen Zeitfilter
+        (Recall 100 %) — jede einzelne Erkennung muss die Logik erreichen.
+        """
+        objekte: list[ObjektErkennung] = []
+        try:
+            boxen = predictor.results[0].boxes
+            for i in range(len(boxen) if boxen is not None else 0):
+                name = self.klassen.get(int(boxen.cls[i]))
+                if name in OBJEKT_KLASSEN:
+                    objekte.append(ObjektErkennung(
+                        name, float(boxen.conf[i]), tuple(float(v) for v in boxen.xyxy[i])
+                    ))
+        except Exception:  # noqa: BLE001 – Rueckfall auf das Tracker-Ergebnis
+            # Bei 1 FPS waere ein Traceback je Bild bis zu 86.400/Tag auf der
+            # Karte: hoechstens einer pro Stunde, dazwischen ein Zaehler.
+            self._merke_fehler += 1
+            jetzt = time.time()
+            if self._merke_traceback is None or jetzt - self._merke_traceback >= 3600:
+                self._merke_traceback = jetzt
+                log.exception("Objekte vor dem Tracker nicht lesbar – nutze Tracker-Ergebnis")
+            elif self._merke_fehler % 3600 == 0:
+                log.error("Objekte vor dem Tracker weiter nicht lesbar (%d Bilder in Folge)",
+                          self._merke_fehler)
+            return
+        self._merke_fehler = 0
+        self._roh_objekte = objekte
+
     def analysiere(
         self, frame: np.ndarray
     ) -> tuple[list[KuhBeobachtung], list[ObjektErkennung]]:
         """Ein Frame -> getrackte Kuehe (mit Schwanzwinkel) + Spezialobjekte."""
+        self._roh_objekte = None
         ergebnis = self.modell.track(
             frame, persist=True, tracker=self.tracker, verbose=False
         )[0]
+        roh = self._roh_objekte
 
         kuehe: list[KuhBeobachtung] = []
         objekte: list[ObjektErkennung] = []
         boxen = ergebnis.boxes
         if boxen is None:
-            return kuehe, objekte
+            return kuehe, roh if roh is not None else objekte
 
         kps = getattr(ergebnis, "keypoints", None)
         for i in range(len(boxen)):
@@ -446,8 +521,9 @@ class InferenceEngine:
             box = tuple(float(v) for v in boxen.xyxy[i])
             name = self.klassen.get(klass_idx, f"klasse_{klass_idx}")
 
-            if name in ("amniotic_sac", "calf_legs"):
-                objekte.append(ObjektErkennung(name, konf, box))
+            if name in OBJEKT_KLASSEN:
+                if roh is None:
+                    objekte.append(ObjektErkennung(name, konf, box))
                 continue
 
             track_id = int(boxen.id[i]) if boxen.id is not None else -1
@@ -455,27 +531,31 @@ class InferenceEngine:
             winkel = None
             if kps is not None and i < len(kps.xy):
                 punkte = kps.xy[i].cpu().numpy()
-                winkel = self._schwanzwinkel(punkte)
+                konf_kp = getattr(kps, "conf", None)
+                winkel = self._schwanzwinkel(
+                    punkte, konf_kp[i].cpu().numpy() if konf_kp is not None else None
+                )
             kuehe.append(KuhBeobachtung(track_id, box, winkel, punkte))
-        return kuehe, objekte
+        return kuehe, roh if roh is not None else objekte
 
-    def _schwanzwinkel(self, punkte: np.ndarray) -> float | None:
-        """Winkel zwischen Rueckenlinie und Schwanz in Grad (0 = anliegend)."""
+    def _schwanzwinkel(self, punkte, konf=None) -> float | None:
+        """Schwanzwinkel nur aus sichtbaren Keypoints, sonst None.
+
+        Ultralytics meldet verdeckte Keypoints (Konfidenz < 0.5) als (0, 0).
+        Ungeprueft entstuende aus einem verdeckten Schwanz ein Phantomwinkel
+        gegen die Bildecke (oft > 45°), der ins 30-Minuten-Fenster zaehlt.
+        None heisst: dieser Frame zaehlt fuer die Kuh nicht mit.
+        """
         try:
-            spine = punkte[self.kp["spine_end"]]
-            basis = punkte[self.kp["tail_base"]]
-            spitze = punkte[self.kp["tail_tip"]]
-        except (IndexError, KeyError):
+            idx = (self.kp["spine_end"], self.kp["tail_base"], self.kp["tail_tip"])
+            spine, basis, spitze = (punkte[i] for i in idx)
+            if konf is not None and any(float(konf[i]) < KEYPOINT_SICHTBAR_AB for i in idx):
+                return None
+            if any(float(p[0]) == 0.0 and float(p[1]) == 0.0 for p in (spine, basis, spitze)):
+                return None
+        except (IndexError, KeyError, TypeError, ValueError):
             return None
-        if not (np.all(np.isfinite(spine)) and np.all(np.isfinite(basis)) and np.all(np.isfinite(spitze))):
-            return None
-        ruecken = basis - spine     # Vektor entlang der Rueckenlinie
-        schwanz = spitze - basis    # Vektor des Schwanzes
-        if np.linalg.norm(ruecken) < 1 or np.linalg.norm(schwanz) < 1:
-            return None
-        kreuz = ruecken[0] * schwanz[1] - ruecken[1] * schwanz[0]
-        punktprod = float(np.dot(ruecken, schwanz))
-        return abs(math.degrees(math.atan2(kreuz, punktprod)))
+        return schwanzwinkel_grad(spine, basis, spitze)
 
 
 # --------------------------------------------------------------------------
@@ -517,6 +597,13 @@ class LogicEngine:
     puffer: dict[int, deque] = field(default_factory=lambda: defaultdict(deque))
     # laufende Aufsprung-Kandidaten: (id_oben, id_unten) -> startzeit
     brunst_paare: dict[tuple[int, int], float] = field(default_factory=dict)
+    # Kalbeverdacht-Serien je Track-ID: [erste Meldung, letzte Meldung,
+    # letzte zugestellte Meldung, groesste Luecke seit dieser]. Nach einer
+    # Meldung beginnt das Fenster neu (p.clear()); ohne Serie saehe jede
+    # Folgemeldung wie eine frische Kurzbeobachtung aus.
+    serien: dict[int, list[float]] = field(default_factory=dict)
+    # Letztes auswertbares Bild je Track-ID (fuer die Luecken der Serie).
+    zuletzt_bild: dict[int, float] = field(default_factory=dict)
     # Austreibungs-Episode (docs/austreibung-episoden-spezifikation.md):
     # Beginn (erste Fruchtblasen-/Fuesse-Erkennung), letzte Erkennung,
     # letzte Meldung (Beginn/Erinnerung/Eskalation), laufende Nummer.
@@ -542,6 +629,11 @@ class LogicEngine:
             (self.cfg.get("telegram") or {}).get("cooldown_minuten", 15)
         )
         self.erinnerung_s = max(1.0, float(erinnerung)) * 60
+        # Derselbe Wert wie Notifier.cooldown_s: Nur jede cooldown-te
+        # Kalbeverdacht-Meldung je Kuh erreicht den Landwirt. Der Text einer
+        # Folgemeldung muss sich auf die letzte ZUGESTELLTE Meldung beziehen
+        # (setzt cooldown <= Fenster voraus, Default 15 <= 30 min).
+        self.cooldown_s = float((self.cfg.get("telegram") or {}).get("cooldown_minuten", 15)) * 60
         self.min_stichprobe = 20  # so viele Frames noetig, bevor der Filter urteilt
         # Wach-Modus (kurz vor Kalbetermin): empfindlichere Schwellen nur dann,
         # wenn der Landwirt ihn bewusst scharfschaltet.
@@ -575,6 +667,11 @@ class LogicEngine:
                 continue
             p = self.puffer[kuh.track_id]
             p.append((jetzt, kuh.winkel_grad > self.winkel_schwelle))
+            vorher = self.zuletzt_bild.get(kuh.track_id)
+            self.zuletzt_bild[kuh.track_id] = jetzt
+            serie = self.serien.get(kuh.track_id)
+            if serie is not None and vorher is not None:
+                serie[3] = max(serie[3], jetzt - vorher)
             while p and p[0][0] < jetzt - self.fenster_s:
                 p.popleft()
             if len(p) >= self.min_stichprobe:
@@ -584,18 +681,86 @@ class LogicEngine:
                         Alarm(
                             "kalbeverdacht",
                             f"Kuh #{kuh.track_id}",
-                            f"Schwanzwinkel > {self.winkel_schwelle:.0f}° in "
-                            f"{anteil:.0%} der Frames der letzten "
-                            f"{self.fenster_s / 60:.0f} Minuten",
+                            self._kalbe_text(kuh.track_id, p, anteil, jetzt),
                             None,
                             kuh.box,
                         )
                     )
                     p.clear()  # Fenster neu aufbauen, Cooldown uebernimmt der Notifier
 
+        # Fenster verschwundener IDs freigeben (ID-Wechsel, Kuh weg). Ihr
+        # Inhalt waere bei Rueckkehr ohnehin aelter als das Fenster;
+        # ohne Freigabe waechst der Speicher mit jedem ID-Wechsel.
+        for tid in [t for t, q in self.puffer.items() if not q or q[-1][0] < jetzt - self.fenster_s]:
+            del self.puffer[tid]
+        for tid in [t for t, s in self.serien.items() if jetzt - s[1] > self.fenster_s]:
+            del self.serien[tid]
+        for tid in [t for t, z in self.zuletzt_bild.items() if jetzt - z > self.fenster_s]:
+            del self.zuletzt_bild[tid]
+
         # 3) Brunst: Aufsprung = zwei Boxen ueberlappen, eine deutlich oberhalb
         alarme.extend(self._brunst(kuehe, jetzt))
         return alarme
+
+    @staticmethod
+    def _dauer(sekunden: float) -> str:
+        """Abgerundet: nie mehr Beobachtung behaupten als belegt."""
+        sekunden = max(0.0, sekunden)
+        if sekunden < 120:
+            return f"{int(sekunden)} s"
+        minuten = int(sekunden // 60)
+        if minuten < 120:
+            return f"{minuten} min"
+        return f"{minuten // 60} h {minuten % 60} min"
+
+    def _kalbe_text(self, tid: int, p: deque, anteil: float, jetzt: float) -> str:
+        """Kalbeverdacht mit Beleg: Anteil, Bildzahl und beobachtete Spanne.
+
+        Erste Meldung einer Serie: kurze Spanne (neue Nummer, Neustart,
+        Schwanz lange verdeckt) sagt der Text und bittet um Pruefung am
+        Bild. Folgemeldung (letzte Meldung dieser Nummer juenger als das
+        Fenster): nennt die Dauer der Serie, nie den Kurztext.
+        """
+        ueber = sum(1 for _, u in p if u)
+        serie = self.serien.get(tid)
+        if serie is not None and jetzt - serie[1] <= self.fenster_s:
+            # Groesste Luecke ohne auswertbares Bild seit der letzten
+            # ZUGESTELLTEN Meldung (dazwischen liegende schluckt der Cooldown).
+            # Nur ohne Luecke ist "weiterhin … immer wieder" belegt.
+            luecke = serie[3]
+            seit = self._dauer(jetzt - serie[0])
+            serie[1] = jetzt
+            if jetzt - serie[2] >= self.cooldown_s:  # diese Meldung kommt an
+                serie[2], serie[3] = jetzt, 0.0
+            if luecke < self.fenster_s / 6:
+                return (
+                    f"Schwanz weiterhin über {self.winkel_schwelle:.0f}° angehoben: seit "
+                    f"{seit} immer wieder auffällig (zuletzt {ueber} von {len(p)} Bildern "
+                    f"in {self._dauer(jetzt - p[0][0])}). Bitte auf Wehenzeichen achten."
+                )
+            return (
+                f"Schwanz erneut über {self.winkel_schwelle:.0f}° angehoben ({ueber} von "
+                f"{len(p)} auswertbaren Bildern). Erste Meldung vor {seit}, dazwischen "
+                f"{self._dauer(luecke)} kein auswertbares Bild. Bitte am Bild prüfen, "
+                "ob Wehenzeichen vorliegen."
+            )
+        self.serien[tid] = [jetzt, jetzt, jetzt, 0.0]
+        spanne_s = max(0.0, jetzt - p[0][0])
+        spanne = self._dauer(spanne_s)
+        kopf = (
+            f"Schwanz in {anteil * 100:.0f} % der auswertbaren Bilder über "
+            f"{self.winkel_schwelle:.0f}° angehoben ({ueber} von {len(p)} Bildern, "
+        )
+        if spanne_s >= self.fenster_s / 2:
+            return (
+                f"{kopf}beobachtet in den letzten {spanne}). "
+                "Bitte in der nächsten halben Stunde auf Wehenzeichen achten."
+            )
+        return (
+            f"{kopf}beobachtet erst seit {spanne} – neue Nummer, Neustart oder "
+            "Schwanz lange verdeckt). Bitte am Bild prüfen, ob nur Koten oder "
+            "Fliegenabwehr vorlag."
+        )
 
     def _austreibung(self, o: ObjektErkennung, jetzt: float) -> list[Alarm]:
         """Austreibungs-Takt: Sofort-Meldung bei Episodenbeginn, Erinnerung
@@ -1812,6 +1977,17 @@ def pruefe_kamerabild(
     return defekt
 
 
+def trainingsbild_name(kamera: str, zeit: float | None = None) -> str:
+    """Dateiname eines Silent-Mode-Bilds: <kamera>_<JJJJMMTT-HHMMSS>.jpg.
+
+    Die Kamera steht im Namen, weil Bilder mehrerer Agent-Instanzen im selben
+    Datensatz landen. Die Zeit steht im Namen, weil der Split nach Tagen
+    (training/datensatz.py) sie daraus liest.
+    """
+    kamera = "".join(c if c.isalnum() or c == "-" else "-" for c in kamera) or "kamera"
+    return f"{kamera}_{time.strftime('%Y%m%d-%H%M%S', time.localtime(zeit))}.jpg"
+
+
 # --------------------------------------------------------------------------
 # Hauptschleife
 # --------------------------------------------------------------------------
@@ -1891,7 +2067,7 @@ def main() -> None:
                     # Defekte Kamera -> kein Trainingsbild (Muell im Datensatz).
                     if pruefe_kamerabild(wd, frame, notifier):
                         continue
-                    name = ordner / f"{time.strftime('%Y%m%d-%H%M%S')}.jpg"
+                    name = ordner / trainingsbild_name(notifier.kamera)
                     cv2.imwrite(str(name), frame)
                     log.info("Trainingsbild gespeichert: %s", name)
                     if archiv.aktiv:
