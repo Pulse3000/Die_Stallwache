@@ -19,6 +19,10 @@ Dashboard-Anzeige. Referenzverhalten, das nie brechen darf.
 
 ## Ablauf
 
+0. Vorher prüfen, dass die Ports 3100 und 3101 frei sind (`curl -s -o /dev/null
+   http://localhost:3100/login` → Exit 7, ebenso 3101). Ist ein Port belegt,
+   scheitert der neue Start im Hintergrund mit `EADDRINUSE`, und die POSTs
+   treffen still den alten Server (z. B. 503 statt 201).
 1. Server ohne Token starten (`node node_modules/next/dist/bin/next start -p 3100 &`,
    PID aus `$!` merken) → POST muss 503 liefern.
 2. Server mit Token starten (`EDGE_INGEST_TOKEN=test123 node node_modules/next/dist/bin/next start -p 3101 &`,
@@ -32,7 +36,7 @@ Dashboard-Anzeige. Referenzverhalten, das nie brechen darf.
      „Edge-Agent … zuletzt HH:MM" gefüllt.
    - `/wache` auf Port 3100 (leerer Store): Demo-Hinweis („Demo-Daten") sichtbar.
 4. Gültige `typ`-Werte: `kalbeverdacht | austreibung | brunstverdacht | info`
-   (Quelle: `lib/events.ts`, `EREIGNIS_TYPEN`).
+   (Quelle: `lib/ereignis-modell.ts`, `EREIGNIS_TYPEN`).
 
 ## Hinweise
 

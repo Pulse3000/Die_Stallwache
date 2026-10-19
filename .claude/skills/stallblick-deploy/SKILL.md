@@ -13,6 +13,10 @@ kaputte Deploys kosten Vertrauen ins „Dritte Auge".
 1. **Build lokal:** `npm run build` — muss ohne Fehler durchlaufen.
    Bei Python-Änderungen zusätzlich `python3 -m py_compile edge-agent/main.py`.
 2. **Smoke-Test lokal** (ohne `STALLBLICK_PASSWORT`, also ohne Login):
+   Vorher prüfen, dass Port 3100 frei ist (`curl -s -o /dev/null
+   http://localhost:3100/login` → Exit 7). Ist er belegt, scheitert der neue
+   Start im Hintergrund mit `EADDRINUSE`, und die Messung trifft still den
+   alten Server. Dann
    `node node_modules/next/dist/bin/next start -p 3100 &` und die PID (`$!`)
    merken — nicht `npm start`: `kill` trifft dann nur den npm-Wrapper, der
    `next-server` bleibt verwaist auf dem Port und spätere Messungen laufen
