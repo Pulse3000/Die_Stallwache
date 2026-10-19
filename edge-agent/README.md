@@ -83,6 +83,13 @@ WantedBy=multi-user.target
 sudo systemctl enable --now stallblick-agent
 ```
 
+### Stall-Rechner stallwache-lela (alte CPU ohne AVX)
+
+Dort läuft der Agent nicht im venv, sondern als Docker-Container auf dem
+vorhandenen kuhwatch-Image. Ein frisches venv zieht numpy ≥ 2.4, und das läuft
+auf der AMD A6-3650 nicht. Silent Mode, Umstellung von kuhwatch, Abnahme und
+Rückweg: [`deploy-stallwache-lela/README.md`](deploy-stallwache-lela/README.md).
+
 ---
 
 ## Telegram einrichten (2 Minuten)

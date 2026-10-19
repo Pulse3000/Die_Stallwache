@@ -10,6 +10,10 @@ stream:
   #   http://BENUTZER:PASSWORT@192.168.178.50:1984/api/frame.jpeg?src=stallwache
   # Der Agent schickt die Daten als Basic-Auth und schreibt sie nie ins Log.
   fallback_snapshot_url: http://192.168.178.50:1984/api/frame.jpeg?src=stallwache
+  # Nur Einzelbilder (Silent Mode auf schwacher Hardware): url leer lassen und
+  # nur fallback_snapshot_url setzen. Dann dekodiert der Agent keinen Dauer-
+  # strom, jedes Bild ist aktuell; ziel_fps z. B. 0.1 (ein Bild alle 10 s).
+  # Profil fuer den Stall-Rechner: deploy-stallwache-lela/config.silent-lela.yaml
   # --- Cloud-Quelle OHNE Bridge (Kameras, die schon in der Tuya-Cloud
   # haengen: Stallwache, Futterwache, Abkalbebox, Weidewache). Alle drei Werte
   # setzen, url oben leer lassen -> der Agent holt sich die kurzlebige HLS-URL
@@ -127,6 +131,9 @@ dashboard:
   # (dort GCS_BUCKET + GCP_SERVICE_ACCOUNT_JSON setzen).
   # Der Upload laeuft in einem Hintergrund-Thread und blockiert die
   # Analyseschleife nie; die lokale Kopie bleibt immer die massgebliche.
+  # Entscheidung des Landwirts (19.10.2026): Trainingsbilder bleiben auf dem
+  # Hof -> archiv bleibt aus, gesichert wird lokal (USB-Platte, Hof-NAS).
+  # Einschalten nur nach neuer Entscheidung (docs/lela-datensammlung-spezifikation.md).
   archiv: false
   # Default: url mit /api/events -> /api/datensatz. Nur setzen, wenn das
   # Archiv woanders liegt als der Ereignis-Ingest.

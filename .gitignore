@@ -17,6 +17,9 @@ __pycache__/
 *.pyc
 edge-agent/config.yaml
 edge-agent/aufnahmen/
+# Stall-Rechner (deploy-stallwache-lela): Offline-Puffer und Modelle
+edge-agent/daten/
+edge-agent/modelle/
 
 # Eingestellte Termux-Bridge: alte Binaries/Logs auf Bestandsgeraeten ignorieren
 bridge/termux/

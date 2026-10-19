@@ -99,6 +99,11 @@ voll, werden Bilder verworfen statt gestaut — die 1-FPS-Analyseschleife
 wartet nie auf das Netz. Es verlässt weiterhin **kein Videostream** den Hof,
 nur einzelne komprimierte JPEGs.
 
+> **Entscheidung des Landwirts (19.10.2026): Trainingsbilder bleiben auf dem
+> Hof.** Das Archiv bleibt aus (`dashboard.archiv: false`); gesichert wird
+> lokal (USB-Platte, Hof-NAS). Einschalten nur nach neuer Entscheidung, siehe
+> [`docs/lela-datensammlung-spezifikation.md`](docs/lela-datensammlung-spezifikation.md).
+
 ## Verhaltens-Schicht, kein NVR
 
 Frigate, Viseron & Co. erkennen *Objekte* („Kuh im Bild"); Stallblick erkennt

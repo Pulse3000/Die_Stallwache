@@ -49,6 +49,9 @@ class FalscherNotifier:
     def digest_tick(self, analyse_aktiv: bool) -> None:
         pass
 
+    def zaehle_trainingsbild(self) -> None:
+        pass
+
 
 def wd(n: int = 5):
     return m.FreezeWatchdog("stallwache", frames_bis_alarm=n)
@@ -147,14 +150,17 @@ def fahre_hauptschleife(frames, analyse: bool, cfg_zusatz=None):
         cfg.update(cfg_zusatz or {})
         alt = {k: getattr(m, k) for k in
                ("lade_konfig", "StreamHandler", "InferenceEngine", "LogicEngine",
-                "Notifier", "TotmannWaechter", "DatensatzArchiv", "cv2")}
+                "Notifier", "TotmannWaechter", "DatensatzArchiv", "cv2",
+                "freier_platz")}
         try:
             m.lade_konfig = lambda: cfg
             m.StreamHandler, m.InferenceEngine, m.LogicEngine = Strom, Engine, Logik
             m.Notifier = lambda c: notifier
             m.TotmannWaechter, m.DatensatzArchiv = Totmann, Archiv
+            m.freier_platz = lambda pfad: 10 * 1024**3  # unabhaengig von der Testplatte
             m.cv2 = types.SimpleNamespace(
-                imwrite=lambda pfad, frame: gespeichert.append(pfad),
+                # wie cv2.imwrite: True bei Erfolg
+                imwrite=lambda pfad, frame: gespeichert.append(pfad) or True,
                 imencode=lambda *a, **k: (False, None),
                 IMWRITE_JPEG_QUALITY=1,
             )
