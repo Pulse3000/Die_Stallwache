@@ -95,8 +95,11 @@ Prüfprogramm (in dieser Reihenfolge, Abbruch bei Rot):
 
 9. Danach alle gestarteten `next start`-Prozesse beenden. **Nicht** per
    `pkill -f "next start"` — das Muster trifft die eigene Kommandozeile und
-   killt die Shell. Server auf einem eigenen Port starten und über die
-   gemerkte PID beenden.
+   killt die Shell. Server auf einem eigenen, vorher freien Port direkt mit
+   `node node_modules/next/dist/bin/next start -p <Port> &` starten — nur dann
+   ist `$!` der `next-server`; bei `npm start`/`npx` trifft `kill` nur den
+   Wrapper. Über die gemerkte PID beenden und prüfen, dass der Port frei ist
+   (`curl` auf `/login` → Exit 7).
 
 Was du **nicht** prüfen kannst und deshalb ausdrücklich als offen meldest:
 Installation auf dem Home-Bildschirm, Zustellung bei gesperrtem Bildschirm,
