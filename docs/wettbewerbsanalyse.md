@@ -283,6 +283,8 @@ verwendet werden.
 | **P3** | **Lahmheits-Frühwarnung** aus Rückenlinien-Winkel | CattleEye; Keypoints vorhanden, braucht aber eigene Validierung |
 | **P3** | **BCS-Schätzung** (Body Condition) | DeLaval/CattleEye; erst nach stabilem Kalbe-/Brunst-Betrieb |
 | **P1** | **Fernzugriff nur über Tailscale (15.10.2026)**: ein einziger öffentlicher Weg (Funnel → Token-Proxy → go2rtc), kein Cloudflare-Tunnel, keine Termux-Bridge, kein öffentlicher Cloud-Transcoder | Weniger Angriffsfläche: Der Tunnel legte die komplette go2rtc-API offen. Entscheidung des Betreibers; Details [`fernzugriff-spezifikation.md`](./fernzugriff-spezifikation.md) |
+| **P1** | **stallwache-lela sammelt Trainingsbilder: Edge-Agent im Silent Mode statt kuhwatch (19.10.2026)** | kuhwatch (generisches COCO-Modell, Bewegungsregel) speichert keine Bilder; ohne eigene Stall-Bilder gibt es kein Pose-Modell und damit keine echte Kalbe-/Brunsterkennung. Entscheidung des Landwirts; Details [`lela-datensammlung-spezifikation.md`](./lela-datensammlung-spezifikation.md) |
+| **P1** | **Trainingsbilder bleiben auf dem Hof (19.10.2026)**: kein automatischer Upload, das Datensatz-Archiv (`dashboard.archiv`) bleibt aus; Sicherung lokal (USB-Platte, Hof-NAS) | Folgt „Video verlässt den Hof nie“ auch für Einzelbilder in Serie. Entscheidung des Landwirts; offen, ob das auch fürs Labeln und Training gilt |
 
 
 ### Entscheidungen aus der Alarmweg-Analyse (August 2026)

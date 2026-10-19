@@ -1,0 +1,33 @@
+# Edge-Agent als Dauerdienst auf stallwache-lela (Silent Mode: Datensammlung).
+# Aus edge-agent/ starten:
+#   docker compose -f deploy-stallwache-lela/docker-compose.yml up -d --build
+# Ablauf, Abnahme und Rueckweg: deploy-stallwache-lela/README.md
+services:
+  stallblick-agent:
+    build:
+      context: ..
+      dockerfile: deploy-stallwache-lela/Dockerfile
+    image: stallblick-agent:lela
+    # Der Name ist im Tempguard (kuhwatch) eingetragen: ab 85 °C pausiert er
+    # diesen Container. Nicht umbenennen, ohne TEMPGUARD_CONTAINER anzupassen.
+    container_name: stallblick-agent
+    restart: unless-stopped
+    # Host-Netz: go2rtc ist ueber 127.0.0.1 erreichbar, und von dort braucht es
+    # keinen Login (local_auth aus) – keine Kamera-Zugangsdaten in config.yaml.
+    network_mode: host
+    cpus: 1            # flache Last: Hitzeschutz der alten APU
+    mem_limit: 2g
+    working_dir: /agent
+    volumes:
+      # config.yaml VOR dem ersten Start anlegen, sonst legt Docker hier
+      # einen leeren Ordner an.
+      - ../config.yaml:/agent/config.yaml:ro
+      - ../aufnahmen:/agent/aufnahmen
+      - ../daten:/agent/daten
+      - ../modelle:/agent/modelle:ro
+      # Ortszeit des Hosts: Bildnamen und Stalltag-Split (12–12 Uhr) brauchen
+      # sie, ohne sie liefe der Container in UTC.
+      - /etc/localtime:/etc/localtime:ro
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}

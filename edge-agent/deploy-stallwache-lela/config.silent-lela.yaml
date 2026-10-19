@@ -1,0 +1,89 @@
+# Profil fuer stallwache-lela: Silent Mode (nur Trainingsbilder sammeln).
+# Spezifikation: docs/lela-datensammlung-spezifikation.md
+#
+# Anlegen (aus edge-agent/):
+#   cp deploy-stallwache-lela/config.silent-lela.yaml config.yaml && chmod 600 config.yaml
+# Danach nur die drei Geheimnisse eintragen: telegram.token, telegram.chat_id
+# (dieselben wie in ~/kuhwatch/.env) und dashboard.token (= EDGE_INGEST_TOKEN
+# in Vercel). config.yaml ist gitignoriert – nie committen.
+#
+# Gleiche Schluessel wie config.example.yaml (tests/test_lela_profil.py prueft
+# das): Der Agent verlangt sie auch im Silent Mode.
+
+stream:
+  # Nur Einzelbilder von go2rtc auf diesem Rechner: kein Dauer-Dekodieren auf
+  # der alten CPU, jedes Bild aktuell. Von 127.0.0.1 braucht go2rtc keinen
+  # Login (local_auth aus), daher keine Zugangsdaten hier.
+  url: ""
+  fallback_snapshot_url: http://127.0.0.1:1984/api/frame.jpeg?src=stallwache
+  app_url: ""
+  quelle_api: ""
+  app_passwort: ""
+  kamera: stallwache
+  # Ein Einzelbild alle 10 s: Lebenszeichen „Bild da" (< 120 s) und Totmann
+  # (5 min) bleiben gueltig; gespeichert wird alle 120 s (silent_mode).
+  ziel_fps: 0.1
+  totmann_minuten: 5
+
+modell:
+  # Leer = Silent Mode. Erst nach bestandener Abnahme (training/abnahme.py)
+  # ein best_vN.pt eintragen – dann stream.url auf RTSP und ziel_fps 1.0.
+  pfad: ""
+  keypoints:
+    spine_end: 0
+    tail_base: 1
+    tail_tip: 2
+  klassen:
+    kuh: 0
+    amniotic_sac: 1
+    calf_legs: 2
+  tracker: tracker-kuh.yaml
+
+logik:
+  # Referenzwerte, im Silent Mode ohne Wirkung (keine Analyse).
+  winkel_schwelle_grad: 45
+  fenster_minuten: 30
+  anteil_schwelle: 0.20
+  override_konfidenz: 0.80
+  brunst_min_dauer_s: 4
+  eskalation_minuten: 60
+  austreibung_erinnerung_minuten:
+  wach_modus: false
+
+telegram:
+  token: ""        # aus ~/kuhwatch/.env (TELEGRAM_BOT_TOKEN)
+  chat_id: ""      # aus ~/kuhwatch/.env (TELEGRAM_CHAT_ID)
+  cooldown_minuten: 15
+  bildserie_frames: 4
+  # Tagesbericht mit „Trainingsbilder seit dem letzten Bericht: N · frei: X GB"
+  digest_uhrzeit: "20:00"
+  # Aus: Im Silent Mode gibt es keine Alarme zum Bewerten, und getUpdates
+  # kollidiert mit einem Webhook am selben Bot (409).
+  feedback_buttons: false
+  fehlalarm_ordner: ./aufnahmen/fehlalarme
+
+dashboard:
+  url: https://stallwache.vercel.app/api/events
+  token: ""        # = EDGE_INGEST_TOKEN in Vercel; nur Lebenszeichen und Status, keine Bilder
+  bilder: 0
+  puffer_datei: daten/alarm-puffer.jsonl
+  puffer_max: 200
+  lebenszeichen_minuten: 5
+  # Entscheidung des Landwirts (19.10.2026): Bilder bleiben auf dem Hof.
+  archiv: false
+  archiv_url: ""
+
+mqtt:
+  host: ""
+  port: 1883
+  username: ""
+  password: ""
+  basis_topic: stallblick
+
+watchdog:
+  aktiv: true
+  frames_bis_alarm:
+
+silent_mode:
+  ordner: ./aufnahmen
+  intervall_sekunden: 120

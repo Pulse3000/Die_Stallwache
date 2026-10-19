@@ -49,6 +49,9 @@ class FalscherNotifier:
     def digest_tick(self, analyse_aktiv: bool) -> None:
         pass
 
+    def zaehle_trainingsbild(self) -> None:
+        pass
+
 
 def wd(n: int = 5):
     return m.FreezeWatchdog("stallwache", frames_bis_alarm=n)
@@ -63,9 +66,10 @@ def test_ohne_watchdog_nie_defekt():
 def test_meldung_einmal_je_episode_und_defekt_waehrend_ausfall():
     n, w = FalscherNotifier(), wd(5)
     fest = lebendig()
+    # Entwarnung erst nach 5 sauberen Bildern in Folge; gesperrt ist nur der Defekt
     ergebnis = [m.pruefe_kamerabild(w, f, n) for f in
-                [lebendig()] + [fest.copy() for _ in range(10)] + [lebendig()]]
-    assert ergebnis == [False] * 6 + [True] * 5 + [False]
+                [lebendig()] + [fest.copy() for _ in range(10)] + [lebendig() for _ in range(5)]]
+    assert ergebnis == [False] * 6 + [True] * 5 + [False] * 5
     assert len(n.meldungen) == 2
     assert "eingefroren" in n.meldungen[0] and "wieder in Ordnung" in n.meldungen[1]
 
@@ -147,14 +151,17 @@ def fahre_hauptschleife(frames, analyse: bool, cfg_zusatz=None):
         cfg.update(cfg_zusatz or {})
         alt = {k: getattr(m, k) for k in
                ("lade_konfig", "StreamHandler", "InferenceEngine", "LogicEngine",
-                "Notifier", "TotmannWaechter", "DatensatzArchiv", "cv2")}
+                "Notifier", "TotmannWaechter", "DatensatzArchiv", "cv2",
+                "freier_platz")}
         try:
             m.lade_konfig = lambda: cfg
             m.StreamHandler, m.InferenceEngine, m.LogicEngine = Strom, Engine, Logik
             m.Notifier = lambda c: notifier
             m.TotmannWaechter, m.DatensatzArchiv = Totmann, Archiv
+            m.freier_platz = lambda pfad: 10 * 1024**3  # unabhaengig von der Testplatte
             m.cv2 = types.SimpleNamespace(
-                imwrite=lambda pfad, frame: gespeichert.append(pfad),
+                # wie cv2.imwrite: True bei Erfolg
+                imwrite=lambda pfad, frame: gespeichert.append(pfad) or True,
                 imencode=lambda *a, **k: (False, None),
                 IMWRITE_JPEG_QUALITY=1,
             )
@@ -166,15 +173,15 @@ def fahre_hauptschleife(frames, analyse: bool, cfg_zusatz=None):
 
 
 def folge():
-    """3 lebendige, 8 identische, 1 lebendiges Bild."""
+    """3 lebendige, 8 identische, 5 lebendige Bilder (Entwarnung nach 5 sauberen)."""
     fest = lebendig()
-    return [lebendig() for _ in range(3)] + [fest.copy() for _ in range(8)] + [lebendig()]
+    return [lebendig() for _ in range(3)] + [fest.copy() for _ in range(8)] + [lebendig() for _ in range(5)]
 
 
 def test_silent_mode_speichert_nichts_waehrend_defekt():
     notifier, gespeichert, _ = fahre_hauptschleife(folge(), analyse=False)
-    # gespeichert: 3 lebendige + 5 feste (vor Alarm) + 1 lebendiges nach Erholung
-    assert len(gespeichert) == 9, len(gespeichert)
+    # gespeichert: 3 lebendige + 5 feste (vor Alarm) + 5 lebendige nach Erholung
+    assert len(gespeichert) == 13, len(gespeichert)
     assert len(notifier.meldungen) == 2
     assert "eingefroren" in notifier.meldungen[0]
 
@@ -184,7 +191,7 @@ def test_analyse_modus_analysiert_nichts_waehrend_defekt():
         folge(), analyse=True, cfg_zusatz={"watchdog": {"frames_bis_alarm": 5}}
     )
     assert gespeichert == []                      # Analyse-Modus speichert nie
-    assert len(analysiert) == 9, len(analysiert)  # 12 Frames - 3 im Defekt
+    assert len(analysiert) == 13, len(analysiert)  # 16 Frames - 3 im Defekt
     assert len(notifier.meldungen) == 2
 
 

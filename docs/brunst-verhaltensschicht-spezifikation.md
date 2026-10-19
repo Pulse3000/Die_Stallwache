@@ -5,6 +5,11 @@ Schliesst die Luecke des 09.10.2026 (brunstige Kuh rinderte, keine Meldung:
 Anwesenheit ist kein Verhalten). Entwurf: LELA (10.10.2026), Entscheidung:
 Landwirt. **Status: Entwurf v0.1 - zur Freigabe.**
 
+> **Zurückgestellt (19.10.2026):** Auf stallwache-lela läuft bis zum Modell v1
+> der Edge-Agent im Silent Mode (Datensammlung, keine Analyse), siehe
+> [`lela-datensammlung-spezifikation.md`](./lela-datensammlung-spezifikation.md).
+> Der Dauerlauf mit Pose-Modell setzt ein abgenommenes `best_vN.pt` voraus.
+
 Abgrenzung: Diese Spezifikation regelt die Brunst-Erkennung EINER Kamera.
 Die Zwei-Kamera-Plausibilisierung bleibt unangetastet in
 [`brunst-fusion-spezifikation.md`](./brunst-fusion-spezifikation.md) (P2,

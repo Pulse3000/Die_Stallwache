@@ -58,7 +58,8 @@ def test_lebendiges_bild_nie_alarm():
 def test_eingefroren_genau_ein_ereignis_und_eine_erholung():
     wd = FreezeWatchdog("stallwache", frames_bis_alarm=5)
     fest = lebendig()
-    frames = [lebendig(), lebendig()] + [fest.copy() for _ in range(20)] + [lebendig(), lebendig()]
+    # Entwarnung erst nach 5 sauberen Bildern in Folge (Hysterese gegen Flattern)
+    frames = [lebendig(), lebendig()] + [fest.copy() for _ in range(20)] + [lebendig() for _ in range(5)]
     ev = lauf(wd, frames)
     assert len(ev) == 2, ev
     (i_ein, e_ein), (i_aus, e_aus) = ev
@@ -68,7 +69,7 @@ def test_eingefroren_genau_ein_ereignis_und_eine_erholung():
     assert "wieder in Ordnung" in e_aus["nachricht"]
     # frames[2] ist der erste "feste"; 5 identische Folgebilder -> Alarm bei Index 2+5
     assert i_ein == 2 + 5
-    assert i_aus == 22
+    assert i_aus == 22 + 4                    # 5. sauberes Bild
 
 
 def test_defekt_gilt_genau_waehrend_des_ausfalls():
@@ -83,6 +84,29 @@ def test_defekt_gilt_genau_waehrend_des_ausfalls():
     assert zustand[9] is False
 
 
+def test_flattern_gibt_eine_meldung_und_eine_entwarnung():
+    """Grenzfall Nacht: Defekt und sauberes Bild wechseln sich ab. Frueher kam
+    bei jedem Wechsel eine Meldung (bis zu 35 je Nacht). Jetzt: eine Meldung,
+    eine Entwarnung erst nach frames_bis_alarm sauberen Bildern in Folge."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+    fest = lebendig()
+    frames = [lebendig()] + [fest.copy() for _ in range(4)]          # Defekt ab Bild 4
+    for _ in range(6):                                              # flattern
+        frames += [lebendig()] + [fest.copy() for _ in range(4)]
+    frames += [lebendig() for _ in range(3)]                         # stabil
+    zustand, ev = [], []
+    for i, f in enumerate(frames):
+        e = wd.pruefe(f, jetzt=1_000_000.0 + i * 120)
+        zustand.append(wd.defekt)
+        if e:
+            ev.append(e["nachricht"])
+    assert len(ev) == 2, ev
+    assert "eingefroren" in ev[0] and "wieder in Ordnung" in ev[1]
+    assert zustand[-1] is False
+    # Ein sauberes Bild gibt die Sammlung sofort frei (nichts wird laenger gesperrt)
+    assert zustand[5] is False
+
+
 def test_unter_schwelle_kein_alarm():
     wd = FreezeWatchdog("stallwache", frames_bis_alarm=5)
     fest = lebendig()
@@ -92,7 +116,7 @@ def test_unter_schwelle_kein_alarm():
 
 def test_streifen_genau_ein_ereignis():
     wd = FreezeWatchdog("stallwache", frames_bis_alarm=4)
-    frames = [lebendig()] + [streifenbild() for _ in range(15)] + [lebendig()]
+    frames = [lebendig()] + [streifenbild() for _ in range(15)] + [lebendig() for _ in range(4)]
     ev = lauf(wd, frames)
     assert len(ev) == 2, ev
     assert "Streifen" in ev[0][1]["nachricht"]
@@ -104,6 +128,83 @@ def test_einfarbige_wand_ist_kein_streifenfehler():
     wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
     dunkel = lambda: np.full((H, B, 3), 12, np.uint8) + RNG.integers(0, 40, (H, B, 3), dtype=np.uint8)  # noqa: E731
     assert lauf(wd, [dunkel() for _ in range(10)]) == []
+
+
+def mit_band(oben: bool, anteil: float, wert: int) -> np.ndarray:
+    """Lebendiges Bild mit gleichmaessigem, bildbreitem Band (dunkle Decke
+    ausserhalb der IR-Reichweite, ueberstrahlte Wand, Privatsphaere-Maske)."""
+    bild = lebendig()
+    h = int(H * anteil)
+    zeilen = slice(0, h) if oben else slice(H - h, H)
+    bild[zeilen] = np.clip(wert + RNG.normal(0, 0.3, (h, B, 3)), 0, 255).astype(np.uint8)
+    return bild
+
+
+def test_dunkles_band_mit_lebendigem_rest_ist_kein_streifenfehler():
+    """IR-Nacht: Decke oben dunkel, Rest lebt -> kein Defekt (sonst fehlen
+    nachts alle Trainingsbilder, Beschluss B9)."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+    assert lauf(wd, [mit_band(True, 0.25, 6) for _ in range(10)]) == []
+    assert not wd.defekt
+
+
+def test_helles_band_unten_ist_kein_streifenfehler():
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+    assert lauf(wd, [mit_band(False, 0.20, 250) for _ in range(10)]) == []
+
+
+def test_streifen_nur_im_unteren_drittel_wird_erkannt():
+    """Echte Dekoder-Korruption in einem Teilbereich bleibt ein Defekt."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+
+    def teilstreifen():
+        bild = lebendig()
+        h = int(H * 0.30)
+        bild[H - h:] = streifenbild()[H - h:]
+        return bild
+
+    ev = lauf(wd, [teilstreifen() for _ in range(6)])
+    assert len(ev) == 1 and "Streifen" in ev[0][1]["nachricht"], ev
+
+
+def test_streifen_neben_dunklem_band_wird_erkannt():
+    """Ein gleichmaessiges Band darf echte Streifen daneben nicht verdecken."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+
+    def beides():
+        bild = mit_band(True, 0.25, 6)
+        h = int(H * 0.30)
+        bild[H - h:] = streifenbild()[H - h:]
+        return bild
+
+    ev = lauf(wd, [beides() for _ in range(6)])
+    assert len(ev) == 1 and "Streifen" in ev[0][1]["nachricht"], ev
+
+
+def test_meldetext_silent_mode_nennt_trainingsbilder():
+    """Im Silent Mode gibt es keine Analyse – die Meldung sagt, was wirklich passiert."""
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 2}}, "stallwache", analyse_aktiv=False)
+    fest = lebendig()
+    ev = lauf(wd, [fest.copy() for _ in range(4)])
+    text = ev[0][1]["nachricht"]
+    assert "keine Trainingsbilder" in text and "Analyse" not in text, text
+
+
+def test_meldetext_analyse_modus_unveraendert():
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 2}}, "stallwache", analyse_aktiv=True)
+    fest = lebendig()
+    ev = lauf(wd, [fest.copy() for _ in range(4)])
+    assert "Analyse ausgesetzt" in ev[0][1]["nachricht"]
+
+
+def test_kennzahlen_nur_zahlen_und_passend_zum_befund():
+    from freeze_watchdog import kennzahlen
+    k_band = kennzahlen(mit_band(True, 0.25, 6))
+    assert k_band["streifen"] is False and k_band["band_anteil"] >= 0.2
+    assert k_band["spalten_streuung"] < 5
+    k_str = kennzahlen(streifenbild())
+    assert k_str["streifen"] is True and k_str["band_anteil"] > 0.9 and k_str["spalten_sprung"] > 5
+    assert all(isinstance(v, (int, float, bool)) for v in k_str.values())   # keine Bilddaten
 
 
 def test_aufloesungswechsel_ist_kein_einfrieren():

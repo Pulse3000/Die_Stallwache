@@ -33,6 +33,8 @@ import json
 import logging
 import math
 import queue
+import re
+import shutil
 import sys
 import threading
 import time
@@ -157,6 +159,54 @@ def trenne_zugangsdaten(url: str) -> tuple[str, tuple[str, str] | None]:
     )
 
 
+_URL_LOGIN = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*://)\S*@")
+_BOT_TOKEN = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
+
+
+def ohne_zugangsdaten(url: str) -> str:
+    """URL fuers Log: Benutzer/Passwort entfernt (rtsp://user:pass@host/… ->
+    rtsp://host/…). Wirft nie. Greedy bis zum letzten @: Auch ein unkodiertes
+    @, /, # oder ? im Passwort landet nicht im Log (ein @ im Pfad kostet dann
+    lieber ein Stueck der Anzeige als ein Passwort)."""
+    return _URL_LOGIN.sub(r"\1", url or "")
+
+
+class OhneGeheimnisse(logging.Formatter):
+    """Schwaerzt Geheimnisse in JEDER Logzeile, auch in Tracebacks: Zugangsdaten
+    in URLs, Telegram-Bot-Token (requests schreibt die volle URL …/bot<TOKEN>/…
+    in seine Fehlertexte) und die Tokens/Passwoerter aus config.yaml.
+    docker logs geht an den Betreiber und wird bei Stoerungen weitergegeben."""
+
+    def __init__(self, *args, geheimnisse: list[str] | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Kurze Werte nicht ersetzen: „1" wuerde sonst jede Zahl schwaerzen.
+        self.geheimnisse = sorted({g for g in (geheimnisse or []) if len(g) >= 4}, key=len, reverse=True)
+
+    def format(self, record: logging.LogRecord) -> str:
+        text = super().format(record)
+        for g in self.geheimnisse:
+            text = text.replace(g, "***")
+        return _URL_LOGIN.sub(r"\1", _BOT_TOKEN.sub("bot***", text))
+
+
+def schwaerze_log(cfg: dict) -> None:
+    """Haengt OhneGeheimnisse an alle Log-Handler (nach dem Laden der Konfig)."""
+    st, tg = cfg.get("stream") or {}, cfg.get("telegram") or {}
+    db, mq = cfg.get("dashboard") or {}, cfg.get("mqtt") or {}
+    geheim = [str(v).strip() for v in (tg.get("token"), db.get("token"), st.get("app_passwort"),
+                                       mq.get("password")) if v]
+    for url in (st.get("url"), st.get("fallback_snapshot_url")):
+        try:
+            teile = urllib.parse.urlsplit(str(url or ""))
+            if teile.password:
+                geheim += [teile.password, urllib.parse.unquote(teile.password)]
+        except ValueError:
+            pass  # kaputte URL: das Muster in OhneGeheimnisse greift trotzdem
+    for h in logging.getLogger().handlers:
+        h.setFormatter(OhneGeheimnisse(
+            "%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S", geheimnisse=geheim))
+
+
 class StreamHandler:
     """Liefert Frames mit Ziel-FPS; uebersteht Verbindungsabbrueche."""
 
@@ -166,18 +216,25 @@ class StreamHandler:
     def __init__(self, cfg: dict):
         self.url: str = (cfg["stream"].get("url") or "").strip()
         self.quelle = CloudQuelle(cfg)
-        if not self.url and not self.quelle.aktiv:
-            raise SystemExit(
-                "stream.url fehlt – entweder Bridge-URL eintragen oder "
-                "Cloud-Quelle konfigurieren (stream.app_url + stream.quelle_api)."
-            )
         self.fallback_url, self.fallback_auth = trenne_zugangsdaten(
             (cfg["stream"].get("fallback_snapshot_url") or "").strip()
         )
+        if not self.url and not self.quelle.aktiv and not self.fallback_url:
+            raise SystemExit(
+                "stream.url fehlt – Bridge-URL eintragen, Cloud-Quelle "
+                "konfigurieren (stream.app_url + stream.quelle_api) oder nur "
+                "Einzelbilder ueber stream.fallback_snapshot_url holen."
+            )
         self.frame_intervall = 1.0 / float(cfg["stream"].get("ziel_fps", 1.0))
         self.cap: cv2.VideoCapture | None = None
         self.fehler_in_folge = 0
-        self.nutze_fallback = False
+        # Ohne Strom-URL nur Einzelbilder: fuer den Silent Mode auf schwacher
+        # Hardware (docs/lela-datensammlung-spezifikation.md) – kein
+        # Dauer-Dekodieren, jedes Bild aktuell statt aus einem Rueckstau.
+        self.nutze_fallback = not self.url and not self.quelle.aktiv
+        if self.nutze_fallback:
+            log.info("Nur Einzelbilder: %s", ohne_zugangsdaten(self.fallback_url).split("?")[0])
+        self._snapshot_gewarnt = False
         self._letzter_frame_ts = 0.0
 
     def _verbinde(self) -> None:
@@ -191,7 +248,7 @@ class StreamHandler:
                 self.url = neue
             elif not self.url:
                 return  # noch keine URL bekannt -> naechste Iteration versucht es erneut
-        log.info("Verbinde mit Stream: %s", self.url.split("?")[0])
+        log.info("Verbinde mit Stream: %s", ohne_zugangsdaten(self.url).split("?")[0])
         self.cap = cv2.VideoCapture(self.url)
         # Kleiner Puffer -> immer moeglichst aktuelles Bild.
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -208,10 +265,21 @@ class StreamHandler:
         try:
             r = requests.get(self.fallback_url, timeout=10, auth=self.fallback_auth)
             r.raise_for_status()
-            buf = np.frombuffer(r.content, dtype=np.uint8)
-            return cv2.imdecode(buf, cv2.IMREAD_COLOR)
-        except requests.RequestException as e:
-            log.warning("Snapshot-Fallback fehlgeschlagen: %s", e)
+            if not r.content:
+                # go2rtc antwortet 200 ohne Inhalt, wenn es selbst die Kamera
+                # nicht erreicht – das ist ein Ausfall, kein Bild.
+                raise ValueError("leere Antwort – erreicht go2rtc die Kamera?")
+            bild = cv2.imdecode(np.frombuffer(r.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if bild is None:
+                raise ValueError(f"Antwort ist kein Bild ({len(r.content)} Bytes)")
+            return bild
+        except Exception as e:  # noqa: BLE001 – jeder Abruffehler ist ein fehlendes Bild
+            # Eine Warnung je Stoerung (auch die erste nach dem Wechsel von
+            # RTSP); im Einzelbild-Modus kaeme sonst alle paar Sekunden eine
+            # Zeile. Zurueckgesetzt wird beim naechsten guten Bild.
+            stufe = logging.DEBUG if self._snapshot_gewarnt else logging.WARNING
+            self._snapshot_gewarnt = True
+            log.log(stufe, "Snapshot (Einzelbild) fehlgeschlagen: %s", e)
             return None
 
     def naechster_frame(self) -> np.ndarray | None:
@@ -241,6 +309,7 @@ class StreamHandler:
         if self.fehler_in_folge:
             log.info("Stream wieder stabil.")
         self.fehler_in_folge = 0
+        self._snapshot_gewarnt = False
         return frame
 
 
@@ -917,7 +986,12 @@ class DatensatzArchiv:
             basis = (db.get("url") or "").strip()
             url = basis.replace("/api/events", "/api/datensatz") if basis else ""
         self.url = url
-        self.aktiv = bool(db.get("archiv", False)) and bool(self.url and self.token)
+        # Nur ein echtes true schaltet das Archiv ein (Bilder verlassen dann den
+        # Hof). „false" in Anfuehrungszeichen, „nein", „aus", 1 … bleiben aus.
+        archiv = db.get("archiv", False)
+        if archiv not in (True, False, None):
+            log.warning("dashboard.archiv=%r ist kein true/false – Archiv bleibt aus.", archiv)
+        self.aktiv = archiv is True and bool(self.url and self.token)
         self.kamera = (cfg.get("stream") or {}).get("kamera", "stallwache")
         self._queue: "queue.Queue[tuple[str, list[bytes]]]" = queue.Queue(
             maxsize=self.WARTESCHLANGE_MAX
@@ -1352,6 +1426,9 @@ class Notifier:
         self._digest_tag: str | None = None
         self._start_ts = time.time()
         self._zaehler: dict[str, int] = defaultdict(int)
+        # Silent Mode: Ablageordner fuer die Zeile „frei: X GB" im Tagesbericht.
+        self.silent_ordner: Path | None = None
+        self._digest_gesendet = False
 
         db = cfg.get("dashboard") or {}
         self.db_url = (db.get("url") or "").strip()
@@ -1484,6 +1561,10 @@ class Notifier:
         self._dashboard(meldung)
         self._mqtt(meldung)
 
+    def zaehle_trainingsbild(self) -> None:
+        """Silent Mode: ein gespeichertes Trainingsbild fuer den Tagesbericht."""
+        self._zaehler["trainingsbild"] += 1
+
     def digest_tick(self, analyse_aktiv: bool) -> None:
         """Sendet einmal taeglich (digest_uhrzeit) einen kompakten Tagesbericht."""
         if not (self.digest_uhrzeit and self.tg_token and self.tg_chat):
@@ -1494,13 +1575,35 @@ class Notifier:
         self._digest_tag = heute
         stunden = (time.time() - self._start_ts) / 3600
         z = self._zaehler
-        text = (
-            "📋 Stallblick-Tagesbericht\n"
-            f"Modus: {'Analyse' if analyse_aktiv else 'Silent Mode (Datensammlung)'}\n"
-            f"Kalbeverdacht: {z['kalbeverdacht']} · Austreibung: {z['austreibung']} · "
-            f"Brunstverdacht: {z['brunstverdacht']}\n"
-            f"Agent läuft seit {stunden:.1f} h · Kamera: {self.kamera}"
-        )
+        laufzeit = f"Agent läuft seit {stunden:.1f} h · Kamera: {self.kamera}"
+        if analyse_aktiv:
+            text = (
+                "📋 Stallblick-Tagesbericht\n"
+                "Modus: Analyse\n"
+                f"Kalbeverdacht: {z['kalbeverdacht']} · Austreibung: {z['austreibung']} · "
+                f"Brunstverdacht: {z['brunstverdacht']}\n"
+                f"{laufzeit}"
+            )
+        else:
+            # Keine Zaehler „Austreibung: 0": Im Silent Mode wird nichts
+            # analysiert, wochenlange Nullen laesen sich wie „alles ruhig".
+            # Die Bildzahl ist der Beweis aus der Ferne, dass gesammelt wird;
+            # der erste Bericht nach einem Neustart zaehlt ab dem Start.
+            seit = ("dem letzten Bericht" if self._digest_gesendet else
+                    f"dem Start um {time.strftime('%H:%M', time.localtime(self._start_ts))}")
+            zeile = f"Trainingsbilder seit {seit}: {z['trainingsbild']}"
+            frei = freier_platz(self.silent_ordner) if self.silent_ordner else None
+            if frei is not None:
+                zeile += f" · frei: {gb_text(frei)} GB"
+            text = (
+                "📋 Stallblick-Tagesbericht\n"
+                "Modus: Datensammlung (Silent Mode) – keine Kalbe- und "
+                "Brunsterkennung. Bitte den Abkalbebereich wie gewohnt selbst "
+                "kontrollieren.\n"
+                f"{zeile}\n"
+                f"{laufzeit}"
+            )
+        self._digest_gesendet = True
         fb = self.feedback.zaehler
         if fb["treffer"] or fb["fehlalarm"]:
             text += f"\nFeedback: ✅ {fb['treffer']} Treffer · ❌ {fb['fehlalarm']} Fehlalarm"
@@ -1988,6 +2091,91 @@ def trainingsbild_name(kamera: str, zeit: float | None = None) -> str:
     return f"{kamera}_{time.strftime('%Y%m%d-%H%M%S', time.localtime(zeit))}.jpg"
 
 
+def gb_text(anzahl_bytes: float) -> str:
+    """Bytes als „1,9" (GB, auf eine Stelle ABgerundet): Eine Meldung
+    „2,0 GB frei" unter einer 2-GB-Grenze laese sich wie ein Widerspruch."""
+    return f"{math.floor(anzahl_bytes / 1024**3 * 10) / 10:.1f}".replace(".", ",")
+
+
+def freier_platz(pfad: Path) -> int | None:
+    """Freie Bytes auf der Partition von ``pfad`` (None, wenn nicht lesbar)."""
+    try:
+        return shutil.disk_usage(pfad).free
+    except OSError:
+        return None
+
+
+class AblageWaechter:
+    """Silent Mode: Trainingsbilder nur mit Platzreserve, Stoerungen einmal melden.
+
+    Bilder, Betriebssystem, Docker und Logs teilen sich auf dem Stall-Rechner
+    meist eine Platte. Unter RESERVE_BYTES speichert der Agent keine Bilder
+    mehr, statt das System volllaufen zu lassen; weiter geht es erst ab
+    WIEDER_AB_BYTES (sonst flackert die Meldung, wenn Logs den Platz um die
+    Grenze schwanken lassen). Ein Schreibfehler (Rechte, Ordner weg) zaehlt
+    nicht als gespeichert. Gemeldet wird genau einmal je Stoerung und einmal
+    bei der Erholung – wie beim Totmann (docs/lela-datensammlung-spezifikation.md).
+    Feste Betriebsgrenzen, kein Regler.
+    """
+
+    RESERVE_BYTES = 2 * 1024**3
+    WIEDER_AB_BYTES = RESERVE_BYTES + 512 * 1024**2
+
+    def __init__(self, ordner: Path):
+        self.ordner = ordner
+        self.stoerung: str | None = None  # None | "platz" | "schreiben"
+
+    def darf_speichern(self) -> tuple[bool, str | None]:
+        """(darf speichern?, zu sendende Meldung oder None)."""
+        frei = freier_platz(self.ordner)
+        if frei is None:
+            return True, None  # unbekannt: das Schreibergebnis entscheidet
+        grenze = self.WIEDER_AB_BYTES if self.stoerung == "platz" else self.RESERVE_BYTES
+        if frei >= grenze:
+            return True, None
+        if self.stoerung == "platz":
+            return False, None
+        self.stoerung = "platz"
+        reserve = f"{self.RESERVE_BYTES / 1024**3:g}".replace(".", ",")
+        weiter = f"{self.WIEDER_AB_BYTES / 1024**3:g}".replace(".", ",")
+        return False, (
+            f"Trainingsbilder pausiert: nur noch {gb_text(frei)} GB frei, "
+            f"das System braucht {reserve} GB Reserve. Bitte die Bilder sichern "
+            "(z. B. USB-Platte) und danach im Ordner aufnahmen löschen. "
+            f"Ab {weiter} GB frei läuft die Sammlung von selbst weiter."
+        )
+
+    def ergebnis(self, ok: bool) -> str | None:
+        """Nach jedem Schreibversuch aufrufen; liefert die Meldung oder None."""
+        if ok:
+            if self.stoerung is None:
+                return None
+            self.stoerung = None
+            return "Trainingsbilder werden wieder gespeichert."
+        if self.stoerung == "schreiben":
+            return None
+        self.stoerung = "schreiben"
+        return (
+            f"Trainingsbild konnte nicht gespeichert werden ({self.ordner}). "
+            "Bitte Ordner und Rechte prüfen. Wurde der Ordner verschoben oder "
+            "gelöscht, den Agenten neu starten."
+        )
+
+
+def schreibe_trainingsbild(pfad: Path, frame: np.ndarray) -> bool:
+    """Schreibt das Bild; False bei jedem Fehler (cv2.imwrite meldet ihn nur
+    ueber den Rueckgabewert). Legt den Ordner neu an, falls er fehlt. Im
+    Docker-Betrieb ist aufnahmen/ ein Bind-Mount: Wird er auf dem Host
+    verschoben oder geloescht, hilft nur ein Neustart des Containers
+    (deploy-stallwache-lela/README.md, Abschnitt 4)."""
+    try:
+        pfad.parent.mkdir(parents=True, exist_ok=True)
+        return bool(cv2.imwrite(str(pfad), frame))
+    except Exception:  # noqa: BLE001 – die Sammlung darf nie die Schleife stoppen
+        log.exception("Trainingsbild %s nicht geschrieben", pfad)
+        return False
+
+
 # --------------------------------------------------------------------------
 # Hauptschleife
 # --------------------------------------------------------------------------
@@ -1999,6 +2187,7 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
     cfg = lade_konfig()
+    schwaerze_log(cfg)
     stream = StreamHandler(cfg)
     engine = InferenceEngine(cfg)
     logik = LogicEngine(cfg)
@@ -2032,16 +2221,40 @@ def main() -> None:
 
     if engine.aktiv:
         notifier.status("Edge-Agent gestartet – Analyse-Modus aktiv")
+        intervall_s = float(getattr(stream, "frame_intervall", 1.0))
+        if intervall_s > 1.0:
+            # Kein Regler: Die Regeln (Brunst >= 4 s, 30-min-Fenster) sind auf
+            # ~1 Bild/s ausgelegt. Typisch nach dem Umstieg vom Silent-Profil
+            # (ziel_fps 0.1), wenn nur modell.pfad gesetzt wurde.
+            notifier.wichtig(
+                f"Analyse läuft mit nur einem Bild alle {intervall_s:.0f} s – kurze "
+                "Aufsprünge werden so übersehen. Bitte stream.ziel_fps auf 1.0 "
+                "stellen (und stream.url auf RTSP)."
+            )
     else:
         notifier.status("Edge-Agent gestartet (Silent Mode – Datensammlung)")
         ordner = Path(cfg["silent_mode"]["ordner"])
         ordner.mkdir(parents=True, exist_ok=True)
         intervall = float(cfg["silent_mode"]["intervall_sekunden"])
         letzte_aufnahme = 0.0
+        ablage = AblageWaechter(ordner)
+        notifier.silent_ordner = ordner
 
+    quelle_kaputt = False
     while True:
         try:
-            frame = stream.naechster_frame()
+            try:
+                frame = stream.naechster_frame()
+                quelle_kaputt = False
+            except Exception:  # noqa: BLE001
+                # Ein Fehler der Bildquelle ist „kein Bild": Totmann,
+                # Lebenszeichen und Tagesbericht muessen trotzdem laufen, sonst
+                # bleibt genau dieser Ausfall still. Traceback einmal je Stoerung.
+                if not quelle_kaputt:
+                    log.exception("Bildquelle fehlerhaft – zaehle als kein Bild")
+                quelle_kaputt = True
+                frame = None
+                time.sleep(1)
             notifier.digest_tick(engine.aktiv)
             notifier.feedback.tick()
             totmann_meldung = totmann.tick(frame is not None)
@@ -2067,8 +2280,20 @@ def main() -> None:
                     # Defekte Kamera -> kein Trainingsbild (Muell im Datensatz).
                     if pruefe_kamerabild(wd, frame, notifier):
                         continue
+                    darf, meldung = ablage.darf_speichern()
+                    if meldung:
+                        notifier.wichtig(meldung)
+                    if not darf:
+                        continue
                     name = ordner / trainingsbild_name(notifier.kamera)
-                    cv2.imwrite(str(name), frame)
+                    ok = schreibe_trainingsbild(name, frame)
+                    meldung = ablage.ergebnis(ok)
+                    if meldung:
+                        notifier.wichtig(meldung)
+                    if not ok:
+                        log.error("Trainingsbild nicht gespeichert: %s", name)
+                        continue
+                    notifier.zaehle_trainingsbild()
                     log.info("Trainingsbild gespeichert: %s", name)
                     if archiv.aktiv:
                         # Fuer den Upload neu kodieren statt die Datei zu

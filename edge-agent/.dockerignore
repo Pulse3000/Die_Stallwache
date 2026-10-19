@@ -1,0 +1,11 @@
+# Build-Kontext fuer deploy-stallwache-lela/Dockerfile (Kontext: edge-agent/).
+# Nur durchlassen, was das Image braucht: aufnahmen/ (wochenlang gesammelte
+# Bilder, mehrere GB), daten/, modelle/ und config.yaml (Tokens) gehen sonst
+# bei jedem Build an den Builder.
+*
+!main.py
+!freeze_watchdog.py
+!tracker-kuh.yaml
+!training/
+!deploy-stallwache-lela/cpu_compat.py
+**/__pycache__
