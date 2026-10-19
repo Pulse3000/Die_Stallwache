@@ -19,8 +19,10 @@ Dashboard-Anzeige. Referenzverhalten, das nie brechen darf.
 
 ## Ablauf
 
-1. Server ohne Token starten (`npm start -- -p 3100`) → POST muss 503 liefern.
-2. Server mit Token starten (`EDGE_INGEST_TOKEN=test123 npx next start -p 3101`):
+1. Server ohne Token starten (`node node_modules/next/dist/bin/next start -p 3100 &`,
+   PID aus `$!` merken) → POST muss 503 liefern.
+2. Server mit Token starten (`EDGE_INGEST_TOKEN=test123 node node_modules/next/dist/bin/next start -p 3101 &`,
+   PID merken):
    - POST mit falschem Token → 401
    - POST gültig → 201, z. B.:
      `{"typ":"austreibung","kuhId":"Kuh #7","nachricht":"Test","konfidenz":0.9,"kamera":"stallwache"}`
@@ -36,4 +38,8 @@ Dashboard-Anzeige. Referenzverhalten, das nie brechen darf.
 
 - Der Store ist In-Memory pro Serverless-Instanz — auf Vercel können GET/POST
   auf verschiedenen Instanzen landen; für Tests immer lokal prüfen.
-- Nach dem Test alle `next start`-Prozesse beenden (`pkill -f "next start"`).
+- Nach dem Test beide Server über die gemerkten PIDs beenden (`kill <PID>`) und
+  prüfen, dass die Ports frei sind (`curl` auf `/login` muss mit Exit 7
+  fehlschlagen). Nicht `npm start`/`npx` und nicht `pkill -f "next start"`:
+  `kill` auf den Wrapper lässt `next-server` verwaist auf dem Port, und das
+  Muster trifft den umbenannten `next-server` nicht, wohl aber die eigene Shell.

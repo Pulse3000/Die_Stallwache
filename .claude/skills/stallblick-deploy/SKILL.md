@@ -22,7 +22,9 @@ kaputte Deploys kosten Vertrauen ins „Dritte Auge".
    - `curl -s http://localhost:3100/api/events` → JSON mit `ereignisse`
    Bei UI-Änderungen: Playwright-Screenshot (Chromium: `/opt/pw-browsers/chromium`,
    Viewport 390×844) und visuell prüfen. Danach `kill <PID>` und prüfen, dass
-   der Port frei ist.
+   der Port frei ist: `curl -s -o /dev/null http://localhost:3100/login` muss
+   fehlschlagen (Exit 7). Nicht mit `ss`/`lsof` prüfen — die fehlen hier bzw.
+   zeigen in der Sandbox nichts an.
 3. **Deploy:** Ein Merge auf `main` deployt Vercel selbst (Git-Integration).
    Dann nur warten, bis das Produktions-Deployment des Merge-Commits `READY`
    ist und `stallwache.vercel.app` als Alias trägt (Vercel-MCP
