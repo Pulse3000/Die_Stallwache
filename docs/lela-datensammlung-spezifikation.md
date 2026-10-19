@@ -99,6 +99,7 @@ Unverändert: Silent-Intervall 120 s, Freeze-Watchdog (5 gespeicherte Bilder
 | Hitze ≥ 85 °C | Telegram (Tempguard) | „STALLWACHE KRITISCH: CPU bei N°C. Pausiert: <Container>. Takt gedeckelt. Entwarnung folgt bei 75°C." |
 | Hitze ≤ 75 °C | Telegram (Tempguard) | „STALLWACHE OK: CPU auf N°C abgekuehlt. Laeuft wieder: <Container>." |
 | Kein Temperatursensor | Telegram, Log (Tempguard, einmal) | „STALLWACHE WARNUNG: Kein k10temp-Sensor gefunden – Hitzeschutz ohne Messwert." |
+| Tempguard-Fehlschläge | Telegram (Tempguard) | Gescheitertes Pausieren/Fortsetzen, nicht erreichbares Docker, fehlendes cpufreq und ein in der Hitze wieder angelaufener Container werden ausdrücklich gemeldet; vollständige Texte in kuhwatch `deploy/README.md` |
 
 ## 6. Abnahme am Gerät (Beweispflicht, Betreiber)
 
