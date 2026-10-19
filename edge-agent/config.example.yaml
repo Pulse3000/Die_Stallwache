@@ -3,7 +3,9 @@
 
 stream:
   # go2rtc stellt neben WebRTC/HLS auch einen RTSP-Restream bereit (Port 8554).
-  # IP des Bridge-Rechners im Stall-LAN eintragen:
+  # IP des Bridge-Rechners im Stall-LAN eintragen. Sonderzeichen in einem
+  # Passwort URL-kodiert schreiben (/ -> %2F, @ -> %40, # -> %23). Ins Log
+  # kommen Zugangsdaten und Tokens nie, sie werden geschwaerzt.
   url: rtsp://192.168.178.50:8554/stallwache
   # Fallback, falls RTSP nicht klappt: Snapshot-Polling ueber die go2rtc-API.
   # Mit go2rtc-Login (bridge/.env GO2RTC_API_USER/PASS):

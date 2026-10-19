@@ -7,6 +7,10 @@ Erkennt zwei Kamera-Defekte, die sonst niemand bemerkt:
 
 Ruhe vor Fülle: genau EIN `info`-Ereignis beim Eintritt in den Fehlerzustand,
 eines bei Erholung. Kein Spam dazwischen. Blockiert die Analyse nie.
+Die Entwarnung kommt erst nach `frames_bis_alarm` sauberen Bildern in Folge;
+ein Rückfall vorher gehört zur selben Störung (keine neue Meldung). Gesperrt
+ist trotzdem nur, solange das Bild defekt ist: Ein sauberes Bild gibt Analyse
+und Trainingsbilder sofort wieder frei.
 
 Einbindung (pro Kamera eine Instanz):
     wd = FreezeWatchdog("stallwache")
@@ -50,6 +54,8 @@ class FreezeWatchdog:
     grund: str | None = None
     ausfaelle: int = 0                 # Wie oft der Watchdog selbst gestolpert ist (Diagnose)
     analyse: bool = True               # False = Silent Mode: Meldung nennt Trainingsbilder statt Analyse
+    _offen: bool = False               # Störung gemeldet, Entwarnung noch nicht
+    _sauber: int = 0                   # saubere Bilder in Folge seit dem letzten Defekt
 
     @staticmethod
     def _grau(frame: np.ndarray) -> np.ndarray:
@@ -99,23 +105,35 @@ class FreezeWatchdog:
             elif self._streifen >= self.frames_bis_alarm:
                 grund = "Bild gestört (Streifen)"
 
-            if grund and not self.defekt:
-                self.defekt, self.grund, self._seit = True, grund, jetzt
-                zeit = time.strftime("%d.%m. %H:%M", time.localtime(jetzt))
-                folge = ("Analyse ausgesetzt – bitte Kamera/Bridge prüfen." if self.analyse else
-                         "Es werden vorerst keine Trainingsbilder gespeichert – "
-                         "bitte Kamera und Bildquelle (go2rtc/Bridge) prüfen.")
-                return self._event(f"Kamera {self.kamera}: {grund} seit {zeit}. {folge}")
-            if not grund and self.defekt:
-                dauer = int((jetzt - (self._seit or jetzt)) / 60)
-                self.defekt, self.grund = False, None
-                return self._event(f"Kamera {self.kamera}: Bild wieder in Ordnung "
-                                   f"(Ausfall ca. {dauer} min).")
+            if grund:
+                self._sauber = 0
+                if not self.defekt:
+                    self.defekt, self.grund = True, grund
+                    if not self._offen:   # Rückfall in offener Störung: keine neue Meldung
+                        self._offen, self._seit = True, jetzt
+                        zeit = time.strftime("%d.%m. %H:%M", time.localtime(jetzt))
+                        folge = ("Analyse ausgesetzt – bitte Kamera/Bridge prüfen." if self.analyse else
+                                 "Es werden vorerst keine Trainingsbilder gespeichert – "
+                                 "bitte Kamera und Bildquelle (go2rtc/Bridge) prüfen.")
+                        return self._event(f"Kamera {self.kamera}: {grund} seit {zeit}. {folge}")
+                return None
+            self.defekt, self.grund = False, None
+            if self._offen:
+                # Sauber zaehlt nur ein Bild, das beide Pruefungen einzeln besteht;
+                # ein verdaechtiges (gleich wie das Vorbild, Streifen unter der
+                # Schwelle) setzt die Serie zurueck – sonst kaeme beim Flattern
+                # die Entwarnung zu frueh.
+                self._sauber = self._sauber + 1 if self._gleich == 0 and self._streifen == 0 else 0
+                if self._sauber >= self.frames_bis_alarm:
+                    dauer = int((jetzt - (self._seit or jetzt)) / 60)
+                    self._offen, self._sauber = False, 0
+                    return self._event(f"Kamera {self.kamera}: Bild wieder in Ordnung "
+                                       f"(Ausfall ca. {dauer} min).")
         except Exception:  # Watchdog darf die Analyse NIE blockieren
             # Fail-open: Ein gestolperter Watchdog darf die Analyse nicht
             # dauerhaft ausgesetzt lassen – also Zustand zurücksetzen.
             self.ausfaelle += 1
-            self.defekt, self.grund = False, None
+            self.defekt, self.grund, self._offen, self._sauber = False, None, False, 0
             self._letztes, self._gleich, self._streifen = None, 0, 0
             if self.ausfaelle <= 3:
                 log.exception("Freeze-Watchdog (%s) gestolpert – Analyse läuft weiter",
@@ -125,6 +143,62 @@ class FreezeWatchdog:
     def _event(self, nachricht: str) -> dict:
         return {"typ": "info", "kuhId": None, "kamera": self.kamera,
                 "nachricht": nachricht, "konfidenz": None}
+
+
+def kennzahlen(frame: np.ndarray, wd: FreezeWatchdog | None = None) -> dict:
+    """Kennzahlen eines Bildes für die Streifen-Prüfung – nur Zahlen, kein Bild.
+
+    Damit lässt sich am Hof prüfen, warum ein Nachtbild als „Streifen" gilt,
+    ohne dass ein Bild den Hof verlässt (Entscheidung des Landwirts,
+    19.10.2026). band_anteil: längstes vertikal flaches Band (Anteil der
+    Bildhöhe); spalten_streuung: Unterschied der Spalten in diesem Band
+    (Prüfgröße, ab 5 = Streifen); spalten_sprung: mittlerer Sprung von Spalte zu
+    Spalte im Band (glatter Verlauf klein, Dekoder-Streifen groß)."""
+    wd = wd or FreezeWatchdog("diagnose")
+    g = wd._grau(frame)
+    flach = np.abs(np.diff(g, axis=0)).mean(axis=1) < wd.streifen_schwelle
+    besten, start = (0, 0), None
+    for i, f in enumerate(list(flach) + [False]):
+        if f and start is None:
+            start = i
+        elif not f and start is not None:
+            if i - start > besten[1] - besten[0]:
+                besten = (start, i)
+            start = None
+    a, b = besten
+    band = g[a:b + 1] if b > a else g[:0]
+    return {
+        "band_anteil": round((b - a) / max(1, len(flach)), 3),
+        "spalten_streuung": round(float(band.std(axis=1).mean()), 2) if b > a else 0.0,
+        "spalten_sprung": round(float(np.abs(np.diff(band, axis=1)).mean()), 2) if b > a else 0.0,
+        "helligkeit": round(float(g.mean()), 1),
+        "streifen": bool(wd._hat_streifen(g)),
+    }
+
+
+def _diagnose(pfade: list[str]) -> int:
+    """CLI: python freeze_watchdog.py diagnose <ordner|bilder…> – Kennzahlen je Bild."""
+    import cv2  # nur fuer die Diagnose; der Agent braucht es hier nicht
+
+    from pathlib import Path
+
+    dateien: list[Path] = []
+    for p in pfade:
+        q = Path(p)
+        dateien += sorted(q.glob("*.jpg")) if q.is_dir() else [q]
+    print("datei;band_anteil;spalten_streuung;spalten_sprung;helligkeit;streifen")
+    treffer = 0
+    for d in dateien:
+        bild = cv2.imread(str(d))
+        if bild is None:
+            print(f"{d.name};nicht lesbar")
+            continue
+        k = kennzahlen(bild)
+        treffer += k["streifen"]
+        print(f"{d.name};{k['band_anteil']};{k['spalten_streuung']};{k['spalten_sprung']};"
+              f"{k['helligkeit']};{'ja' if k['streifen'] else 'nein'}")
+    print(f"# {len(dateien)} Bilder, davon {treffer} als Streifen eingestuft")
+    return 0
 
 
 def baue_watchdog(cfg: dict, kamera: str, analyse_aktiv: bool) -> FreezeWatchdog | None:
@@ -138,3 +212,12 @@ def baue_watchdog(cfg: dict, kamera: str, analyse_aktiv: bool) -> FreezeWatchdog
     if isinstance(frames, bool) or not isinstance(frames, int) or frames < 1:
         frames = FRAMES_ANALYSE if analyse_aktiv else FRAMES_SILENT
     return FreezeWatchdog(kamera, frames_bis_alarm=frames, analyse=analyse_aktiv)
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) >= 3 and sys.argv[1] == "diagnose":
+        sys.exit(_diagnose(sys.argv[2:]))
+    print("Aufruf: python freeze_watchdog.py diagnose <ordner|bilder…>")
+    sys.exit(2)

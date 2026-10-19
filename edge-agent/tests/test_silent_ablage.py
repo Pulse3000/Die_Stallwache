@@ -383,4 +383,162 @@ p.check(f"9: Analyse mit 1 Bild/10 s -> genau ein Hinweis ({hinweis})",
         len(hinweis) == 1 and "nur einem Bild alle 10 s" in hinweis[0] and "ziel_fps auf 1.0" in hinweis[0])
 p.check("9: Analyse mit 1 Bild/s -> kein Hinweis", fahre_analyse(1.0) == [])
 
+# --- 10. go2rtc erreicht die Kamera nicht: 200 ohne Inhalt ------------------
+class Leer200:
+    content = b""
+
+    def raise_for_status(self):
+        pass
+
+
+m.requests.get = lambda url, **kw: Leer200()
+decodier = {"modus": "ok"}
+
+
+def imdecode(buf, flag):
+    if decodier["modus"] == "wirft":
+        raise RuntimeError("(-215:Assertion failed) !buf.empty()")
+    return None if decodier["modus"] == "none" else "bild"
+
+
+m.cv2 = types.SimpleNamespace(VideoCapture=lambda url: FakeCap(url), CAP_PROP_BUFFERSIZE=38,
+                              imdecode=imdecode, IMREAD_COLOR=1)
+leer = m.StreamHandler({"stream": {"url": "", "ziel_fps": 1000,
+                                   "fallback_snapshot_url": "http://127.0.0.1:1984/api/frame.jpeg?src=stallwache"}})
+sammler.zeilen.clear()
+ergebnisse = []
+try:
+    for _ in range(3):
+        ergebnisse.append(leer.naechster_frame())
+    geworfen = False
+except Exception:  # noqa: BLE001
+    geworfen = True
+p.check("10: 200 ohne Inhalt wirft nicht", not geworfen)
+p.check("10: 200 ohne Inhalt -> kein Bild", ergebnisse == [None, None, None])
+w10 = [z for lvl, z in sammler.zeilen if lvl >= logging.WARNING]
+p.check(f"10: genau eine Warnung, nennt die leere Antwort ({w10})", len(w10) == 1 and "leer" in w10[0])
+p.check("10: Ausfall wird gezaehlt (Totmann sieht ihn)", leer.fehler_in_folge == 3)
+
+
+class Voll:
+    content = b"jpg"
+
+    def raise_for_status(self):
+        pass
+
+
+m.requests.get = lambda url, **kw: Voll()
+for modus in ("wirft", "none"):
+    decodier["modus"] = modus
+    try:
+        r10 = leer.naechster_frame()
+        ok10 = r10 is None
+    except Exception:  # noqa: BLE001
+        ok10 = False
+    p.check(f"10: nicht dekodierbares Bild ({modus}) -> None statt Ausnahme", ok10)
+decodier["modus"] = "ok"
+
+
+# --- 11. Fehler der Bildquelle schaltet Totmann und Lebenszeichen nicht ab ----
+def fahre_kaputte_quelle(n):
+    notifier = FalscherNotifier()
+    ticks = {"totmann": [], "leben": []}
+
+    class Strom:
+        def __init__(self, cfg):
+            self.n = n
+
+        def naechster_frame(self):
+            if self.n == 0:
+                raise KeyboardInterrupt
+            self.n -= 1
+            raise RuntimeError("Dekoder kaputt")
+
+    class Engine:
+        aktiv = False
+
+        def __init__(self, cfg):
+            pass
+
+    class Totmann:
+        def __init__(self, cfg):
+            pass
+
+        def tick(self, ok):
+            ticks["totmann"].append(ok)
+            return "Kamerastream ausgefallen" if len(ticks["totmann"]) == n else None
+
+    class Leben:
+        def __init__(self, cfg):
+            pass
+
+        def tick(self, aktiv, bild):
+            ticks["leben"].append(bild)
+
+    class Leer:
+        aktiv = False
+
+        def __init__(self, cfg):
+            pass
+
+        def fehlalarm_gemeldet(self, *a):
+            pass
+
+    with tempfile.TemporaryDirectory() as tmp:
+        alt = {k: getattr(m, k) for k in ("lade_konfig", "StreamHandler", "InferenceEngine", "LogicEngine",
+                                          "Notifier", "TotmannWaechter", "DatensatzArchiv", "Lebenszeichen", "time")}
+        try:
+            m.lade_konfig = lambda: {"stream": {"kamera": "stallwache"}, "watchdog": {"aktiv": False},
+                                     "silent_mode": {"ordner": tmp, "intervall_sekunden": 0}}
+            m.StreamHandler, m.InferenceEngine, m.TotmannWaechter, m.Lebenszeichen = Strom, Engine, Totmann, Leben
+            m.LogicEngine = m.DatensatzArchiv = Leer
+            m.Notifier = lambda c: notifier
+            m.time = types.SimpleNamespace(**{k: getattr(alt["time"], k) for k in dir(alt["time"]) if not k.startswith("_")})
+            m.time.sleep = lambda s: None
+            m.main()
+        finally:
+            for k, v in alt.items():
+                setattr(m, k, v)
+    return ticks, notifier.meldungen
+
+
+ticks, meld11 = fahre_kaputte_quelle(4)
+p.check(f"11: Totmann tickt bei jedem Quellenfehler mit 'kein Bild' ({ticks['totmann']})",
+        ticks["totmann"] == [False] * 4)
+p.check("11: Lebenszeichen tickt weiter mit 'kein Bild'", ticks["leben"] == [False] * 4)
+p.check("11: Totmann-Meldung geht raus", meld11 == ["Kamerastream ausgefallen"])
+
+# --- 12. Geheimnisse im Log: Bot-Token, Passwort mit '/' ----------------------
+p.check("12: '/' im RTSP-Passwort wird entfernt",
+        m.ohne_zugangsdaten("rtsp://admin:pa/ss@192.168.178.117:554/stream1") == "rtsp://192.168.178.117:554/stream1")
+p.check("12: '#' und '?' im Passwort werden entfernt",
+        m.ohne_zugangsdaten("http://u:a#b?c@host:1984/x") == "http://host:1984/x")
+fmt = m.OhneGeheimnisse("%(levelname)s %(message)s", geheimnisse=["123456:ABC-geheimerToken", "ingest-geheim"])
+try:
+    raise ValueError("HTTPSConnectionPool(host='api.telegram.org'): url: /bot123456:ABC-geheimerToken/sendMessage")
+except ValueError:
+    rec = logging.LogRecord("x", logging.ERROR, __file__, 1,
+                            "Senden an %s fehlgeschlagen (x-ingest-token ingest-geheim)",
+                            ("rtsp://admin:pa/ss@192.168.178.117:554/stream1",), sys.exc_info())
+zeile = fmt.format(rec)
+p.check("12: Bot-Token weder in Meldung noch Traceback", "geheimerToken" not in zeile)
+p.check("12: Ingest-Token nicht im Log", "ingest-geheim" not in zeile)
+p.check("12: RTSP-Passwort (mit '/') nicht im Log", "pa/ss" not in zeile and "admin" not in zeile)
+p.check("12: Host bleibt zur Diagnose sichtbar", "192.168.178.117" in zeile)
+p.check("12: auch fremde Bot-Token (Muster) werden entfernt",
+        "777:XYZ" not in m.OhneGeheimnisse("%(message)s").format(
+            logging.LogRecord("x", logging.INFO, __file__, 1, "https://api.telegram.org/bot777:XYZabc_-/getMe", (), None)))
+
+# --- 13. archiv nur mit echtem true (Bilder bleiben auf dem Hof) -------------
+sammler.zeilen.clear()
+for wert in ("false", "nein", "aus", "0", 1):
+    arch = m.DatensatzArchiv({"stream": {"kamera": "stallwache"},
+                              "dashboard": {"url": "https://x/api/events", "token": "t", "archiv": wert}})
+    p.check(f"13: archiv: {wert!r} -> Archiv aus", arch.aktiv is False)
+p.check("13: falscher archiv-Wert wird gewarnt",
+        any(lvl >= logging.WARNING and "archiv" in z for lvl, z in sammler.zeilen))
+p.check("13: archiv: false -> aus",
+        m.DatensatzArchiv({"stream": {}, "dashboard": {"url": "https://x/api/events", "token": "t",
+                                                      "archiv": False}}).aktiv is False)
+
 sys.exit(p.bericht())

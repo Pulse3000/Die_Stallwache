@@ -22,15 +22,17 @@ Cloud-Upload.
 ```bash
 docker ps --format '{{.Names}} {{.Status}}'      # kuhwatch-stallwache und stallwache-go2rtc laufen
 docker images kuhwatch-stallwache                 # Image vorhanden (Basis des Agenten)
-curl -s -o /tmp/probe.jpg -w '%{http_code}\n' 'http://127.0.0.1:1984/api/frame.jpeg?src=stallwache'   # 200
+curl -s -o /tmp/probe.jpg -w '%{http_code} %{size_download}\n' 'http://127.0.0.1:1984/api/frame.jpeg?src=stallwache'   # 200 und > 0 Bytes
 df -h ~                                           # freier Platz: ~ 0,2–0,8 GB pro Tag einplanen
 timedatectl | grep 'Time zone'                    # Europe/Berlin
 systemctl is-active kuhwatch-tempguard            # active
 ```
 
 Liefert der `curl`-Aufruf nicht 200, läuft go2rtc nicht oder kennt den Stream
-`stallwache` nicht. Dann zuerst go2rtc reparieren (`bridge/`). Die
-Bildquelle des Agenten ist genau diese Adresse.
+`stallwache` nicht. Kommt 200 mit 0 Bytes, läuft go2rtc, erreicht aber die
+Kamera nicht (Kamera aus, falsche IP oder Zugangsdaten in `bridge/.env`). In
+beiden Fällen zuerst go2rtc reparieren (`bridge/`). Die Bildquelle des
+Agenten ist genau diese Adresse.
 
 ## 1. Tempguard auf den Agenten erweitern
 
@@ -74,7 +76,8 @@ Die Prüfliste steht in der Spezifikation, §6. Kurz:
 
 - nach 10 min: 5–6 Bilder in `aufnahmen/`, die Uhrzeit im Bild passt zum Dateinamen
 - 20:00: Tagesbericht mit „Datensammlung (Silent Mode) – keine Kalbe- und Brunsterkennung …“ und „Trainingsbilder seit …: N · frei: X GB“
-- nach der ersten Nacht: `docker exec stallblick-agent python training/datensatz.py bilanz aufnahmen` zeigt IR-Nacht-Bilder aus der ganzen Nacht (etwa 1/3 bis 1/2 aller Bilder), und nachts kam keine Meldung „Bild gestört“ oder „Bild eingefroren“
+- nach der ersten Nacht: `docker exec stallblick-agent python training/datensatz.py bilanz aufnahmen` zeigt IR-Nacht-Bilder aus der ganzen Nacht (etwa 1/3 bis 1/2 aller Bilder), und nachts kam keine Meldung „Bild gestört“ oder „Bild eingefroren“.
+  Kam sie doch, obwohl das Livebild in Ordnung aussieht: `docker exec stallblick-agent python freeze_watchdog.py diagnose aufnahmen > diagnose.txt` und die Datei an den Orchestrator geben. Sie enthält nur Kennzahlen je Bild, kein Bild.
 - nach 24 h: ca. 690 Bilder (660–720)
 - nach 1–2 Wochen: `docker exec stallblick-agent python training/datensatz.py bilanz aufnahmen` → Exit 0
 
@@ -91,7 +94,7 @@ Die Dateien gehören root (der Container schreibt sie). Zum Löschen nach dem
 Sichern deshalb `sudo` verwenden. Nur die Bilder im Ordner löschen, nie den
 Ordner `aufnahmen/` selbst verschieben oder löschen: Er ist in den Container
 eingebunden, der Agent schriebe sonst in den alten Ordner weiter. Ist es doch
-passiert: `docker compose -f deploy-stallwache-lela/docker-compose.yml restart`.
+passiert: `cd ~/Die_Stallwache/edge-agent && docker compose -f deploy-stallwache-lela/docker-compose.yml restart`.
 
 Fällt der freie Platz unter 2 GB, speichert der Agent keine Bilder mehr und
 meldet das einmal per Telegram. Ab 2,5 GB frei sammelt er von selbst weiter.

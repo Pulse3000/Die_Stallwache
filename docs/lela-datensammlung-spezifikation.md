@@ -94,7 +94,7 @@ Unverändert: Silent-Intervall 120 s, Freeze-Watchdog (5 gespeicherte Bilder
 | Ablage gestört (Platz unter Reserve) | Telegram, Dashboard (einmal je Störung) | „Trainingsbilder pausiert: nur noch 1,9 GB frei, das System braucht 2 GB Reserve. Bitte die Bilder sichern (z. B. USB-Platte) und danach im Ordner aufnahmen löschen. Ab 2,5 GB frei läuft die Sammlung von selbst weiter." (freier Platz abgerundet) |
 | Ablage gestört (Schreibfehler) | Telegram, Dashboard (einmal je Störung) | „Trainingsbild konnte nicht gespeichert werden (<Ordner>). Bitte Ordner und Rechte prüfen. Wurde der Ordner verschoben oder gelöscht, den Agenten neu starten." |
 | Ablage wieder in Ordnung | Telegram, Dashboard | „Trainingsbilder werden wieder gespeichert." |
-| Kamerabild eingefroren/gestört | Telegram, Dashboard (Freeze-Watchdog, einmal je Störung) | „Kamera stallwache: Bild eingefroren seit … Es werden vorerst keine Trainingsbilder gespeichert – bitte Kamera und Bildquelle (go2rtc/Bridge) prüfen." Ein gleichmäßiges Band (dunkle Decke nachts, überstrahlte Wand) gilt nicht als Streifen-Defekt |
+| Kamerabild eingefroren/gestört | Telegram, Dashboard (Freeze-Watchdog, einmal je Störung) | „Kamera stallwache: Bild eingefroren seit … Es werden vorerst keine Trainingsbilder gespeichert – bitte Kamera und Bildquelle (go2rtc/Bridge) prüfen." Ein gleichmäßiges Band (dunkle Decke nachts, überstrahlte Wand) gilt nicht als Streifen-Defekt. Ein sehr rauscharmes Nachtband mit Helligkeitsverlauf oder Lichtkante kann noch als Streifen gelten (§8). Entwarnung „Bild wieder in Ordnung" erst nach 5 sauberen Bildern in Folge; Rückfälle dazwischen ohne neue Meldung |
 | Analyse mit zu wenigen Bildern | Telegram, Dashboard (einmal beim Start) | „Analyse läuft mit nur einem Bild alle 10 s – kurze Aufsprünge werden so übersehen. Bitte stream.ziel_fps auf 1.0 stellen (und stream.url auf RTSP)." |
 | Hitze ≥ 85 °C | Telegram (Tempguard) | „STALLWACHE KRITISCH: CPU bei N°C. Pausiert: <Container>. Takt gedeckelt. Entwarnung folgt bei 75°C." |
 | Hitze ≤ 75 °C | Telegram (Tempguard) | „STALLWACHE OK: CPU auf N°C abgekuehlt. Laeuft wieder: <Container>." |
@@ -139,8 +139,10 @@ löschen: Das kuhwatch-Image lässt sich ohne die lokalen `wheels/` und
 | Risiko | Gegenmaßnahme |
 | --- | --- |
 | Bilder liegen nur auf einer alten Platte | wöchentlich auf USB-Platte oder Hof-NAS kopieren (Landwirt/Betreiber); kein Cloud-Upload (Grundsatz 2) |
-| go2rtc läuft nicht oder liefert kein Bild | Totmann-Meldung nach 5 min; Lebenszeichen „kein Bild"; dann go2rtc prüfen oder `stream.fallback_snapshot_url` auf die Kamera direkt setzen |
-| Kamera-Zugangsdaten im Log | `main.py` schreibt die RTSP-URL nur noch ohne Benutzer/Passwort ins Log |
+| go2rtc läuft nicht oder liefert kein Bild | Totmann-Meldung nach 5 min; Lebenszeichen „kein Bild"; dann go2rtc prüfen oder `stream.fallback_snapshot_url` auf die Kamera direkt setzen. Erreicht go2rtc die Kamera nicht, antwortet es mit 200 ohne Inhalt – auch das zählt als „kein Bild" (früher fiel dabei der Totmann aus) |
+| Zugangsdaten und Tokens im Log | Jede Logzeile wird geschwärzt (`OhneGeheimnisse`): Benutzer/Passwort in URLs, Telegram-Bot-Token, die Tokens und Passwörter aus `config.yaml` – auch in Tracebacks |
+| `archiv: "false"` (in Anführungszeichen) schaltete das Archiv ein | Nur ein echtes `true` schaltet es ein, alles andere bleibt aus und wird gewarnt |
+| Streifen-Fehlalarm bei sehr rauscharmen Nachtbildern mit Helligkeitsverlauf/Lichtkante (Altbestand) | Abnahme §6 #8 zeigt es in der ersten Nacht. Dann `docker exec stallblick-agent python freeze_watchdog.py diagnose aufnahmen` (nur Kennzahlen, kein Bild) an den Orchestrator. Über ein anderes Streifen-Kriterium wird mit diesen Zahlen entschieden – der naheliegende Ersatz (Sprung von Spalte zu Spalte) übersähe Verschmieren in glatten Nachtbildern |
 | Platte läuft voll | Platzreserve 2 GiB, einmalige Meldung, Tagesbericht nennt freien Platz |
 | Ordner `aufnahmen/` beim Sichern verschoben oder gelöscht | Bind-Mount: der Agent schreibt in den alten Ordner weiter bzw. meldet einen Schreibfehler. Runbook: nur Bilder löschen, nie den Ordner; sonst Container neu starten |
 | Hitze | Tempguard pausiert den Agenten; Container auf 1 CPU begrenzt |

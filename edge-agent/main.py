@@ -159,12 +159,52 @@ def trenne_zugangsdaten(url: str) -> tuple[str, tuple[str, str] | None]:
     )
 
 
+_URL_LOGIN = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*://)\S*@")
+_BOT_TOKEN = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
+
+
 def ohne_zugangsdaten(url: str) -> str:
     """URL fuers Log: Benutzer/Passwort entfernt (rtsp://user:pass@host/… ->
-    rtsp://host/…). Wirft nie, auch nicht bei kaputten URLs. Greedy bis zum
-    letzten @ vor dem ersten /, damit auch ein unkodiertes @ im Passwort nicht
-    halb im Log landet."""
-    return re.sub(r"^([A-Za-z][A-Za-z0-9+.-]*://)[^/]*@", r"\1", url or "")
+    rtsp://host/…). Wirft nie. Greedy bis zum letzten @: Auch ein unkodiertes
+    @, /, # oder ? im Passwort landet nicht im Log (ein @ im Pfad kostet dann
+    lieber ein Stueck der Anzeige als ein Passwort)."""
+    return _URL_LOGIN.sub(r"\1", url or "")
+
+
+class OhneGeheimnisse(logging.Formatter):
+    """Schwaerzt Geheimnisse in JEDER Logzeile, auch in Tracebacks: Zugangsdaten
+    in URLs, Telegram-Bot-Token (requests schreibt die volle URL …/bot<TOKEN>/…
+    in seine Fehlertexte) und die Tokens/Passwoerter aus config.yaml.
+    docker logs geht an den Betreiber und wird bei Stoerungen weitergegeben."""
+
+    def __init__(self, *args, geheimnisse: list[str] | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Kurze Werte nicht ersetzen: „1" wuerde sonst jede Zahl schwaerzen.
+        self.geheimnisse = sorted({g for g in (geheimnisse or []) if len(g) >= 4}, key=len, reverse=True)
+
+    def format(self, record: logging.LogRecord) -> str:
+        text = super().format(record)
+        for g in self.geheimnisse:
+            text = text.replace(g, "***")
+        return _URL_LOGIN.sub(r"\1", _BOT_TOKEN.sub("bot***", text))
+
+
+def schwaerze_log(cfg: dict) -> None:
+    """Haengt OhneGeheimnisse an alle Log-Handler (nach dem Laden der Konfig)."""
+    st, tg = cfg.get("stream") or {}, cfg.get("telegram") or {}
+    db, mq = cfg.get("dashboard") or {}, cfg.get("mqtt") or {}
+    geheim = [str(v).strip() for v in (tg.get("token"), db.get("token"), st.get("app_passwort"),
+                                       mq.get("password")) if v]
+    for url in (st.get("url"), st.get("fallback_snapshot_url")):
+        try:
+            teile = urllib.parse.urlsplit(str(url or ""))
+            if teile.password:
+                geheim += [teile.password, urllib.parse.unquote(teile.password)]
+        except ValueError:
+            pass  # kaputte URL: das Muster in OhneGeheimnisse greift trotzdem
+    for h in logging.getLogger().handlers:
+        h.setFormatter(OhneGeheimnisse(
+            "%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S", geheimnisse=geheim))
 
 
 class StreamHandler:
@@ -193,7 +233,7 @@ class StreamHandler:
         # Dauer-Dekodieren, jedes Bild aktuell statt aus einem Rueckstau.
         self.nutze_fallback = not self.url and not self.quelle.aktiv
         if self.nutze_fallback:
-            log.info("Nur Einzelbilder: %s", self.fallback_url.split("?")[0])
+            log.info("Nur Einzelbilder: %s", ohne_zugangsdaten(self.fallback_url).split("?")[0])
         self._snapshot_gewarnt = False
         self._letzter_frame_ts = 0.0
 
@@ -225,9 +265,15 @@ class StreamHandler:
         try:
             r = requests.get(self.fallback_url, timeout=10, auth=self.fallback_auth)
             r.raise_for_status()
-            buf = np.frombuffer(r.content, dtype=np.uint8)
-            return cv2.imdecode(buf, cv2.IMREAD_COLOR)
-        except requests.RequestException as e:
+            if not r.content:
+                # go2rtc antwortet 200 ohne Inhalt, wenn es selbst die Kamera
+                # nicht erreicht – das ist ein Ausfall, kein Bild.
+                raise ValueError("leere Antwort – erreicht go2rtc die Kamera?")
+            bild = cv2.imdecode(np.frombuffer(r.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if bild is None:
+                raise ValueError(f"Antwort ist kein Bild ({len(r.content)} Bytes)")
+            return bild
+        except Exception as e:  # noqa: BLE001 – jeder Abruffehler ist ein fehlendes Bild
             # Eine Warnung je Stoerung (auch die erste nach dem Wechsel von
             # RTSP); im Einzelbild-Modus kaeme sonst alle paar Sekunden eine
             # Zeile. Zurueckgesetzt wird beim naechsten guten Bild.
@@ -940,7 +986,12 @@ class DatensatzArchiv:
             basis = (db.get("url") or "").strip()
             url = basis.replace("/api/events", "/api/datensatz") if basis else ""
         self.url = url
-        self.aktiv = bool(db.get("archiv", False)) and bool(self.url and self.token)
+        # Nur ein echtes true schaltet das Archiv ein (Bilder verlassen dann den
+        # Hof). „false" in Anfuehrungszeichen, „nein", „aus", 1 … bleiben aus.
+        archiv = db.get("archiv", False)
+        if archiv not in (True, False, None):
+            log.warning("dashboard.archiv=%r ist kein true/false – Archiv bleibt aus.", archiv)
+        self.aktiv = archiv is True and bool(self.url and self.token)
         self.kamera = (cfg.get("stream") or {}).get("kamera", "stallwache")
         self._queue: "queue.Queue[tuple[str, list[bytes]]]" = queue.Queue(
             maxsize=self.WARTESCHLANGE_MAX
@@ -2136,6 +2187,7 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
     cfg = lade_konfig()
+    schwaerze_log(cfg)
     stream = StreamHandler(cfg)
     engine = InferenceEngine(cfg)
     logik = LogicEngine(cfg)
@@ -2188,9 +2240,21 @@ def main() -> None:
         ablage = AblageWaechter(ordner)
         notifier.silent_ordner = ordner
 
+    quelle_kaputt = False
     while True:
         try:
-            frame = stream.naechster_frame()
+            try:
+                frame = stream.naechster_frame()
+                quelle_kaputt = False
+            except Exception:  # noqa: BLE001
+                # Ein Fehler der Bildquelle ist „kein Bild": Totmann,
+                # Lebenszeichen und Tagesbericht muessen trotzdem laufen, sonst
+                # bleibt genau dieser Ausfall still. Traceback einmal je Stoerung.
+                if not quelle_kaputt:
+                    log.exception("Bildquelle fehlerhaft – zaehle als kein Bild")
+                quelle_kaputt = True
+                frame = None
+                time.sleep(1)
             notifier.digest_tick(engine.aktiv)
             notifier.feedback.tick()
             totmann_meldung = totmann.tick(frame is not None)
