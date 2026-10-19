@@ -73,8 +73,9 @@ Den Fehler dann vollständig an den Orchestrator geben.
 Die Prüfliste steht in der Spezifikation, §6. Kurz:
 
 - nach 10 min: 5–6 Bilder in `aufnahmen/`, die Uhrzeit im Bild passt zum Dateinamen
-- 20:00: Tagesbericht mit „Trainingsbilder seit dem letzten Bericht: N · frei: X GB“
-- nach 24 h: ca. 720 Bilder, mindestens eine IR-Nachtaufnahme
+- 20:00: Tagesbericht mit „Datensammlung (Silent Mode) – keine Kalbe- und Brunsterkennung …“ und „Trainingsbilder seit …: N · frei: X GB“
+- nach der ersten Nacht: `docker exec stallblick-agent python training/datensatz.py bilanz aufnahmen` zeigt IR-Nacht-Bilder aus der ganzen Nacht (etwa 1/3 bis 1/2 aller Bilder), und nachts kam keine Meldung „Bild gestört“ oder „Bild eingefroren“
+- nach 24 h: ca. 690 Bilder (660–720)
 - nach 1–2 Wochen: `docker exec stallblick-agent python training/datensatz.py bilanz aufnahmen` → Exit 0
 
 ## 4. Bilder sichern (wöchentlich)
@@ -87,8 +88,13 @@ rsync -a ~/Die_Stallwache/edge-agent/aufnahmen/ /media/<usb-platte>/stallwache-a
 ```
 
 Die Dateien gehören root (der Container schreibt sie). Zum Löschen nach dem
-Sichern deshalb `sudo` verwenden. Fällt der freie Platz unter 2 GB, speichert
-der Agent keine Bilder mehr und meldet das einmal per Telegram.
+Sichern deshalb `sudo` verwenden. Nur die Bilder im Ordner löschen, nie den
+Ordner `aufnahmen/` selbst verschieben oder löschen: Er ist in den Container
+eingebunden, der Agent schriebe sonst in den alten Ordner weiter. Ist es doch
+passiert: `docker compose -f deploy-stallwache-lela/docker-compose.yml restart`.
+
+Fällt der freie Platz unter 2 GB, speichert der Agent keine Bilder mehr und
+meldet das einmal per Telegram. Ab 2,5 GB frei sammelt er von selbst weiter.
 
 ## 5. Rückweg zu kuhwatch
 

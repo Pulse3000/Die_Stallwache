@@ -77,7 +77,8 @@ Betriebsgrenzen als Konstanten im Code:
 | Wert | Wo | Begründung |
 | --- | --- | --- |
 | Platzreserve 2 GiB | `main.py`, `AblageWaechter.RESERVE_BYTES` | Darunter speichert der Agent keine Bilder mehr. Betriebssystem, Docker und Logs liegen auf derselben Platte und dürfen nicht volllaufen |
-| `ziel_fps: 0.1` | LELA-Profil `config.silent-lela.yaml` | ein Einzelbild alle 10 s: Lebenszeichen „Bild da" (< 120 s) und Totmann (5 min) bleiben gültig, Bildabstand 120–130 s |
+| Wiederaufnahme ab 2,5 GiB (Hysterese 512 MiB) | `main.py`, `AblageWaechter.WIEDER_AB_BYTES` | verhindert, dass die Meldung flackert, wenn Logs den freien Platz um die Reserve schwanken lassen |
+| `ziel_fps: 0.1` | LELA-Profil `config.silent-lela.yaml` | ein Einzelbild alle 10 s: Lebenszeichen „Bild da" (< 120 s) und Totmann (5 min) bleiben gültig, Bildabstand 120–131 s (Mittel ca. 126 s). Nur für den Silent Mode: Startet der Agent mit Modell und weniger als 1 Bild/s, meldet er das einmal |
 | `feedback_buttons: false` | LELA-Profil | im Silent Mode gibt es keine Alarme, und `getUpdates` kollidiert mit einem Webhook am selben Bot (409) |
 | `archiv: false` | LELA-Profil | Entscheidung „Bilder bleiben auf dem Hof" |
 
@@ -89,10 +90,12 @@ Unverändert: Silent-Intervall 120 s, Freeze-Watchdog (5 gespeicherte Bilder
 | Anlass | Kanal | Text |
 | --- | --- | --- |
 | Start | Dashboard, MQTT | „Edge-Agent gestartet (Silent Mode – Datensammlung)" (unverändert) |
-| Tagesbericht 20:00 | Telegram | zusätzliche Zeile „Trainingsbilder seit dem letzten Bericht: N · frei: X GB" |
-| Ablage gestört (Platz unter Reserve) | Telegram, Dashboard (einmal je Störung) | „Trainingsbilder pausiert: nur noch X GB frei. Bitte Bilder sichern und Platz schaffen." |
-| Ablage gestört (Schreibfehler) | Telegram, Dashboard (einmal je Störung) | „Trainingsbild konnte nicht gespeichert werden (<Ordner>). Bitte Ordner und Rechte prüfen." |
+| Tagesbericht 20:00 | Telegram | „Modus: Datensammlung (Silent Mode) – keine Kalbe- und Brunsterkennung. Bitte den Abkalbebereich wie gewohnt selbst kontrollieren." / „Trainingsbilder seit dem letzten Bericht: N · frei: X GB" (erster Bericht nach einem Neustart: „seit dem Start um HH:MM") / „Agent läuft seit … · Kamera: stallwache". Keine Zähler „Kalbeverdacht/Austreibung: 0": Es wird nichts analysiert |
+| Ablage gestört (Platz unter Reserve) | Telegram, Dashboard (einmal je Störung) | „Trainingsbilder pausiert: nur noch 1,9 GB frei, das System braucht 2 GB Reserve. Bitte die Bilder sichern (z. B. USB-Platte) und danach im Ordner aufnahmen löschen. Ab 2,5 GB frei läuft die Sammlung von selbst weiter." (freier Platz abgerundet) |
+| Ablage gestört (Schreibfehler) | Telegram, Dashboard (einmal je Störung) | „Trainingsbild konnte nicht gespeichert werden (<Ordner>). Bitte Ordner und Rechte prüfen. Wurde der Ordner verschoben oder gelöscht, den Agenten neu starten." |
 | Ablage wieder in Ordnung | Telegram, Dashboard | „Trainingsbilder werden wieder gespeichert." |
+| Kamerabild eingefroren/gestört | Telegram, Dashboard (Freeze-Watchdog, einmal je Störung) | „Kamera stallwache: Bild eingefroren seit … Es werden vorerst keine Trainingsbilder gespeichert – bitte Kamera und Bildquelle (go2rtc/Bridge) prüfen." Ein gleichmäßiges Band (dunkle Decke nachts, überstrahlte Wand) gilt nicht als Streifen-Defekt |
+| Analyse mit zu wenigen Bildern | Telegram, Dashboard (einmal beim Start) | „Analyse läuft mit nur einem Bild alle 10 s – kurze Aufsprünge werden so übersehen. Bitte stream.ziel_fps auf 1.0 stellen (und stream.url auf RTSP)." |
 | Hitze ≥ 85 °C | Telegram (Tempguard) | „STALLWACHE KRITISCH: CPU bei N°C. Pausiert: <Container>. Takt gedeckelt. Entwarnung folgt bei 75°C." |
 | Hitze ≤ 75 °C | Telegram (Tempguard) | „STALLWACHE OK: CPU auf N°C abgekuehlt. Laeuft wieder: <Container>." |
 | Kein Temperatursensor | Telegram, Log (Tempguard, einmal) | „STALLWACHE WARNUNG: Kein k10temp-Sensor gefunden – Hitzeschutz ohne Messwert." |
@@ -110,8 +113,8 @@ Gerät belegt hat. Was wir aus der Ferne sehen, steht in der letzten Spalte.
 | 4 | ein Bild öffnen | volle Auflösung, scharf, keine Schlieren | – |
 | 5 | `systemctl status kuhwatch-tempguard` | aktiv, Log nennt den Sensor und beide Container | – |
 | 6 | `GET /api/stall-status` (Tagesreport) | Stallwache „UNBEKANNT – Silent Mode (Datensammlung)" | ja |
-| 7 | Tagesbericht 20:00 | Zeile „Trainingsbilder seit dem letzten Bericht: …" | ja (Telegram) |
-| 8 | nach 24 h | ca. 720 Bilder, mindestens eine IR-Nachtaufnahme | Tagesbericht |
+| 7 | Tagesbericht 20:00 | „Datensammlung (Silent Mode) – keine Kalbe- und Brunsterkennung …" und „Trainingsbilder seit …: N" | ja (Telegram) |
+| 8 | nach der ersten Nacht und nach 24 h | `docker exec stallblick-agent python training/datensatz.py bilanz aufnahmen` zeigt IR-Nacht-Bilder aus der ganzen Nacht (etwa 1/3 bis 1/2 aller Bilder); in der Nacht kam keine Meldung „Bild gestört" oder „Bild eingefroren"; nach 24 h ca. 690 Bilder (660–720) | Tagesbericht |
 | 9 | nach 1–2 Wochen | `docker exec stallblick-agent python training/datensatz.py bilanz aufnahmen` endet mit Exit 0 (IR-Nacht ≥ 1/3, B9) | – |
 
 ## 7. Rückweg
@@ -139,7 +142,9 @@ löschen: Das kuhwatch-Image lässt sich ohne die lokalen `wheels/` und
 | go2rtc läuft nicht oder liefert kein Bild | Totmann-Meldung nach 5 min; Lebenszeichen „kein Bild"; dann go2rtc prüfen oder `stream.fallback_snapshot_url` auf die Kamera direkt setzen |
 | Kamera-Zugangsdaten im Log | `main.py` schreibt die RTSP-URL nur noch ohne Benutzer/Passwort ins Log |
 | Platte läuft voll | Platzreserve 2 GiB, einmalige Meldung, Tagesbericht nennt freien Platz |
+| Ordner `aufnahmen/` beim Sichern verschoben oder gelöscht | Bind-Mount: der Agent schreibt in den alten Ordner weiter bzw. meldet einen Schreibfehler. Runbook: nur Bilder löschen, nie den Ordner; sonst Container neu starten |
 | Hitze | Tempguard pausiert den Agenten; Container auf 1 CPU begrenzt |
 | Personen im Bild | Bilder bleiben auf dem Hof; vor dem Labeln Bilder mit Personen aussortieren |
 | **Offen (Landwirt):** Gilt „Bilder bleiben auf dem Hof" auch fürs Labeln (app.cvat.ai) und fürs Training (Colab)? | Bis zur Entscheidung keine Bilder hochladen; Alternative wäre ein lokales CVAT auf einem Hof-PC |
 | **Offen (Landwirt):** zweite Instanz für die Abkalbebox (Tuya-Cloud) | eigene Entscheidung, eigene Instanz |
+| **Offen (Landwirt):** Gilt „Bilder bleiben auf dem Hof" auch für die Alarmbilder im späteren Analyse-Modus (Telegram-Bildserie, Bilder in der App)? | Bis zur Entscheidung bleibt der Analyse-Modus auf LELA aus |

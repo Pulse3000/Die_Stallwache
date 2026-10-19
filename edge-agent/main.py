@@ -194,6 +194,7 @@ class StreamHandler:
         self.nutze_fallback = not self.url and not self.quelle.aktiv
         if self.nutze_fallback:
             log.info("Nur Einzelbilder: %s", self.fallback_url.split("?")[0])
+        self._snapshot_gewarnt = False
         self._letzter_frame_ts = 0.0
 
     def _verbinde(self) -> None:
@@ -227,9 +228,11 @@ class StreamHandler:
             buf = np.frombuffer(r.content, dtype=np.uint8)
             return cv2.imdecode(buf, cv2.IMREAD_COLOR)
         except requests.RequestException as e:
-            # Eine Warnung je Stoerung; im Einzelbild-Modus kaeme sonst alle
-            # paar Sekunden eine Zeile. Die Erholung meldet naechster_frame().
-            stufe = logging.WARNING if self.fehler_in_folge == 0 else logging.DEBUG
+            # Eine Warnung je Stoerung (auch die erste nach dem Wechsel von
+            # RTSP); im Einzelbild-Modus kaeme sonst alle paar Sekunden eine
+            # Zeile. Zurueckgesetzt wird beim naechsten guten Bild.
+            stufe = logging.DEBUG if self._snapshot_gewarnt else logging.WARNING
+            self._snapshot_gewarnt = True
             log.log(stufe, "Snapshot (Einzelbild) fehlgeschlagen: %s", e)
             return None
 
@@ -260,6 +263,7 @@ class StreamHandler:
         if self.fehler_in_folge:
             log.info("Stream wieder stabil.")
         self.fehler_in_folge = 0
+        self._snapshot_gewarnt = False
         return frame
 
 
@@ -1373,6 +1377,7 @@ class Notifier:
         self._zaehler: dict[str, int] = defaultdict(int)
         # Silent Mode: Ablageordner fuer die Zeile „frei: X GB" im Tagesbericht.
         self.silent_ordner: Path | None = None
+        self._digest_gesendet = False
 
         db = cfg.get("dashboard") or {}
         self.db_url = (db.get("url") or "").strip()
@@ -1519,20 +1524,35 @@ class Notifier:
         self._digest_tag = heute
         stunden = (time.time() - self._start_ts) / 3600
         z = self._zaehler
-        text = (
-            "📋 Stallblick-Tagesbericht\n"
-            f"Modus: {'Analyse' if analyse_aktiv else 'Silent Mode (Datensammlung)'}\n"
-            f"Kalbeverdacht: {z['kalbeverdacht']} · Austreibung: {z['austreibung']} · "
-            f"Brunstverdacht: {z['brunstverdacht']}\n"
-            f"Agent läuft seit {stunden:.1f} h · Kamera: {self.kamera}"
-        )
-        if not analyse_aktiv:
-            # Beweis aus der Ferne, dass die Sammlung laeuft (der Landwirt
-            # sieht LELA nicht) und wann die Platte voll wird.
-            text += f"\nTrainingsbilder seit dem letzten Bericht: {z['trainingsbild']}"
+        laufzeit = f"Agent läuft seit {stunden:.1f} h · Kamera: {self.kamera}"
+        if analyse_aktiv:
+            text = (
+                "📋 Stallblick-Tagesbericht\n"
+                "Modus: Analyse\n"
+                f"Kalbeverdacht: {z['kalbeverdacht']} · Austreibung: {z['austreibung']} · "
+                f"Brunstverdacht: {z['brunstverdacht']}\n"
+                f"{laufzeit}"
+            )
+        else:
+            # Keine Zaehler „Austreibung: 0": Im Silent Mode wird nichts
+            # analysiert, wochenlange Nullen laesen sich wie „alles ruhig".
+            # Die Bildzahl ist der Beweis aus der Ferne, dass gesammelt wird;
+            # der erste Bericht nach einem Neustart zaehlt ab dem Start.
+            seit = ("dem letzten Bericht" if self._digest_gesendet else
+                    f"dem Start um {time.strftime('%H:%M', time.localtime(self._start_ts))}")
+            zeile = f"Trainingsbilder seit {seit}: {z['trainingsbild']}"
             frei = freier_platz(self.silent_ordner) if self.silent_ordner else None
             if frei is not None:
-                text += f" · frei: {frei / 1024**3:.1f} GB"
+                zeile += f" · frei: {gb_text(frei)} GB"
+            text = (
+                "📋 Stallblick-Tagesbericht\n"
+                "Modus: Datensammlung (Silent Mode) – keine Kalbe- und "
+                "Brunsterkennung. Bitte den Abkalbebereich wie gewohnt selbst "
+                "kontrollieren.\n"
+                f"{zeile}\n"
+                f"{laufzeit}"
+            )
+        self._digest_gesendet = True
         fb = self.feedback.zaehler
         if fb["treffer"] or fb["fehlalarm"]:
             text += f"\nFeedback: ✅ {fb['treffer']} Treffer · ❌ {fb['fehlalarm']} Fehlalarm"
@@ -2020,6 +2040,12 @@ def trainingsbild_name(kamera: str, zeit: float | None = None) -> str:
     return f"{kamera}_{time.strftime('%Y%m%d-%H%M%S', time.localtime(zeit))}.jpg"
 
 
+def gb_text(anzahl_bytes: float) -> str:
+    """Bytes als „1,9" (GB, auf eine Stelle ABgerundet): Eine Meldung
+    „2,0 GB frei" unter einer 2-GB-Grenze laese sich wie ein Widerspruch."""
+    return f"{math.floor(anzahl_bytes / 1024**3 * 10) / 10:.1f}".replace(".", ",")
+
+
 def freier_platz(pfad: Path) -> int | None:
     """Freie Bytes auf der Partition von ``pfad`` (None, wenn nicht lesbar)."""
     try:
@@ -2059,9 +2085,13 @@ class AblageWaechter:
         if self.stoerung == "platz":
             return False, None
         self.stoerung = "platz"
+        reserve = f"{self.RESERVE_BYTES / 1024**3:g}".replace(".", ",")
+        weiter = f"{self.WIEDER_AB_BYTES / 1024**3:g}".replace(".", ",")
         return False, (
-            f"Trainingsbilder pausiert: nur noch {frei / 1024**3:.1f} GB frei. "
-            "Bitte Bilder sichern und Platz schaffen."
+            f"Trainingsbilder pausiert: nur noch {gb_text(frei)} GB frei, "
+            f"das System braucht {reserve} GB Reserve. Bitte die Bilder sichern "
+            "(z. B. USB-Platte) und danach im Ordner aufnahmen löschen. "
+            f"Ab {weiter} GB frei läuft die Sammlung von selbst weiter."
         )
 
     def ergebnis(self, ok: bool) -> str | None:
@@ -2076,14 +2106,17 @@ class AblageWaechter:
         self.stoerung = "schreiben"
         return (
             f"Trainingsbild konnte nicht gespeichert werden ({self.ordner}). "
-            "Bitte Ordner und Rechte prüfen."
+            "Bitte Ordner und Rechte prüfen. Wurde der Ordner verschoben oder "
+            "gelöscht, den Agenten neu starten."
         )
 
 
 def schreibe_trainingsbild(pfad: Path, frame: np.ndarray) -> bool:
     """Schreibt das Bild; False bei jedem Fehler (cv2.imwrite meldet ihn nur
-    ueber den Rueckgabewert). Legt den Ordner neu an, falls er beim Sichern
-    der Bilder verschoben wurde."""
+    ueber den Rueckgabewert). Legt den Ordner neu an, falls er fehlt. Im
+    Docker-Betrieb ist aufnahmen/ ein Bind-Mount: Wird er auf dem Host
+    verschoben oder geloescht, hilft nur ein Neustart des Containers
+    (deploy-stallwache-lela/README.md, Abschnitt 4)."""
     try:
         pfad.parent.mkdir(parents=True, exist_ok=True)
         return bool(cv2.imwrite(str(pfad), frame))
@@ -2136,6 +2169,16 @@ def main() -> None:
 
     if engine.aktiv:
         notifier.status("Edge-Agent gestartet – Analyse-Modus aktiv")
+        intervall_s = float(getattr(stream, "frame_intervall", 1.0))
+        if intervall_s > 1.0:
+            # Kein Regler: Die Regeln (Brunst >= 4 s, 30-min-Fenster) sind auf
+            # ~1 Bild/s ausgelegt. Typisch nach dem Umstieg vom Silent-Profil
+            # (ziel_fps 0.1), wenn nur modell.pfad gesetzt wurde.
+            notifier.wichtig(
+                f"Analyse läuft mit nur einem Bild alle {intervall_s:.0f} s – kurze "
+                "Aufsprünge werden so übersehen. Bitte stream.ziel_fps auf 1.0 "
+                "stellen (und stream.url auf RTSP)."
+            )
     else:
         notifier.status("Edge-Agent gestartet (Silent Mode – Datensammlung)")
         ordner = Path(cfg["silent_mode"]["ordner"])

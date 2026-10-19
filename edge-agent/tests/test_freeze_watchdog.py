@@ -106,6 +106,73 @@ def test_einfarbige_wand_ist_kein_streifenfehler():
     assert lauf(wd, [dunkel() for _ in range(10)]) == []
 
 
+def mit_band(oben: bool, anteil: float, wert: int) -> np.ndarray:
+    """Lebendiges Bild mit gleichmaessigem, bildbreitem Band (dunkle Decke
+    ausserhalb der IR-Reichweite, ueberstrahlte Wand, Privatsphaere-Maske)."""
+    bild = lebendig()
+    h = int(H * anteil)
+    zeilen = slice(0, h) if oben else slice(H - h, H)
+    bild[zeilen] = np.clip(wert + RNG.normal(0, 0.3, (h, B, 3)), 0, 255).astype(np.uint8)
+    return bild
+
+
+def test_dunkles_band_mit_lebendigem_rest_ist_kein_streifenfehler():
+    """IR-Nacht: Decke oben dunkel, Rest lebt -> kein Defekt (sonst fehlen
+    nachts alle Trainingsbilder, Beschluss B9)."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+    assert lauf(wd, [mit_band(True, 0.25, 6) for _ in range(10)]) == []
+    assert not wd.defekt
+
+
+def test_helles_band_unten_ist_kein_streifenfehler():
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+    assert lauf(wd, [mit_band(False, 0.20, 250) for _ in range(10)]) == []
+
+
+def test_streifen_nur_im_unteren_drittel_wird_erkannt():
+    """Echte Dekoder-Korruption in einem Teilbereich bleibt ein Defekt."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+
+    def teilstreifen():
+        bild = lebendig()
+        h = int(H * 0.30)
+        bild[H - h:] = streifenbild()[H - h:]
+        return bild
+
+    ev = lauf(wd, [teilstreifen() for _ in range(6)])
+    assert len(ev) == 1 and "Streifen" in ev[0][1]["nachricht"], ev
+
+
+def test_streifen_neben_dunklem_band_wird_erkannt():
+    """Ein gleichmaessiges Band darf echte Streifen daneben nicht verdecken."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+
+    def beides():
+        bild = mit_band(True, 0.25, 6)
+        h = int(H * 0.30)
+        bild[H - h:] = streifenbild()[H - h:]
+        return bild
+
+    ev = lauf(wd, [beides() for _ in range(6)])
+    assert len(ev) == 1 and "Streifen" in ev[0][1]["nachricht"], ev
+
+
+def test_meldetext_silent_mode_nennt_trainingsbilder():
+    """Im Silent Mode gibt es keine Analyse – die Meldung sagt, was wirklich passiert."""
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 2}}, "stallwache", analyse_aktiv=False)
+    fest = lebendig()
+    ev = lauf(wd, [fest.copy() for _ in range(4)])
+    text = ev[0][1]["nachricht"]
+    assert "keine Trainingsbilder" in text and "Analyse" not in text, text
+
+
+def test_meldetext_analyse_modus_unveraendert():
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 2}}, "stallwache", analyse_aktiv=True)
+    fest = lebendig()
+    ev = lauf(wd, [fest.copy() for _ in range(4)])
+    assert "Analyse ausgesetzt" in ev[0][1]["nachricht"]
+
+
 def test_aufloesungswechsel_ist_kein_einfrieren():
     wd = FreezeWatchdog("stallwache", frames_bis_alarm=2)
     # Beide Formate bleiben nach dem internen Verkleinern verschieden

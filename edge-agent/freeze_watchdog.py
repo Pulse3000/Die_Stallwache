@@ -49,6 +49,7 @@ class FreezeWatchdog:
     defekt: bool = False
     grund: str | None = None
     ausfaelle: int = 0                 # Wie oft der Watchdog selbst gestolpert ist (Diagnose)
+    analyse: bool = True               # False = Silent Mode: Meldung nennt Trainingsbilder statt Analyse
 
     @staticmethod
     def _grau(frame: np.ndarray) -> np.ndarray:
@@ -61,14 +62,21 @@ class FreezeWatchdog:
     def _hat_streifen(self, g: np.ndarray) -> bool:
         zeilen_diff = np.abs(np.diff(g, axis=0)).mean(axis=1)  # pro Zeilenpaar
         flach = zeilen_diff < self.streifen_schwelle
-        # Spalten müssen untereinander verschieden sein (sonst nur Wand/Himmel)
-        if g.std(axis=1).mean() < 5:
-            return False
-        laengstes = lauf = 0
-        for f in flach:
-            lauf = lauf + 1 if f else 0
-            laengstes = max(laengstes, lauf)
-        return laengstes >= self.streifen_anteil * len(zeilen_diff)
+        mindest = self.streifen_anteil * len(zeilen_diff)
+        # Jedes vertikal flache Band ab Mindesthoehe: Streifen nur, wenn sich
+        # die Spalten IM BAND unterscheiden. Ein gleichmaessiges Band (dunkle
+        # Decke ausserhalb der IR-Reichweite, ueberstrahlte Wand, Maske) ist
+        # kein Defekt – frueher mittelte die Spalten-Pruefung ueber das ganze
+        # Bild, und der lebendige Rest liess so ein Band als Streifen gelten.
+        start = None
+        for i, f in enumerate(list(flach) + [False]):
+            if f and start is None:
+                start = i
+            elif not f and start is not None:
+                if i - start >= mindest and g[start:i + 1].std(axis=1).mean() >= 5:
+                    return True
+                start = None
+        return False
 
     def pruefe(self, frame: np.ndarray, jetzt: float | None = None) -> dict | None:
         if frame is None:
@@ -94,8 +102,10 @@ class FreezeWatchdog:
             if grund and not self.defekt:
                 self.defekt, self.grund, self._seit = True, grund, jetzt
                 zeit = time.strftime("%d.%m. %H:%M", time.localtime(jetzt))
-                return self._event(f"Kamera {self.kamera}: {grund} seit {zeit}. "
-                                   "Analyse ausgesetzt – bitte Kamera/Bridge prüfen.")
+                folge = ("Analyse ausgesetzt – bitte Kamera/Bridge prüfen." if self.analyse else
+                         "Es werden vorerst keine Trainingsbilder gespeichert – "
+                         "bitte Kamera und Bildquelle (go2rtc/Bridge) prüfen.")
+                return self._event(f"Kamera {self.kamera}: {grund} seit {zeit}. {folge}")
             if not grund and self.defekt:
                 dauer = int((jetzt - (self._seit or jetzt)) / 60)
                 self.defekt, self.grund = False, None
@@ -127,4 +137,4 @@ def baue_watchdog(cfg: dict, kamera: str, analyse_aktiv: bool) -> FreezeWatchdog
     frames = w.get("frames_bis_alarm")
     if isinstance(frames, bool) or not isinstance(frames, int) or frames < 1:
         frames = FRAMES_ANALYSE if analyse_aktiv else FRAMES_SILENT
-    return FreezeWatchdog(kamera, frames_bis_alarm=frames)
+    return FreezeWatchdog(kamera, frames_bis_alarm=frames, analyse=analyse_aktiv)

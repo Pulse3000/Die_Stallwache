@@ -149,8 +149,9 @@ p.check("5: Erfolg ohne Stoerung -> keine Meldung", a.ergebnis(True) is None)
 frei["wert"] = int(1.5 * GIB)
 darf, meldung = a.darf_speichern()
 p.check("5: unter Reserve -> nicht speichern", darf is False)
-p.check("5: Meldung nennt freien Platz und Bitte",
-        meldung is not None and "1.5 GB frei" in meldung and "sichern" in meldung)
+p.check("5: Meldung nennt freien Platz, Reserve, Bitte und Wiederaufnahme",
+        meldung is not None and "nur noch 1,5 GB frei" in meldung and "2 GB Reserve" in meldung
+        and "sichern" in meldung and "Ab 2,5 GB frei" in meldung)
 p.check("5: zweite Pruefung -> keine zweite Meldung", a.darf_speichern() == (False, None))
 frei["wert"] = m.AblageWaechter.RESERVE_BYTES + 100 * 1024 ** 2
 p.check("5: knapp ueber Reserve -> weiter pausiert (Hysterese)", a.darf_speichern() == (False, None))
@@ -163,6 +164,13 @@ p.check("5: Schreibfehler -> Meldung mit Ordner",
         m_schreib is not None and "/agent/aufnahmen" in m_schreib and "Rechte" in m_schreib)
 p.check("5: zweiter Schreibfehler -> keine zweite Meldung", a.ergebnis(False) is None)
 p.check("5: Erfolg nach Schreibfehler -> Erholung", a.ergebnis(True) == "Trainingsbilder werden wieder gespeichert.")
+p.check("5: Schreibfehler-Meldung nennt den Neustart als Abhilfe",
+        m_schreib is not None and "neu starten" in m_schreib)
+b2 = m.AblageWaechter(Path("/agent/aufnahmen"))
+frei["wert"] = 2047 * 1024 ** 2
+_, knapp = b2.darf_speichern()
+p.check(f"5: 2047 MiB werden abgerundet, kein 2,0 GB unter 2 GB ({knapp})",
+        knapp is not None and "nur noch 1,9 GB frei" in knapp)
 frei["wert"] = None
 p.check("5: freier Platz unbekannt -> speichern (Schreibergebnis entscheidet)", a.darf_speichern() == (True, None))
 
@@ -260,7 +268,7 @@ p.check(f"6: Schreibfehler einmal gemeldet, Erholung einmal ({n.meldungen})",
 
 n, geschrieben = fahre(3, [], int(0.5 * GIB))
 p.check("6: Platz unter Reserve -> kein Schreibversuch", geschrieben == [] and n.gezaehlt == 0)
-p.check("6: Platzmeldung genau einmal", len(n.meldungen) == 1 and "0.5 GB frei" in n.meldungen[0])
+p.check("6: Platzmeldung genau einmal", len(n.meldungen) == 1 and "0,5 GB frei" in n.meldungen[0])
 
 # --- 7. Tagesbericht im Silent Mode ------------------------------------------
 gesendet.clear()
@@ -272,7 +280,7 @@ with tempfile.TemporaryDirectory() as tmp:
         "dashboard": {"puffer_datei": str(Path(tmp) / "puffer.jsonl")},
     })
     nt.silent_ordner = Path(tmp)
-    m.freier_platz = lambda pfad: int(42.3 * GIB)
+    m.freier_platz = lambda pfad: int(42.35 * GIB)
     for _ in range(3):
         nt.zaehle_trainingsbild()
     nt.digest_tick(analyse_aktiv=False)
@@ -283,13 +291,96 @@ with tempfile.TemporaryDirectory() as tmp:
     nt._digest_tag = None
     nt.digest_tick(analyse_aktiv=True)
     nt.warte()
+    start = m.time.strftime("%H:%M", m.time.localtime(nt._start_ts))
 berichte = [kw["data"]["text"] for u, kw in gesendet if u.endswith("/sendMessage")]
 p.check("7: drei Berichte", len(berichte) == 3)
-p.check("7: Silent-Bericht nennt Bilder und freien Platz",
-        len(berichte) == 3 and "Trainingsbilder seit dem letzten Bericht: 3 · frei: 42.3 GB" in berichte[0])
+p.check("7: erster Bericht zaehlt ab dem Start (Neustart wirkt nicht wie Ausfall)",
+        len(berichte) == 3 and f"Trainingsbilder seit dem Start um {start}: 3 · frei: 42,3 GB" in berichte[0])
+p.check("7: Silent-Bericht sagt, dass nichts erkannt wird",
+        len(berichte) == 3 and "keine Kalbe- und Brunsterkennung" in berichte[0]
+        and "selbst kontrollieren" in berichte[0])
+p.check("7: Silent-Bericht ohne irrefuehrende Null-Zaehler",
+        len(berichte) == 3 and "Austreibung:" not in berichte[0] and "Kalbeverdacht:" not in berichte[0])
 p.check("7: Zaehler beginnt nach dem Bericht neu",
         len(berichte) == 3 and "Trainingsbilder seit dem letzten Bericht: 0" in berichte[1])
-p.check("7: Analyse-Bericht ohne Trainingsbild-Zeile",
-        len(berichte) == 3 and "Trainingsbilder" not in berichte[2])
+p.check("7: Analyse-Bericht unveraendert mit Zaehlern, ohne Trainingsbild-Zeile",
+        len(berichte) == 3 and "Kalbeverdacht: 0 · Austreibung: 0" in berichte[2]
+        and "Trainingsbilder" not in berichte[2])
+
+
+# --- 8. Warnung nach dem Wechsel RTSP -> Snapshot (Analyse-Installationen) --
+class ToteCap(FakeCap):
+    def isOpened(self):
+        return False
+
+
+m.cv2 = types.SimpleNamespace(VideoCapture=lambda url: ToteCap(url), CAP_PROP_BUFFERSIZE=38,
+                              imdecode=lambda buf, flag: "bild", IMREAD_COLOR=1)
+alt_wartezeit = m.StreamHandler.RECONNECT_WARTEZEIT_S
+m.StreamHandler.RECONNECT_WARTEZEIT_S = 0
+sammler.zeilen.clear()
+rf = m.StreamHandler({"stream": {
+    "url": "rtsp://127.0.0.1:8554/stallwache",
+    "fallback_snapshot_url": "http://127.0.0.1:1984/api/frame.jpeg?src=stallwache",
+    "ziel_fps": 1000,
+}})
+antworten[:] = [False, False, False]
+for _ in range(rf.FEHLER_BIS_FALLBACK + 3):
+    rf.naechster_frame()
+m.StreamHandler.RECONNECT_WARTEZEIT_S = alt_wartezeit
+snap_warn = [z for lvl, z in sammler.zeilen if lvl >= logging.WARNING and "Snapshot (Einzelbild)" in z]
+p.check("8: Wechsel auf Snapshot erfolgt", rf.nutze_fallback is True)
+p.check(f"8: erster Snapshot-Fehler nach dem Wechsel ist eine Warnung ({len(snap_warn)})", len(snap_warn) == 1)
+
+
+# --- 9. Analyse mit zu wenigen Bildern: einmal Hinweis beim Start ------------
+def fahre_analyse(intervall_s):
+    notifier = FalscherNotifier()
+
+    class Strom:
+        frame_intervall = intervall_s
+
+        def __init__(self, cfg):
+            pass
+
+        def naechster_frame(self):
+            raise KeyboardInterrupt
+
+    class Engine:
+        aktiv = True
+
+        def __init__(self, cfg):
+            pass
+
+    class Leer:
+        aktiv = False
+
+        def __init__(self, cfg):
+            pass
+
+        def tick(self, *a):
+            return None
+
+        def fehlalarm_gemeldet(self, *a):
+            pass
+
+    alt = {k: getattr(m, k) for k in ("lade_konfig", "StreamHandler", "InferenceEngine", "LogicEngine",
+                                      "Notifier", "TotmannWaechter", "DatensatzArchiv", "Lebenszeichen")}
+    try:
+        m.lade_konfig = lambda: {"stream": {"kamera": "stallwache"}, "watchdog": {"aktiv": False}}
+        m.StreamHandler, m.InferenceEngine = Strom, Engine
+        m.LogicEngine = m.TotmannWaechter = m.DatensatzArchiv = m.Lebenszeichen = Leer
+        m.Notifier = lambda c: notifier
+        m.main()
+    finally:
+        for k, v in alt.items():
+            setattr(m, k, v)
+    return notifier.meldungen
+
+
+hinweis = fahre_analyse(10.0)
+p.check(f"9: Analyse mit 1 Bild/10 s -> genau ein Hinweis ({hinweis})",
+        len(hinweis) == 1 and "nur einem Bild alle 10 s" in hinweis[0] and "ziel_fps auf 1.0" in hinweis[0])
+p.check("9: Analyse mit 1 Bild/s -> kein Hinweis", fahre_analyse(1.0) == [])
 
 sys.exit(p.bericht())
