@@ -144,7 +144,8 @@ elif echo "$A" | grep -q '"url"'; then
 elif echo "$A" | grep -q 'nicht konfiguriert'; then
   zeile "Stallwache" "SCHLAEFT" "weder Fernzugriff (STALLWACHE_FERN_*) noch Tuya eingerichtet"
 elif echo "$A" | grep -q 'fehler'; then
-  zeile "Stallwache" "DEFEKT" "$(echo "$A" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("fehler","?")[:60])' 2>/dev/null || echo 'unlesbar')"
+  # Bis 90 Zeichen: die Meldung nennt die Ursache (lib/fern.ts, z. B. ENOTFOUND).
+  zeile "Stallwache" "DEFEKT" "$(echo "$A" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("fehler","?")[:90])' 2>/dev/null || echo 'unlesbar')"
 else
   zeile "Stallwache" "UNKLAR" "HTTP $C, keine verwertbare Antwort"
 fi

@@ -92,6 +92,50 @@ export function schreibeManifestUm(text: string, manifestUrl: string): string {
     .join("\n");
 }
 
+/** Fehlercode -> Art des Scheiterns (Reihenfolge = Prioritaet). */
+const FEHLERARTEN: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^(ENOTFOUND|EAI_AGAIN|EAI_NONAME|EAI_NODATA)$/, "Name nicht auflösbar"],
+  [/^(ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|UND_ERR_HEADERS_TIMEOUT|UND_ERR_BODY_TIMEOUT)$/, "Zeitüberschreitung"],
+  [/^ECONNREFUSED$/, "Verbindung abgelehnt"],
+  [/^(ECONNRESET|EPIPE|UND_ERR_SOCKET)$/, "Verbindung abgebrochen"],
+  [/^(EHOSTUNREACH|ENETUNREACH|EHOSTDOWN|ENETDOWN)$/, "Netz nicht erreichbar"],
+  [/^(CERT_|ERR_TLS_|ERR_SSL_|UNABLE_TO_|DEPTH_ZERO_SELF_SIGNED_CERT$|SELF_SIGNED_CERT_IN_CHAIN$)/, "TLS-Fehler"],
+];
+
+/**
+ * Benennt, woran ein Abruf am Stall-Rechner vor jeder HTTP-Antwort gescheitert
+ * ist (fetch wirft). Ohne diese Angabe sahen ein fehlender DNS-Eintrag des
+ * Funnels, ein Reset und eine Zeitueberschreitung gleich aus
+ * (docs/fernzugriff-spezifikation.md §5).
+ *
+ * Gibt nur feste Texte und Fehlercodes weiter, nie die Fehlermeldung selbst –
+ * die enthaelt Hostname bzw. IP des Stall-Rechners.
+ */
+export function fernFehlerUrsache(fehler: unknown): string {
+  const codes: string[] = [];
+  let zeitueberschreitung = false;
+  const besuche = (e: unknown, tiefe: number): void => {
+    if (!e || typeof e !== "object" || tiefe > 3) return;
+    const { name, code, cause, errors } = e as {
+      name?: unknown;
+      code?: unknown;
+      cause?: unknown;
+      errors?: unknown;
+    };
+    // AbortSignal.timeout(): DOMException „TimeoutError" (code ist dort eine Zahl).
+    if (name === "TimeoutError") zeitueberschreitung = true;
+    if (typeof code === "string" && /^[A-Z0-9_]{2,40}$/.test(code)) codes.push(code);
+    if (Array.isArray(errors)) for (const x of errors) besuche(x, tiefe + 1);
+    besuche(cause, tiefe + 1);
+  };
+  besuche(fehler, 0);
+  if (zeitueberschreitung) return "Zeitüberschreitung";
+  const code = codes[0];
+  if (!code) return "Ursache unbekannt";
+  const art = FEHLERARTEN.find(([muster]) => muster.test(code))?.[1] ?? "unbekannt";
+  return `${art} (${code})`;
+}
+
 /** Ergebnis eines Abrufs am Stall-Rechner. */
 export type FernAntwort =
   | { ok: true; antwort: Response }
@@ -122,7 +166,9 @@ export async function fernAbruf(
       return { ok: false, status: 502, fehler: `Stall-Rechner antwortet mit ${antwort.status}` };
     }
     return { ok: true, antwort };
-  } catch {
-    return { ok: false, status: 502, fehler: "Stall-Rechner nicht erreichbar" };
+  } catch (e) {
+    const ursache = fernFehlerUrsache(e);
+    console.error(`Fernzugriff (${pfad}) gescheitert:`, ursache);
+    return { ok: false, status: 502, fehler: `Stall-Rechner nicht erreichbar – ${ursache}` };
   }
 }
