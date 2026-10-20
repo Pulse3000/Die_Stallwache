@@ -92,15 +92,26 @@ export function schreibeManifestUm(text: string, manifestUrl: string): string {
     .join("\n");
 }
 
-/** Fehlercode -> Art des Scheiterns (Reihenfolge = Prioritaet). */
+/**
+ * Fehlercode -> Art des Scheiterns. Die Reihenfolge ist die Prioritaet, wenn
+ * ein Fehler mehrere Codes traegt (Happy Eyeballs: je Adresse ein Versuch,
+ * AggregateError): Was am weitesten kam, erklaert am meisten. Ein IPv6-Fehler
+ * an der ersten Adresse darf die Ursache an der IPv4-Adresse nicht verdecken.
+ */
 const FEHLERARTEN: ReadonlyArray<readonly [RegExp, string]> = [
-  [/^(ENOTFOUND|EAI_AGAIN|EAI_NONAME|EAI_NODATA)$/, "Name nicht auflösbar"],
-  [/^(ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|UND_ERR_HEADERS_TIMEOUT|UND_ERR_BODY_TIMEOUT)$/, "Zeitüberschreitung"],
-  [/^ECONNREFUSED$/, "Verbindung abgelehnt"],
-  [/^(ECONNRESET|EPIPE|UND_ERR_SOCKET)$/, "Verbindung abgebrochen"],
-  [/^(EHOSTUNREACH|ENETUNREACH|EHOSTDOWN|ENETDOWN)$/, "Netz nicht erreichbar"],
   [/^(CERT_|ERR_TLS_|ERR_SSL_|UNABLE_TO_|DEPTH_ZERO_SELF_SIGNED_CERT$|SELF_SIGNED_CERT_IN_CHAIN$)/, "TLS-Fehler"],
+  [/^(ECONNRESET|EPIPE|UND_ERR_SOCKET)$/, "Verbindung abgebrochen"],
+  [/^ECONNREFUSED$/, "Verbindung abgelehnt"],
+  [/^(ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|UND_ERR_HEADERS_TIMEOUT|UND_ERR_BODY_TIMEOUT)$/, "Zeitüberschreitung"],
+  // Node bildet EAI_NONAME/EAI_NODATA auf ENOTFOUND ab; EAI_FAIL = SERVFAIL.
+  [/^(ENOTFOUND|EAI_AGAIN|EAI_FAIL)$/, "Name nicht auflösbar"],
+  [/^(EHOSTUNREACH|ENETUNREACH|EHOSTDOWN|ENETDOWN|EAFNOSUPPORT)$/, "Netz nicht erreichbar"],
 ];
+
+const rang = (code: string): number => {
+  const i = FEHLERARTEN.findIndex(([muster]) => muster.test(code));
+  return i === -1 ? FEHLERARTEN.length : i;
+};
 
 /**
  * Benennt, woran ein Abruf am Stall-Rechner vor jeder HTTP-Antwort gescheitert
@@ -124,15 +135,16 @@ export function fernFehlerUrsache(fehler: unknown): string {
     };
     // AbortSignal.timeout(): DOMException „TimeoutError" (code ist dort eine Zahl).
     if (name === "TimeoutError") zeitueberschreitung = true;
-    if (typeof code === "string" && /^[A-Z0-9_]{2,40}$/.test(code)) codes.push(code);
+    if (typeof code === "string" && /^[A-Z0-9_]{2,64}$/.test(code)) codes.push(code);
     if (Array.isArray(errors)) for (const x of errors) besuche(x, tiefe + 1);
     besuche(cause, tiefe + 1);
   };
   besuche(fehler, 0);
   if (zeitueberschreitung) return "Zeitüberschreitung";
-  const code = codes[0];
-  if (!code) return "Ursache unbekannt";
-  const art = FEHLERARTEN.find(([muster]) => muster.test(code))?.[1] ?? "unbekannt";
+  if (!codes.length) return "Ursache unbekannt";
+  // Stabil sortiert: bei gleichem Rang bleibt der zuerst gefundene Code vorn.
+  const code = [...codes].sort((a, b) => rang(a) - rang(b))[0];
+  const art = FEHLERARTEN[rang(code)]?.[1] ?? "unbekannt";
   return `${art} (${code})`;
 }
 

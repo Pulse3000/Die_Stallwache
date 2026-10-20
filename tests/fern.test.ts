@@ -128,9 +128,34 @@ test("Fehlerursache: DNS, Abweisung, Reset, TLS und Zeitueberschreitung", () => 
     fernFehlerUrsache(new DOMException("The operation was aborted due to timeout", "TimeoutError")),
     "Zeitüberschreitung",
   );
-  // Happy Eyeballs: mehrere Adressen -> AggregateError in cause.
-  const sammel = Object.assign(new AggregateError([Object.assign(new Error("x"), { code: "ENETUNREACH" })]), {});
-  assert.equal(fernFehlerUrsache(new TypeError("fetch failed", { cause: sammel })), "Netz nicht erreichbar (ENETUNREACH)");
+  assert.equal(fernFehlerUrsache(fetchFehler("EAI_FAIL", "queryA EAI_FAIL")), "Name nicht auflösbar (EAI_FAIL)");
+  assert.equal(
+    fernFehlerUrsache(fetchFehler("ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED", "x")),
+    "TLS-Fehler (ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED)",
+  );
+});
+
+test("Fehlerursache bei mehreren Adressen: der aussagekraeftigste Code gewinnt", () => {
+  // Happy Eyeballs (Node 22, autoSelectFamily): AggregateError mit code des
+  // ersten Versuchs und allen Einzelfehlern – nachgestellt mit net.connect.
+  const sammel = (...codes: string[]) =>
+    new TypeError("fetch failed", {
+      cause: Object.assign(
+        new AggregateError(codes.map((code) => Object.assign(new Error("x"), { code }))),
+        { code: codes[0] },
+      ),
+    });
+  assert.equal(fernFehlerUrsache(sammel("ETIMEDOUT", "ECONNREFUSED")), "Verbindung abgelehnt (ECONNREFUSED)");
+  assert.equal(fernFehlerUrsache(sammel("EAFNOSUPPORT", "ECONNREFUSED")), "Verbindung abgelehnt (ECONNREFUSED)");
+  assert.equal(fernFehlerUrsache(sammel("ENETUNREACH", "ETIMEDOUT")), "Zeitüberschreitung (ETIMEDOUT)");
+  assert.equal(fernFehlerUrsache(sammel("ENETUNREACH")), "Netz nicht erreichbar (ENETUNREACH)");
+  assert.equal(fernFehlerUrsache(sammel("EIRGENDWAS", "EHOSTUNREACH")), "Netz nicht erreichbar (EHOSTUNREACH)");
+});
+
+test("Fehlerursache endet bei zyklischer cause-Kette", () => {
+  const a: Error & { cause?: unknown; code?: string } = Object.assign(new Error("a"), { code: "ECONNRESET" });
+  a.cause = new TypeError("fetch failed", { cause: a });
+  assert.equal(fernFehlerUrsache(a), "Verbindung abgebrochen (ECONNRESET)");
 });
 
 test("Fehlerursache gibt nie Meldungstext, Host oder fremde Codes weiter", () => {
