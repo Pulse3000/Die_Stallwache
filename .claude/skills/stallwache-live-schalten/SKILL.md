@@ -68,11 +68,26 @@ und die Kachel bleibt beim Wartehinweis.
 curl -s -o /dev/null -w "%{http_code}\n" "https://GERAET.TAILNET.ts.net:8443/api/stream.m3u8"
 ```
 
-Erwartet: `403`. Bricht die Verbindung ab (`000`, Reset beim TLS-Aufbau),
-ist der Funnel gestört. Dann **nicht weitermachen**. Der Betreiber prüft am
-Stall-Rechner `tailscale funnel status`, `systemctl status stallwache-fern`,
-`docker ps` (go2rtc) und in der Tailscale-Verwaltung HTTPS-Zertifikate sowie
-`nodeAttrs` „funnel“. Den Token-Test mit `200` macht nur der Betreiber
+Erwartet: `403`. **Aus einer Claude-Cloud-Sitzung sagt ein Abbruch nichts:**
+Der ausgehende Proxy dort liefert `000` („connection reset“) auch für einen
+frei erfundenen ts.net-Namen; nur ein `403` wäre ein Beleg. Von dort zuerst
+die öffentliche DNS-Auflösung prüfen:
+
+```bash
+curl -s "https://dns.google/resolve?name=GERAET.TAILNET.ts.net&type=A"   # "Status":3 = NXDOMAIN
+```
+
+`"Status":3` (NXDOMAIN) heißt: Tailscale führt unter diesem Namen keinen
+aktiven Funnel. Entweder ist der Funnel am Gerät bzw. in der
+Tailscale-Verwaltung gestört, oder der Name in `STALLWACHE_FERN_URL` stimmt
+nicht mehr mit dem Gerät überein. Der Fehler liegt dann nicht in der App.
+Dasselbe gilt, wenn der 403-Test von einem normalen Anschluss abbricht.
+Dann **nicht weitermachen**. Der Betreiber arbeitet die Klärung am Gerät aus
+`docs/fernzugriff-spezifikation.md` §5.2 in der dort genannten Reihenfolge
+ab: Zustand und Name lesen → `tailscaled` neu starten → Funnel zurücksetzen
+und neu einrichten. Die eingeloggte App nennt die Ursache in ihrer Fehlermeldung,
+z. B. „Stall-Rechner nicht erreichbar – Name nicht auflösbar (ENOTFOUND)“.
+Den Token-Test mit `200` macht nur der Betreiber
 (`fern-einrichten.sh` prüft ihn selbst), der Token gehört nicht in die Session.
 
 ### B2 — Env-Variablen setzen (Betreiber)

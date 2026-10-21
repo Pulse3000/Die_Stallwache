@@ -109,8 +109,13 @@ in Vercel entfernen (neu deployen) und `sudo tailscale funnel --https=8443 off`.
 **Prüfen von außen** (Handy über Mobilfunk, Tailscale aus):
 `https://<gerät>.<tailnet>.ts.net:8443/api/stream.m3u8` muss **403** liefern.
 Dann arbeitet der Funnel, und der Proxy sperrt Anfragen ohne Token. Lädt die
-Seite gar nicht, ist der Funnel gestört: In der Tailscale-Verwaltung HTTPS-Zertifikate und
-`nodeAttrs` „funnel“ prüfen.
+Seite gar nicht, ist der Funnel gestört. Dann prüfen:
+- `tailscale status` (Gerät verbunden, Key nicht abgelaufen),
+- in der Tailscale-Verwaltung HTTPS-Zertifikate und `nodeAttrs` „funnel“,
+- ob der Name öffentlich auflöst (`nslookup <gerät>.<tailnet>.ts.net 1.1.1.1`).
+
+`tailscale funnel status` allein reicht nicht: Es zeigt nur die lokale
+Einstellung. Reihenfolge und Hintergrund: `docs/fernzugriff-spezifikation.md` §5.2.
 
 ## Umstieg von Cloudflare (ältere Installationen)
 

@@ -1,6 +1,6 @@
 # Fernzugriff: Tailscale statt Cloudflare
 
-Stand: 15.10.2026 · Entscheidung des Betreibers: „remove cloudflare, change to
+Stand: 15.10.2026, §5.2/5.3 am 20.10.2026 · Entscheidung des Betreibers: „remove cloudflare, change to
 tailscale". Das Dokument legt fest, wie das Livebild der Stallwache von
 außerhalb des Stall-LANs erreichbar ist. Die Tuya-Kameras (Futterwache,
 Abkalbebox, Weidewache) laufen über die Tuya-Cloud und sind davon nicht
@@ -106,8 +106,16 @@ Am realen Gerät (Beweispflicht, Betreiber + Orchestrator):
 ## 5. Risiken
 
 1. **Ein einziger Weg.** Fällt der Funnel aus, gibt es von außen kein Livebild der Stallwache. Das wird bewusst in Kauf genommen: Ein zweiter Weg wäre eine zweite Angriffsfläche. Die Alarmkette hängt nicht daran.
-2. **Funnel ist aktuell gestört (offen).** Seit dem 14.10.2026, 05:57, erreicht keine Anfrage von außen mehr den Proxy. Ein Test von außen bricht beim TLS-Aufbau ab („connection reset“), obwohl `tailscale funnel status` den Funnel als eingeschaltet meldet. Die Ursache wird am Gerät geklärt: Freigaben in der Tailscale-Verwaltung, `tailscaled`-Log.
-3. **Diagnose.** `lib/fern.ts` verwirft die Fehlerursache (DNS, TLS, Reset). Man sieht nur „Stall-Rechner nicht erreichbar“. Eine bessere Meldung ist ein eigener, kleiner Folgeschritt.
+2. **Funnel von außen nicht erreichbar (offen, Befund 19.10.2026).**
+   - **Befund:** Der öffentliche Name `stallwache-lela.<tailnet>.ts.net` existiert im DNS nicht (NXDOMAIN bei Google und Cloudflare). Die Webapp scheitert deshalb sofort (≈ 0,2 s, kein Timeout) mit „Stall-Rechner nicht erreichbar“. `tailscale funnel status` meldet trotzdem „on“, weil es nur die lokale Konfiguration liest. Den öffentlichen Eintrag legt Tailscale erst an, wenn sein Kontrollserver das Gerät als aktiven Funnel führt.
+   - **Nie nachweislich erreichbar:** Bei der Einrichtung am 14.10.2026 um 05:57 (MESZ) meldete `fern-einrichten.sh` den Funnel als eingerichtet, der Selbsttest schlug aber fehl (`HLS=502`: go2rtc war für den Proxy nicht erreichbar oder antwortete nicht binnen 20 s). Kriterium 5 ist nie erfüllt worden. „05:57“ ist der Einrichtungszeitpunkt, kein Ausfallzeitpunkt.
+   - **Messartefakt:** Der frühere Befund „Reset beim TLS-Aufbau“ stammt aus einer Claude-Cloud-Sitzung. Deren ausgehender Proxy liefert denselben Abbruch auch für einen frei erfundenen ts.net-Namen (nachgestellt am 19.10.2026). Ein Abbruch ist von dort also nicht aussagekräftig, nur ein 403 wäre ein Beleg. Aussagekräftig ist die DNS-Abfrage, z. B. `https://dns.google/resolve?name=<gerät>.<tailnet>.ts.net&type=A` (`"Status":3` = NXDOMAIN). Der Test auf 403 läuft über Mobilfunk ohne Tailscale.
+   - **Klärung am Gerät, in dieser Reihenfolge:**
+     1. `tailscale status --json` lesen: `BackendState` muss `Running` sein, `Self.Online` true, `Self.Expired` false, und `Self.CapMap` muss `funnel` und `https` enthalten. Sonst neu anmelden bzw. die Freigaben in der Tailscale-Verwaltung nachtragen. Außerdem muss `Self.DNSName` (ohne Punkt am Ende) genau dem Host in `STALLWACHE_FERN_URL` (Vercel) entsprechen. Nach einer Umbenennung oder Neuanmeldung (z. B. `stallwache-lela-1`) liefert der alte Name NXDOMAIN, obwohl der Funnel unter dem neuen arbeiten kann. Dann `fern-einrichten.sh` erneut ausführen und die URL in Vercel ersetzen.
+     2. Ist alles gesund: `sudo systemctl restart tailscaled`. Kandidat ist der offene Tailscale-Fehler tailscale/tailscale#21114 (Funnel-Registrierung geht nach einem Reconnect zum Kontrollserver verloren, gemeldet für 1.102.3–1.104.1).
+     3. Hilft das nicht: `sudo tailscale funnel reset`, danach `fern-einrichten.sh` erneut ausführen. Der Selbsttest muss `HLS=200` zeigen. Vorbedingung: Proxy und go2rtc laufen (`systemctl status stallwache-fern`, `docker ps`).
+   - **Nachweis:** Der Name löst öffentlich auf, und Kriterium 5 liefert 403.
+3. **Diagnose (erledigt 20.10.2026).** `lib/fern.ts` nennt die Ursache eines gescheiterten Abrufs in der Fehlermeldung und im Vercel-Log, z. B. „Stall-Rechner nicht erreichbar – Name nicht auflösbar (ENOTFOUND)“. Unterschieden werden DNS, Zeitüberschreitung, abgelehnte bzw. abgebrochene Verbindung, Netz und TLS. Weitergegeben werden nur feste Texte und Fehlercodes, nie Hostname, IP oder Token. Die Oberfläche wertet weiter nur den Status 502 aus.
 4. **Funnel-Kontingente** (Bandbreite, Ports 443/8443/10000) setzt Tailscale. Für einen SD-HLS-Stream mit einem Zuschauer ist das unkritisch.
 5. **go2rtc-Login nur wirksam, wenn gesetzt.** Bleiben `GO2RTC_API_USER`/`GO2RTC_API_PASS` leer, ist die API ohne Login (§1.2). Der Bereitschafts-Check kann das von außen nicht sehen. Kriterium 9 prüft es am Gerät.
 6. **Status der Vorschau-Kacheln** (erledigt mit #82): Ohne Bridge meldet eine ungeprüfte Vorschau „Ungeprüft“ statt „Lädt“ oder eines übernommenen „Online“, und der Kopf zeigt kein „0 von 3 Kameras online“ mehr, solange die Kameras senden. Regel: [`vorschau-status-spezifikation.md`](./vorschau-status-spezifikation.md).
