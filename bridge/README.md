@@ -98,8 +98,13 @@ cd ~/Die_Stallwache/bridge && bash fern-einrichten.sh
 ```
 
 Das Skript startet den Proxy als Dienst, schaltet `tailscale funnel` auf Port
-8443 nur für den Proxy, prüft 403/404/200 und gibt drei Werte für Vercel aus
-(`STALLWACHE_FERN_URL`, `STALLWACHE_FERN_TOKEN`, `NEXT_PUBLIC_STALLWACHE_FERN=1`).
+8443 nur für den Proxy und gibt drei Werte für Vercel aus
+(`STALLWACHE_FERN_URL` **mit `:8443`**, `STALLWACHE_FERN_TOKEN`, `NEXT_PUBLIC_STALLWACHE_FERN=1`).
+Der Selbsttest prüft:
+- ohne Schlüssel 403,
+- go2rtc-API 404,
+- ein HLS-Manifest von der Kamera (`HLS=200-leer` heißt: `TAPO_IP` oder Kamerakonto in `.env` stimmt nicht),
+- HTTPS über den Tailscale-Namen (`HTTPS=000` heißt: HTTPS-Zertifikate in der Tailscale-Verwaltung einschalten).
 Danach in Vercel eintragen und neu deployen. Voraussetzung: HTTPS und Funnel
 sind in der Tailscale-Verwaltung für das Gerät erlaubt.
 

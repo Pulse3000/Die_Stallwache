@@ -16,7 +16,7 @@ Es gibt **zwei** Wege ans Livebild. Der Betreiber sagt, welcher vorliegt:
 
 | | **A — Tuya-Cloud** (kein Gerät im Stall) | **B — Fernzugriff** (go2rtc im Stall-LAN, Tailscale Funnel) |
 | --- | --- | --- |
-| Voraussetzung | Kamera hängt im Tuya-Projekt, Device ID liegt vor | Stall-Rechner mit go2rtc, `bash bridge/fern-einrichten.sh` gelaufen |
+| Voraussetzung | Kamera hängt im Tuya-Projekt, Device ID liegt vor | Stall-Rechner mit go2rtc, HTTPS-Zertifikate im Tailnet eingeschaltet, `bash bridge/fern-einrichten.sh` mit vollständig grünem Selbsttest (inkl. `HLS=200` mit Manifest und `HTTPS=403`) |
 | Zu setzen | `TUYA_DEVICE_ID_STALLWACHE` **und** `NEXT_PUBLIC_STALLWACHE_TUYA=1` | `STALLWACHE_FERN_URL`, `STALLWACHE_FERN_TOKEN`, `NEXT_PUBLIC_STALLWACHE_FERN=1` |
 | Hardware | keine | Mini-PC / Raspberry Pi im Stall-LAN |
 
@@ -83,17 +83,20 @@ Tailscale-Verwaltung gestört, oder der Name in `STALLWACHE_FERN_URL` stimmt
 nicht mehr mit dem Gerät überein. Der Fehler liegt dann nicht in der App.
 Dasselbe gilt, wenn der 403-Test von einem normalen Anschluss abbricht.
 Dann **nicht weitermachen**. Der Betreiber arbeitet die Klärung am Gerät aus
-`docs/fernzugriff-spezifikation.md` §5.2 in der dort genannten Reihenfolge
-ab: Zustand und Name lesen → `tailscaled` neu starten → Funnel zurücksetzen
-und neu einrichten. Die eingeloggte App nennt die Ursache in ihrer Fehlermeldung,
-z. B. „Stall-Rechner nicht erreichbar – Name nicht auflösbar (ENOTFOUND)“.
+`docs/fernzugriff-spezifikation.md` §5.2 („Klärung bei einem erneuten
+Ausfall“) ab. Erster Schritt ist die Fehlermeldung der eingeloggten App, sie
+grenzt die Ursache ein:
+- `ENOTFOUND`: Name bzw. Funnel-Registrierung
+- `ECONNRESET`: `:8443` fehlt in der URL oder HTTPS-Zertifikate sind aus
+- „antwortet mit 403“: Schlüssel passt nicht
+- Status 200, aber leeres Manifest: Kamera bzw. `TAPO_IP`
 Den Token-Test mit `200` macht nur der Betreiber
 (`fern-einrichten.sh` prüft ihn selbst), der Token gehört nicht in die Session.
 
 ### B2 — Env-Variablen setzen (Betreiber)
 
 ```bash
-vercel env add STALLWACHE_FERN_URL production           # https://GERAET.TAILNET.ts.net:8443
+vercel env add STALLWACHE_FERN_URL production           # https://GERAET.TAILNET.ts.net:8443 – MIT Port, sonst ECONNRESET
 vercel env add STALLWACHE_FERN_TOKEN production         # Ausgabe von fern-einrichten.sh (geheim)
 vercel env add NEXT_PUBLIC_STALLWACHE_FERN production   # Wert: 1
 ```
