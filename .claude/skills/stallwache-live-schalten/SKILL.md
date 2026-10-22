@@ -16,7 +16,7 @@ Es gibt **zwei** Wege ans Livebild. Der Betreiber sagt, welcher vorliegt:
 
 | | **A — Tuya-Cloud** (kein Gerät im Stall) | **B — Fernzugriff** (go2rtc im Stall-LAN, Tailscale Funnel) |
 | --- | --- | --- |
-| Voraussetzung | Kamera hängt im Tuya-Projekt, Device ID liegt vor | Stall-Rechner mit go2rtc, HTTPS-Zertifikate im Tailnet eingeschaltet, `bash bridge/fern-einrichten.sh` mit vollständig grünem Selbsttest (inkl. `HLS=200` mit Manifest und `HTTPS=403`) |
+| Voraussetzung | Kamera hängt im Tuya-Projekt, Device ID liegt vor | Stall-Rechner mit go2rtc, HTTPS-Zertifikate im Tailnet eingeschaltet, `bash bridge/fern-einrichten.sh` mit vollständig grünem Selbsttest (inkl. `HLS=200` mit Manifest, `HTTPS=403` und `oeffentlicher Name=ja`) |
 | Zu setzen | `TUYA_DEVICE_ID_STALLWACHE` **und** `NEXT_PUBLIC_STALLWACHE_TUYA=1` | `STALLWACHE_FERN_URL`, `STALLWACHE_FERN_TOKEN`, `NEXT_PUBLIC_STALLWACHE_FERN=1` |
 | Hardware | keine | Mini-PC / Raspberry Pi im Stall-LAN |
 
@@ -89,7 +89,7 @@ grenzt die Ursache ein:
 - `ENOTFOUND`: Name bzw. Funnel-Registrierung
 - `ECONNRESET`: `:8443` fehlt in der URL oder HTTPS-Zertifikate sind aus
 - „antwortet mit 403“: Schlüssel passt nicht
-- Status 200, aber leeres Manifest: Kamera bzw. `TAPO_IP`
+- keine Meldung, `/api/stallwache/stream` liefert 200, aber die Kachel bleibt ohne Bild: Kamera bzw. `TAPO_IP` (Selbsttest zeigt `HLS=200-leer`)
 Den Token-Test mit `200` macht nur der Betreiber
 (`fern-einrichten.sh` prüft ihn selbst), der Token gehört nicht in die Session.
 

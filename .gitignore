@@ -20,3 +20,8 @@ edge-agent/aufnahmen/
 
 # Eingestellte Termux-Bridge: alte Binaries/Logs auf Bestandsgeraeten ignorieren
 bridge/termux/
+
+# Zertifikate/Schluessel (z. B. `tailscale cert` im Repo-Ordner) nie einchecken
+*.key
+*.crt
+*.pem
