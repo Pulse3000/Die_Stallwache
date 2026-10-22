@@ -104,7 +104,10 @@ Der Selbsttest prüft:
 - ohne Schlüssel 403,
 - go2rtc-API 404,
 - ein HLS-Manifest von der Kamera (`HLS=200-leer` heißt: `TAPO_IP` oder Kamerakonto in `.env` stimmt nicht),
-- HTTPS über den Tailscale-Namen (`HTTPS=000` heißt: HTTPS-Zertifikate in der Tailscale-Verwaltung einschalten).
+- HTTPS am Gerät (`HTTPS=000` mit Hinweis je nach Ursache, z. B. HTTPS-Zertifikate in der Tailscale-Verwaltung einschalten),
+- ob der Name öffentlich auflöst (`oeffentlicher Name=nein`: Funnel beim Tailscale-Kontrollserver nicht registriert).
+
+`HTTPS=403` belegt nur Zertifikat und Proxy am Gerät. Den Weg von außen belegt erst der Test über Mobilfunk (siehe unten).
 Danach in Vercel eintragen und neu deployen. Voraussetzung: HTTPS und Funnel
 sind in der Tailscale-Verwaltung für das Gerät erlaubt.
 

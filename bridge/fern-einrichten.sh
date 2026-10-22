@@ -10,7 +10,7 @@
 #   3. gibt NUR diesen Proxy per `tailscale funnel` auf Port 8443 frei –
 #      go2rtc selbst bleibt im Tailnet,
 #   4. prueft: ohne Schluessel 403, go2rtc-API 404, HLS liefert ein
-#      Manifest, HTTPS ueber den Tailscale-Namen antwortet,
+#      Manifest, HTTPS am Geraet antwortet, Name ist oeffentlich aufloesbar,
 #   5. gibt die drei Werte fuer Vercel aus.
 #
 # Voraussetzung: In der Tailscale-Verwaltung sind HTTPS-Zertifikate (DNS ->
@@ -82,17 +82,47 @@ trap 'rm -f "$MANIFEST"' EXIT
 C="$(curl -s -o "$MANIFEST" -w '%{http_code}' --max-time 20 -H "x-stallwache-token: $TOKEN" "http://127.0.0.1:$FERN_PORT/api/stream.m3u8" || true)"
 if [ "$C" = 200 ] && ! head -c 7 "$MANIFEST" | grep -q '#EXTM3U'; then C="200-leer"; fi
 
-DNS="$(tailscale status --json | python3 -c 'import sys,json; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
-# HTTPS ueber den Tailscale-Namen, wie die Webapp ihn ruft (ohne Schluessel:
-# 403 vom Proxy). "000" = TLS scheitert, meist HTTPS-Zertifikate nicht erlaubt.
-D="$(code --max-time 30 "https://$DNS:$FUNNEL_PORT/api/stream.m3u8")"
+# Fehler hier duerfen die Ausgabe von A/B/C nicht verschlucken (leerer Name
+# wird unten gemeldet statt mit Python-Traceback abzubrechen).
+DNS="$(tailscale status --json 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' 2>/dev/null || true)"
 
-echo "Selbsttest: ohne Schluessel=$A (soll 403) · go2rtc-API=$B (soll 404) · HLS=$C (soll 200) · HTTPS=$D (soll 403)"
+# HTTPS am Geraet ueber den Tailscale-Namen (ohne Schluessel: 403 vom Proxy).
+# Belegt Zertifikat und Serve-Konfiguration. NICHT den Weg von aussen: Mit
+# MagicDNS (Linux-Standard) geht der Abruf direkt an die 100.x-Adresse statt
+# ueber das Funnel-Relay. Den Weg von aussen belegt erst Kriterium 5
+# (Mobilfunk ohne Tailscale) bzw. die App.
+D="kein-Name"; D_RC=0
+if [ -n "$DNS" ]; then
+  D="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://$DNS:$FUNNEL_PORT/api/stream.m3u8")" || D_RC=$?
+fi
+
+# Oeffentlicher DNS-Eintrag: Tailscale legt ihn erst an, wenn der Funnel beim
+# Kontrollserver registriert ist (Befund 19.10.: NXDOMAIN trotz "Funnel on").
+# Nach dem ersten Einrichten kann das einige Minuten dauern -> nur Warnung.
+E="?"
+if [ -n "$DNS" ]; then
+  E="$(curl -s --max-time 10 "https://dns.google/resolve?name=$DNS&type=A" \
+    | python3 -c 'import sys,json; print("ja" if json.load(sys.stdin).get("Status") == 0 else "nein")' 2>/dev/null || echo "?")"
+fi
+
+echo "Selbsttest: ohne Schluessel=$A (soll 403) · go2rtc-API=$B (soll 404) · HLS=$C (soll 200) · HTTPS=$D (soll 403) · oeffentlicher Name=$E (soll ja)"
 if [ "$C" = "200-leer" ]; then
   echo "go2rtc liefert kein Bild: TAPO_IP und Kamerakonto in bridge/.env pruefen (docker logs stallwache-go2rtc)." >&2
 fi
-if [ "$D" = 000 ]; then
-  echo "HTTPS scheitert: in der Tailscale-Verwaltung DNS -> HTTPS Certificates einschalten, dann 'sudo tailscale cert $DNS'." >&2
+if [ "$D" = "kein-Name" ]; then
+  echo "Tailscale-Name nicht ermittelbar: 'tailscale status' pruefen (angemeldet, MagicDNS an?)." >&2
+elif [ "$D" != 403 ]; then
+  # curl-Fehlercode statt Raten: 6 = Name, 28 = Zeit, 35/60 = TLS/Zertifikat.
+  case "$D_RC" in
+    6)     echo "HTTPS: Name $DNS nicht aufloesbar (curl 6)." >&2 ;;
+    28)    echo "HTTPS: Zeitueberschreitung (curl 28) – beim ersten Lauf holt Tailscale das Zertifikat erst; Skript in 1–2 min erneut ausfuehren." >&2 ;;
+    35|60) echo "HTTPS: TLS scheitert (curl $D_RC) – in der Tailscale-Verwaltung DNS -> HTTPS Certificates einschalten, dann Skript erneut ausfuehren." >&2 ;;
+    0)     echo "HTTPS: unerwartete Antwort $D (soll 403 vom Proxy)." >&2 ;;
+    *)     echo "HTTPS scheitert (curl $D_RC)." >&2 ;;
+  esac
+fi
+if [ "$E" = "nein" ]; then
+  echo "Warnung: $DNS ist oeffentlich (noch) nicht aufloesbar – der Funnel ist beim Tailscale-Kontrollserver nicht registriert. Nach dem ersten Einrichten bis zu 10 min warten; bleibt es so: 'sudo tailscale funnel reset' und Skript erneut (docs/fernzugriff-spezifikation.md §5.2)." >&2
 fi
 [ "$A" = 403 ] && [ "$B" = 404 ] && [ "$C" = 200 ] && [ "$D" = 403 ] || { echo "Selbsttest fehlgeschlagen." >&2; exit 1; }
 cat <<EOF
