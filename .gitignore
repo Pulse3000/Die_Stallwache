@@ -25,3 +25,5 @@ bridge/termux/
 *.key
 *.crt
 *.pem
+edge-agent/daten/
+edge-agent/wheels/*.whl

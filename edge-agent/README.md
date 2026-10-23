@@ -57,6 +57,32 @@ cp config.example.yaml config.yaml
 python3 main.py
 ```
 
+### Als Container (Stall-Rechner, z. B. stallwache-lela)
+
+Der Edge-Agent ist der **einzige** Agent im Stall. kuhwatch ist in ihm
+aufgegangen (`docs/ein-edge-agent-spezifikation.md`). Das Image pinnt die
+Pakete, die auf der alten AMD A6-3650 (ohne AVX) erprobt sind:
+
+```bash
+cd edge-agent
+mkdir -p daten/stallwache && cp config.example.yaml daten/stallwache/config.yaml
+#  -> Werte wie oben eintragen; tracker: /app/tracker-kuh.yaml
+docker compose up -d --build                 # Silent Mode
+ANALYSE=1 docker compose up -d --build       # erst mit eigenem Modell
+KAMERA=futterwache docker compose -p futterwache up -d   # weitere Kamera
+```
+
+Auf einer CPU ohne AVX schaltet `modell.alte_cpu: auto` die nötigen
+Ausweichwege ein (oneDNN aus, NumPy-NMS). Ein `.onnx`-Modell läuft dort über
+onnxruntime. Offline-Wheels für die alte CPU gehören nach `wheels/`. Der
+Temperaturwächter (`deploy/tempguard/`) pausiert den Agenten bei 85 °C.
+
+**Umstieg von kuhwatch** in einem Befehl: `bash edge-agent/deploy/umstieg-von-kuhwatch.sh`.
+Das Skript übernimmt Kamera und Telegram aus `kuhwatch/.env` und stoppt
+kuhwatch, ohne es zu löschen. Danach startet es den Agenten im Silent Mode und
+stellt den Temperaturwächter um. Mit `--trocken` zeigt es nur, was passieren
+würde; den Rückweg nennt es am Ende.
+
 Ohne Modell (`modell.pfad` leer) startet der Agent im **Silent Mode** und
 sammelt alle 2 Minuten ein Trainingsbild in `./aufnahmen` – genau das
 Material, das für Phase „Datensammlung" gebraucht wird.
@@ -145,7 +171,8 @@ Scharfschalten → Beobachten → wieder Sammeln.** Werkzeuge in `training/`.
    Kälberfüße, Schwanzwinkel-Abweichung
    < 10° (n ≥ 30) und Sichtbarkeit erhobener Schwänze ≥ 90 % (n ≥ 10)
    automatisch; Fehlalarm-Budget (24 h ereignisloses Material **mit 1 FPS**
-   aufgenommen, `stream.url` auf die Datei: 0 Austreibung, ≤ 1
+   aufgenommen, `stream.url` auf die Datei als **lokaler Dateipfad**, nicht
+   http/https – nur dann liest der Agent Bild für Bild: 0 Austreibung, ≤ 1
    Kalbeverdacht) und ≥ 1 FPS auf der Zielhardware von Hand:
 
    ```bash
@@ -224,7 +251,7 @@ python3 edge-agent/tests/alle_tests.py
   nächste Bild im OpenCV-Puffer, nach wenigen Minuten also Minuten Altes
   (`docs/bildfrische-spezifikation.md`). Ohne frisches Bild (> 5 s) gibt es
   keines. Verbindungsaufbau und Reconnect laufen im Greifer mit
-  exponentiellem Backoff (5 → 60 s). Die Analyseschleife wartet nie darauf.
+  exponentiellem Backoff (5 → 30 s). Die Analyseschleife wartet nie darauf.
   Meldet das Log „Bildgreifer … hinter dem Stream“, ist der Rechner zu
   langsam für den Stream: den Substream der Kamera bzw. von go2rtc
   eintragen. Eine Datei als `stream.url` wird weiter Bild für Bild gelesen.

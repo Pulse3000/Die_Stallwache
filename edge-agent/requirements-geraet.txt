@@ -1,0 +1,9 @@
+# Pakete fuer das Container-Image (Dockerfile), gepinnt auf die Versionen,
+# die auf stallwache-lela (AMD A6-3650, ohne AVX/SSE4.1) im Dauerbetrieb
+# liefen (kuhwatch). Neuere numpy-/OpenCV-Wheels koennen eine hoehere
+# SIMD-Basis voraussetzen. Dient beim Analyse-Build zugleich als Constraint.
+opencv-python-headless==4.10.0.84
+numpy>=1.26,<2
+requests>=2.31,<3
+PyYAML>=6.0,<7
+paho-mqtt>=2,<3

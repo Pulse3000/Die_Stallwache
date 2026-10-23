@@ -50,6 +50,7 @@ import yaml
 # (Docker) oder aus dem Testlader geladen wird.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from freeze_watchdog import FreezeWatchdog, baue_watchdog  # noqa: E402
+import alte_cpu  # noqa: E402
 
 log = logging.getLogger("stallblick-agent")
 
@@ -698,6 +699,24 @@ class InferenceEngine:
         self.cfg = cfg["modell"]
         self.kp = self.cfg["keypoints"]
         self.klassen = {int(v): k for k, v in self.cfg["klassen"].items()}
+        # Nur diese Klassen sind Tiere (Tracking, Schwanzwinkel, Brunst).
+        # Bisher galt jede Box als Kuh, die nicht Fruchtblase/Fuesse war: Mit
+        # einem allgemeinen Modell haette ein Mensch hinter einer Kuh einen
+        # Brunstverdacht ausgeloest (docs/ein-edge-agent-spezifikation.md, U2).
+        self.tier_klassen = set(self.cfg.get("tier_klassen") or ["kuh"])
+        # Klassenfilter fuer den Tracker: Tiere + Fruchtblase/Fuesse. Andere
+        # Boxen (Mensch, Fahrzeug) stehlen sonst Track-IDs. Unbekannte Namen
+        # -> kein Filter (Standardmodell: alle drei Klassen, also unveraendert).
+        bekannt = {k: v for v, k in self.klassen.items()}
+        filter_namen = self.tier_klassen | set(OBJEKT_KLASSEN)
+        self.klassen_filter: list[int] | None = sorted(
+            bekannt[n] for n in filter_namen if n in bekannt
+        ) or None
+        if not self.tier_klassen & set(bekannt):
+            log.warning(
+                "modell.tier_klassen %s kommt in modell.klassen nicht vor – "
+                "es wird keine Kuh erkannt.", sorted(self.tier_klassen),
+            )
         # Eigene Tracker-Konfiguration (z. B. tracker-kuh.yaml mit grossem
         # track_buffer fuer 1 FPS); leer -> Ultralytics-Default.
         self.tracker = (self.cfg.get("tracker") or "").strip() or "bytetrack.yaml"
@@ -709,6 +728,9 @@ class InferenceEngine:
         self._merke_traceback: float | None = None  # letzter voller Traceback
         pfad = (self.cfg.get("pfad") or "").strip()
         if pfad:
+            if alte_cpu.alte_cpu_aktiv(self.cfg.get("alte_cpu", "auto")):
+                # Vor dem ersten Import von ultralytics (U1).
+                log.info("Alte CPU ohne AVX: %s.", ", ".join(alte_cpu.aktiviere()))
             from ultralytics import YOLO  # Import nur bei Bedarf (Silent Mode braucht es nicht)
 
             log.info("Lade Modell %s (Tracker: %s) …", pfad, self.tracker)
@@ -760,7 +782,8 @@ class InferenceEngine:
         """Ein Frame -> getrackte Kuehe (mit Schwanzwinkel) + Spezialobjekte."""
         self._roh_objekte = None
         ergebnis = self.modell.track(
-            frame, persist=True, tracker=self.tracker, verbose=False
+            frame, persist=True, tracker=self.tracker, verbose=False,
+            classes=self.klassen_filter,
         )[0]
         roh = self._roh_objekte
 
@@ -780,6 +803,8 @@ class InferenceEngine:
             if name in OBJEKT_KLASSEN:
                 if roh is None:
                     objekte.append(ObjektErkennung(name, konf, box))
+                continue
+            if name not in self.tier_klassen:
                 continue
 
             track_id = int(boxen.id[i]) if boxen.id is not None else -1
