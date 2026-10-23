@@ -45,6 +45,11 @@ fi
 [ -n "$KUHWATCH" ] && [ -f "$KUHWATCH/.env" ] || fehler "kuhwatch/.env nicht gefunden (--kuhwatch <Pfad>)."
 command -v docker >/dev/null || fehler "docker fehlt."
 
+env_wert() {  # Wert aus kuhwatch/.env wie kuhwatch_env_nach_config.py: ohne CR,
+              # Leerraum und umschliessende Anfuehrungszeichen (Befund qa-waechter)
+  grep "^$1=" "$KUHWATCH/.env" | head -1 | cut -d= -f2- | tr -d '\r' \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
+}
 fuehre() {  # Befehl ausfuehren oder im Trockenlauf nur zeigen
   if [ "$TROCKEN" = "1" ]; then printf "   [trocken] %s\n" "$*"; else "$@"; fi
 }
@@ -68,7 +73,7 @@ if [ "$TROCKEN" = "0" ] && [ -f "$ZIEL/config.yaml" ]; then
 else
   info "Erzeuge config.yaml aus $KUHWATCH/.env:"
   docker run --rm --network none --user "$(id -u):$(id -g)" \
-    -e DASHBOARD_TOKEN="${DASHBOARD_TOKEN:-}" \
+    -e DASHBOARD_TOKEN \
     -v "$KUHWATCH/.env:/kuhwatch.env:ro" \
     -v "$HIER/deploy/kuhwatch_env_nach_config.py:/umstieg.py:ro" \
     -v "$ZIEL:/ziel" \
@@ -94,8 +99,8 @@ if [ "$TEMPGUARD" = "0" ]; then
   warn "Temperaturwaechter nicht angefasst (--ohne-tempguard)."
 elif command -v systemctl >/dev/null; then
   info "Stelle den Temperaturwaechter um (sudo) …"
-  TG_TOKEN=$(grep '^TELEGRAM_BOT_TOKEN=' "$KUHWATCH/.env" | head -1 | cut -d= -f2-)
-  TG_CHAT=$(grep '^TELEGRAM_CHAT_ID=' "$KUHWATCH/.env" | head -1 | cut -d= -f2-)
+  TG_TOKEN=$(env_wert TELEGRAM_BOT_TOKEN)
+  TG_CHAT=$(env_wert TELEGRAM_CHAT_ID)
   fuehre sudo install -m 755 "$HIER/deploy/tempguard/stallwache-tempguard.sh" /usr/local/bin/
   fuehre sudo install -m 644 "$HIER/deploy/tempguard/stallwache-tempguard.service" /etc/systemd/system/
   fuehre sudo install -d -m 700 /etc/stallwache

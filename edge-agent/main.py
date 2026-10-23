@@ -55,6 +55,42 @@ import alte_cpu  # noqa: E402
 log = logging.getLogger("stallblick-agent")
 
 
+class GeheimFilter(logging.Filter):
+    """Schwaerzt Geheimnisse (Telegram-Bot-Token) in jeder Logzeile des Agenten.
+
+    requests nennt in Fehlermeldungen die URL, bei Telegram samt Token
+    (/bot<TOKEN>/getUpdates) – solange Telegram nicht erreichbar ist, alle
+    10 s. Im Container bleibt das Log ueber `docker logs` lesbar (Befund
+    qa-waechter). Gilt auch fuer Tracebacks aus log.exception.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.geheim: set[str] = set()
+
+    def merke(self, wert: str) -> None:
+        if wert and len(wert) >= 8:
+            self.geheim.add(wert)
+
+    def _schwaerze(self, text: str) -> str:
+        for wert in self.geheim:
+            text = text.replace(wert, "***")
+        return text
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if self.geheim:
+            record.msg, record.args = self._schwaerze(record.getMessage()), None
+            if record.exc_info:
+                record.exc_text = self._schwaerze(
+                    logging.Formatter().formatException(record.exc_info)
+                )
+        return True
+
+
+GEHEIM = GeheimFilter()
+log.addFilter(GEHEIM)
+
+
 # --------------------------------------------------------------------------
 # Konfiguration
 # --------------------------------------------------------------------------
@@ -1366,6 +1402,7 @@ class FeedbackSchleife:
         self._abruf_seit: float | None = None
         tg = cfg.get("telegram") or {}
         self.token = (tg.get("token") or "").strip()
+        GEHEIM.merke(self.token)
         self.chat = str(tg.get("chat_id") or "").strip()
         self.aktiv = bool(tg.get("feedback_buttons", True)) and bool(
             self.token and self.chat
@@ -1626,6 +1663,7 @@ class Notifier:
     def __init__(self, cfg: dict):
         tg = cfg.get("telegram") or {}
         self.tg_token = (tg.get("token") or "").strip()
+        GEHEIM.merke(self.tg_token)
         self.tg_chat = str(tg.get("chat_id") or "").strip()
         self.cooldown_s = float(tg.get("cooldown_minuten", 15)) * 60
         self.bildserie = max(1, int(tg.get("bildserie_frames", 4)))

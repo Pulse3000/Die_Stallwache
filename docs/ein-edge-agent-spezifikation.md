@@ -92,6 +92,33 @@ Token gesetzt ist. Alarme gibt es im Silent Mode ohnehin keine.
 | 7 | ✅ Trockenlauf gegen nachgestelltes kuhwatch (Container + `.env` mit Passwort und Token): Ausgabe ohne Geheimnisse, `config.yaml` mit Rechten 600, nichts gestoppt, nichts abgelegt. Echtlauf (`--ohne-tempguard`): kuhwatch gestoppt mit `restart=no`, Agent läuft, erstes Trainingsbild nach 4 s, das Kamera-Passwort steht nicht im Log. Rückweg mit den ausgegebenen Befehlen: kuhwatch läuft wieder. Temperaturwächter: pausiert nur `stallwache-agent-*`, ein unbeteiligter Container läuft weiter, Fortsetzen geht |
 | 8 | offen (Betreiber, am Gerät) |
 
+### Prüfung durch qa-waechter (23.10.2026)
+
+**Freigabe ja.** Ergebnisse:
+- Webapp: `typecheck`, `lint`, `npm test` (100/100) und `build` grün.
+- Edge-Agent: 514 Checks, zwei Läufe ohne Abweichung.
+- shellcheck: keine Meldung.
+- Konverter mit Canary-Geheimnissen: Keines landet in der Ausgabe, `$(…)` wird nicht ausgeführt.
+- `tempguard.env` ist nicht anfällig für Injection.
+- Webapp-Regression (Ingest-Auth, `/sw.js`, Manifest) ohne Befund.
+
+Zwei Befunde, beide vor dem Merge behoben:
+
+- **B1:** Das Umstiegsskript las Telegram-Token und Chat-ID für den
+  Temperaturwächter ohne Anführungszeichen-/CR-Bereinigung, anders als der
+  Python-Konverter. Bei `TELEGRAM_BOT_TOKEN="…"` oder einer `.env` mit
+  Windows-Zeilenenden kamen die Temperaturwarnungen deshalb still nicht an.
+  Jetzt bereinigt `env_wert` die Werte genauso wie der Konverter.
+- **B2 (bestand schon auf `main`):** Fehlermeldungen von requests nennen die
+  Telegram-URL samt Bot-Token. Solange Telegram nicht erreichbar war, stand
+  der Token alle 10 s im Log, und im Container ist das per `docker logs`
+  lesbar. Jetzt schwärzt ein `GeheimFilter` den Token in jeder Logzeile des
+  Agenten, auch in Tracebacks (`test_geheimnisse.py`, 7 Checks; ohne den Filter
+  scheitern 3).
+
+Nebenbei: `DASHBOARD_TOKEN` steht beim Erzeugen der `config.yaml` nicht mehr
+in der Prozessliste.
+
 ## 5. Risiken
 
 1. **Keine Kalbe-Meldung bis zum ersten Modell** (Grundsatz 4). Gegenmittel
