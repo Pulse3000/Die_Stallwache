@@ -1,0 +1,31 @@
+# Edge-Agent auf dem Stall-Rechner, eine Instanz je Kamera
+# (docs/ein-edge-agent-spezifikation.md). Daten und config.yaml liegen in
+# daten/<kamera>/ (gitignoriert).
+#
+#   Start:   docker compose up -d --build              # Kamera stallwache
+#   Weitere: KAMERA=futterwache docker compose -p futterwache up -d
+#   Analyse: ANALYSE=1 docker compose up -d --build    # erst mit eigenem Modell
+#   Logs:    docker compose logs -f
+#
+# Umstieg von kuhwatch: deploy/umstieg-von-kuhwatch.sh
+services:
+  agent:
+    build:
+      context: .
+      args:
+        ANALYSE: "${ANALYSE:-0}"
+    image: stallwache-agent:${ANALYSE:-0}
+    container_name: stallwache-agent-${KAMERA:-stallwache}
+    restart: unless-stopped
+    # Host-Netz: go2rtc-Restream und Snapshot-API auf localhost erreichbar.
+    network_mode: host
+    volumes:
+      - ./daten/${KAMERA:-stallwache}:/daten
+    # Wie kuhwatch: flache CPU-Last statt thermischer Lastspitzen.
+    cpus: 1
+    mem_limit: 4g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

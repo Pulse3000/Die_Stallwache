@@ -46,8 +46,9 @@ blinzelt — ohne 45.000 € auszugeben und ohne einen Sensor im Pansen.*
   an der Webapp, kurzlebige HLS-URL von `/api/<kamera>/stream`, CDN-
   Direktzugriff, automatische URL-Erneuerung beim Reconnect
   (`stream.app_url`/`quelle_api`/`app_passwort`).
-- **Du (der Agent)** läufst als Python-Prozess auf einem beliebigen Rechner im
-  Stall-Netz (alter Laptop/Raspberry Pi genügt — 1 FPS reicht, weil sich
+- **Du (der Agent)** bist der einzige Edge-Agent (kuhwatch ist in dir
+  aufgegangen) und läufst als Python-Prozess oder Container
+  (`edge-agent/Dockerfile`) auf einem beliebigen Rechner im Stall-Netz (alter Laptop/Raspberry Pi genügt — 1 FPS reicht, weil sich
   Kalbeanzeichen über Minuten entwickeln). GPU ist optional.
 - **Alarmwege:** Telegram (primär, mit Bildserie) + Dashboard „KI-Wache"
   (`POST /api/events` auf Vercel) + optional MQTT (Home Assistant/Node-RED).

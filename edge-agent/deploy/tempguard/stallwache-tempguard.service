@@ -1,0 +1,10 @@
+[Unit]
+Description=Stallwache CPU-Temperaturwaechter (pausiert den Edge-Agenten bei 85 °C)
+After=docker.service
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/stallwache-tempguard.sh
+Restart=always
+RestartSec=10
+[Install]
+WantedBy=multi-user.target

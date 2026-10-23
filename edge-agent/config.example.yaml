@@ -56,6 +56,14 @@ modell:
     kuh: 0
     amniotic_sac: 1  # Fruchtblase
     calf_legs: 2     # Kaelberfuesse
+  # Nur diese Klassen sind Tiere (Tracking, Schwanzwinkel, Brunst). Andere
+  # Boxen (z. B. Mensch bei einem allgemeinen Modell) werden ignoriert.
+  # Kommt eine Tier-Klasse im 2. Training dazu (kuh_seitenlage), hier ergaenzen.
+  tier_klassen: [kuh]
+  # Alte CPU ohne AVX (z. B. AMD A6-3650): oneDNN aus, NumPy-NMS statt des
+  # kompilierten Operators (SIGILL). auto = aus /proc/cpuinfo erkennen;
+  # true/false erzwingen. Ein .onnx-Modell laeuft dort ueber onnxruntime.
+  alte_cpu: auto
   # ByteTrack-Konfiguration. Empfohlen: die mitgelieferte, auf Kuehe bei
   # 1 FPS abgestimmte tracker-kuh.yaml (grosser track_buffer gegen
   # ID-Wechsel bei Verdeckung — jede neue ID setzt das 30-Minuten-Fenster

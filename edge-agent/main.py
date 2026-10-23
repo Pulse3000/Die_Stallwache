@@ -50,8 +50,52 @@ import yaml
 # (Docker) oder aus dem Testlader geladen wird.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from freeze_watchdog import FreezeWatchdog, baue_watchdog  # noqa: E402
+import alte_cpu  # noqa: E402
 
 log = logging.getLogger("stallblick-agent")
+
+
+class GeheimFilter(logging.Filter):
+    """Schwaerzt Geheimnisse (Telegram-Bot-Token) in jeder Logzeile des Agenten.
+
+    requests nennt in Fehlermeldungen die URL, bei Telegram samt Token
+    (/bot<TOKEN>/getUpdates) – solange Telegram nicht erreichbar ist, alle
+    10 s. Im Container bleibt das Log ueber `docker logs` lesbar (Befund
+    qa-waechter). Gilt auch fuer Tracebacks aus log.exception.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.geheim: set[str] = set()
+
+    def merke(self, wert: str) -> None:
+        if wert and len(wert) >= 8:
+            self.geheim.add(wert)
+
+    def _schwaerze(self, text: str) -> str:
+        for wert in tuple(self.geheim):  # merke() darf parallel laufen
+            text = text.replace(wert, "***")
+        return text
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if self.geheim:
+            try:
+                nachricht = record.getMessage()
+            except Exception:  # noqa: BLE001
+                # Fehlerhafter Aufruf (Platzhalter passen nicht): wie ohne
+                # Filter an logging weiterreichen, das meldet "Logging error"
+                # – nie an der Aufrufstelle werfen (Befund qa-waechter H1).
+                return True
+            record.msg, record.args = self._schwaerze(nachricht), None
+            if record.exc_info:
+                record.exc_text = self._schwaerze(
+                    logging.Formatter().formatException(record.exc_info)
+                )
+        return True
+
+
+GEHEIM = GeheimFilter()
+log.addFilter(GEHEIM)
 
 
 # --------------------------------------------------------------------------
@@ -157,10 +201,235 @@ def trenne_zugangsdaten(url: str) -> tuple[str, tuple[str, str] | None]:
     )
 
 
-class StreamHandler:
-    """Liefert Frames mit Ziel-FPS; uebersteht Verbindungsabbrueche."""
+# Schemata eines Livestreams. Alles ohne Schema ist eine Datei (Replay,
+# Fehlalarm-Budget) und wird Bild fuer Bild gelesen
+# (docs/bildfrische-spezifikation.md, R1).
+LIVE_SCHEMATA = ("rtsp", "rtsps", "rtmp", "rtmps", "http", "https", "udp", "tcp", "srt")
 
-    RECONNECT_WARTEZEIT_S = 5
+
+def ist_livequelle(url: str) -> bool:
+    return urllib.parse.urlsplit(url or "").scheme.lower() in LIVE_SCHEMATA
+
+
+def oeffne_capture(url: str):
+    """VideoCapture mit begrenzten Timeouts fuer Oeffnen und Lesen (R4).
+
+    Kennt die OpenCV-Version die Parameter nicht, gilt ihr Standard (30 s).
+    """
+    params: list[int] = []
+    for name in ("CAP_PROP_OPEN_TIMEOUT_MSEC", "CAP_PROP_READ_TIMEOUT_MSEC"):
+        prop = getattr(cv2, name, None)
+        if prop is not None:
+            params += [prop, Bildgreifer.TIMEOUT_MS]
+    if params:
+        return cv2.VideoCapture(url, getattr(cv2, "CAP_ANY", 0), params)
+    return cv2.VideoCapture(url)
+
+
+class Bildgreifer:
+    """Liest einen Livestream im Hintergrund mit und haelt nur das juengste Bild.
+
+    OpenCV dekodiert der Reihe nach: Wer 1 Bild/s aus einem 25-fps-Stream
+    liest, bekommt das naechste Bild im Puffer, nicht das aktuelle. Gemessen
+    war nach 227 s ein 113 s altes Bild, und die analysierten Bilder lagen im
+    Video 40 ms statt 1 s auseinander — das 30-Minuten-Fenster sah 72 s
+    Video (docs/bildfrische-spezifikation.md). Deshalb ruft dieser Thread
+    fortlaufend grab() auf und nur auf Abruf retrieve() (Farbumwandlung).
+    Nur er beruehrt die VideoCapture; Verbindungsaufbau und Backoff laufen
+    hier, die Analyseschleife wartet nie darauf.
+    """
+
+    FRISCH_S = 5.0            # letzter grab() aelter -> kein Bild (R3)
+    UEBERGABE_S = 2.0         # so lange wartet ein Abruf hoechstens
+    TIMEOUT_MS = 10_000       # Oeffnen/Lesen (R4)
+    BACKOFF_S = (5, 10, 20, 30)  # Reconnect (R5), letzter Wert = Deckel
+    # Rueckstand gegenueber der Stream-Uhr (R9): Rechner dekodiert langsamer,
+    # als die Kamera sendet. Geurteilt wird ueber das Minimum eines Fensters:
+    # HLS liefert stossweise je Segment, der Rueckstand faellt dort nach jedem
+    # Segment auf ~0; ein echter Rueckstand faellt nie. Minimum ab WARNUNG ins
+    # Log, ab NEU neu verbinden (das verwirft den Rueckstand).
+    RUECKSTAND_WARNUNG_S = 5.0
+    RUECKSTAND_NEU_S = 10.0
+    RUECKSTAND_FENSTER_S = 15.0
+
+    def __init__(self, oeffne, name: str = "bildgreifer"):
+        # oeffne() -> geoeffnete VideoCapture oder None; laeuft im Thread.
+        self._oeffne = oeffne
+        self._letzter_grab: float | None = None
+        self._bedingung = threading.Condition()
+        self._auftrag = 0         # zuletzt erteilter Abruf
+        self._antwort_nr = 0      # zuletzt beantworteter Abruf
+        self._abgeholt = 0        # zuletzt abgeholte Antwort
+        self._antwort = None
+        self._antwort_zeit = 0.0  # grab()-Zeit des Antwortbilds
+        self._stopp = threading.Event()
+        self._basis: tuple[float, float] | None = None  # (Uhrzeit, Stream-ms)
+        self._letzte_pos = 0.0
+        self._fenster_start: float | None = None
+        self._fenster_min = 0.0
+        self._warnung_zuletzt: float | None = None
+        self._neu_log_zuletzt: float | None = None
+        self._neu_seit_log = 0
+        self._traceback_zuletzt: float | None = None
+        self.fehlversuche = 0
+        self._thread = threading.Thread(target=self._arbeite, name=name, daemon=True)
+        self._thread.start()
+
+    @property
+    def frisch(self) -> bool:
+        t = self._letzter_grab
+        return t is not None and time.time() - t <= self.FRISCH_S
+
+    def hole(self) -> np.ndarray | None:
+        """Juengstes Bild (nach dem Abruf gegriffen) oder None.
+
+        Nur ein Aufrufer (Hauptschleife). Ein Auftrag bleibt stehen, bis der
+        Greifer ihn beantwortet: HLS (Cloud-Quelle) liefert Bilder stossweise
+        je Segment, die Antwort kommt dann oft erst nach dem Warten. Der
+        naechste Abruf holt sie ab, solange sie frisch ist. Ohne das bekam
+        die Analyse ab ~8 s Segmentdauer kein einziges Bild (Befund ki-wache).
+        """
+        with self._bedingung:
+            if self._antwort_nr > self._abgeholt:
+                self._abgeholt = self._antwort_nr
+                if (
+                    self._antwort is not None
+                    and time.time() - self._antwort_zeit <= self.FRISCH_S
+                ):
+                    return self._antwort
+            if self._auftrag <= self._antwort_nr:
+                self._auftrag += 1
+            nr = self._auftrag
+            if not self.frisch:
+                return None  # Auftrag bleibt stehen
+            if not self._bedingung.wait_for(
+                lambda: self._antwort_nr >= nr, timeout=self.UEBERGABE_S
+            ):
+                return None
+            self._abgeholt = self._antwort_nr
+            return self._antwort
+
+    def stopp(self) -> None:
+        self._stopp.set()
+
+    def _arbeite(self) -> None:
+        cap = None
+        while not self._stopp.is_set():
+            try:
+                if cap is None:
+                    cap = self._oeffne()
+                    self._basis, self._letzte_pos = None, 0.0
+                    self._fenster_start = None
+                    if cap is None or not cap.isOpened():
+                        cap = self._schliesse(cap)
+                        self._warte()
+                        continue
+                if not cap.grab():
+                    cap = self._schliesse(cap)
+                    self._warte()
+                    continue
+                jetzt = time.time()
+                self._letzter_grab = jetzt
+                if self.fehlversuche:
+                    log.info("Stream verbunden, Bildgreifer laeuft.")
+                    self.fehlversuche = 0
+                if self._zu_weit_zurueck(cap, jetzt):
+                    cap = self._schliesse(cap)
+                    continue
+                if self._auftrag > self._antwort_nr:
+                    nr = self._auftrag
+                    ok, bild = cap.retrieve()
+                    with self._bedingung:
+                        self._antwort, self._antwort_nr = (bild if ok else None), nr
+                        self._antwort_zeit = jetzt
+                        self._bedingung.notify_all()
+            except Exception:  # noqa: BLE001 – der Greifer endet nie von selbst (R8)
+                jetzt = time.time()
+                if self._traceback_zuletzt is None or jetzt - self._traceback_zuletzt >= 3600:
+                    self._traceback_zuletzt = jetzt
+                    log.exception("Bildgreifer gestoert – verbinde neu")
+                cap = self._schliesse(cap)
+                self._warte()
+        self._schliesse(cap)
+
+    def _zu_weit_zurueck(self, cap, jetzt: float) -> bool:
+        """Rueckstand des Greifers aus Uhrzeit gegen Stream-Zeitstempel (R9).
+
+        Nur bei steigenden Zeitstempeln; Basis ist der Punkt mit dem
+        kleinsten Rueckstand. Geurteilt wird am Ende jedes Fensters ueber
+        dessen Minimum. Quellen ohne Zeitstempel pruefen nie.
+        """
+        try:
+            pos = float(cap.get(cv2.CAP_PROP_POS_MSEC))
+        except Exception:  # noqa: BLE001 – Quelle ohne Zeitstempel
+            return False
+        if pos <= self._letzte_pos:
+            if pos < self._letzte_pos:
+                self._basis = None  # Zeitstempel springt zurueck
+            self._letzte_pos = pos
+            return False
+        self._letzte_pos = pos
+        if self._basis is None:
+            self._basis = (jetzt, pos)
+        rueckstand = (jetzt - self._basis[0]) - (pos - self._basis[1]) / 1000
+        if rueckstand < 0:
+            self._basis = (jetzt, pos)
+            rueckstand = 0.0
+        if self._fenster_start is None:
+            self._fenster_start, self._fenster_min = jetzt, rueckstand
+            return False
+        self._fenster_min = min(self._fenster_min, rueckstand)
+        if jetzt - self._fenster_start < self.RUECKSTAND_FENSTER_S:
+            return False
+        minimum = self._fenster_min
+        self._fenster_start, self._fenster_min = jetzt, rueckstand
+        if minimum >= self.RUECKSTAND_NEU_S:
+            # Bei Dauerueberlast regelmaessig: hoechstens eine Zeile pro Stunde.
+            self._neu_seit_log += 1
+            if self._neu_log_zuletzt is None or jetzt - self._neu_log_zuletzt >= 3600:
+                log.warning(
+                    "Bildgreifer %.0f s hinter dem Stream – verbinde neu (%d-mal seit "
+                    "der letzten Meldung). Rechner zu langsam fuer diesen Stream? "
+                    "Substream verwenden.", minimum, self._neu_seit_log,
+                )
+                self._neu_log_zuletzt, self._neu_seit_log = jetzt, 0
+            return True
+        if minimum >= self.RUECKSTAND_WARNUNG_S and (
+            self._warnung_zuletzt is None or jetzt - self._warnung_zuletzt >= 3600
+        ):
+            self._warnung_zuletzt = jetzt
+            log.warning(
+                "Bildgreifer %.0f s hinter dem Stream – Rechner zu langsam fuer "
+                "diesen Stream? Substream verwenden.", minimum,
+            )
+        return False
+
+    def _warte(self) -> None:
+        s = self.BACKOFF_S[min(self.fehlversuche, len(self.BACKOFF_S) - 1)]
+        self.fehlversuche += 1
+        log.warning("Stream nicht erreichbar – naechster Versuch in %d s.", s)
+        self._stopp.wait(s)
+
+    def _schliesse(self, cap) -> None:
+        # Ohne Verbindung kommt kein Bild mehr: nicht frisch, Abruf ohne Warten.
+        self._letzter_grab = None
+        if cap is not None:
+            try:
+                cap.release()
+            except Exception:  # noqa: BLE001
+                pass
+        return None
+
+
+class StreamHandler:
+    """Liefert Frames im Takt von ziel_fps; uebersteht Verbindungsabbrueche.
+
+    Livestream: Der Bildgreifer haelt das juengste Bild bereit, ein Abruf
+    blockiert hoechstens Bildgreifer.UEBERGABE_S. Datei: Bild fuer Bild der
+    Reihe nach (docs/bildfrische-spezifikation.md).
+    """
+
+    RECONNECT_WARTEZEIT_S = 5   # nur Datei; Livestream: Bildgreifer.BACKOFF_S
     FEHLER_BIS_FALLBACK = 5
 
     def __init__(self, cfg: dict):
@@ -175,28 +444,35 @@ class StreamHandler:
             (cfg["stream"].get("fallback_snapshot_url") or "").strip()
         )
         self.frame_intervall = 1.0 / float(cfg["stream"].get("ziel_fps", 1.0))
-        self.cap: cv2.VideoCapture | None = None
+        self.live = self.quelle.aktiv or ist_livequelle(self.url)
+        # Startet beim ersten Abruf (der Konstruktor bleibt ohne Nebenwirkung).
+        self.greifer: Bildgreifer | None = None
+        self.cap: cv2.VideoCapture | None = None   # nur Datei
         self.fehler_in_folge = 0
         self.nutze_fallback = False
         self._letzter_frame_ts = 0.0
 
-    def _verbinde(self) -> None:
-        if self.cap is not None:
-            self.cap.release()
-            self.cap = None
+    def _oeffne_live(self):
+        """Laeuft im Greifer-Thread: Cloud-URL holen, Capture oeffnen."""
         if self.quelle.aktiv:
             # Kurzlebige Cloud-URL bei jedem (Re-)Connect frisch holen.
             neue = self.quelle.hole_url()
             if neue:
                 self.url = neue
             elif not self.url:
-                return  # noch keine URL bekannt -> naechste Iteration versucht es erneut
-        log.info("Verbinde mit Stream: %s", self.url.split("?")[0])
-        self.cap = cv2.VideoCapture(self.url)
-        # Kleiner Puffer -> immer moeglichst aktuelles Bild.
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                return None  # noch keine URL bekannt -> Backoff, neuer Versuch
+        # Ohne Zugangsdaten und Query (Cloud-URLs tragen Signaturen) ins Log.
+        log.info("Verbinde mit Stream: %s", trenne_zugangsdaten(self.url)[0].split("?")[0])
+        return oeffne_capture(self.url)
 
-    def _frame_rtsp(self) -> np.ndarray | None:
+    def _verbinde(self) -> None:
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+        log.info("Oeffne Datei: %s", self.url)
+        self.cap = cv2.VideoCapture(self.url)
+
+    def _frame_datei(self) -> np.ndarray | None:
         if self.cap is None or not self.cap.isOpened():
             self._verbinde()
         if self.cap is None or not self.cap.isOpened():
@@ -215,14 +491,16 @@ class StreamHandler:
             return None
 
     def naechster_frame(self) -> np.ndarray | None:
-        """Blockiert bis zum naechsten Frame gemaess Ziel-FPS (oder None bei Fehler)."""
+        """Wartet bis zum naechsten Takt gemaess Ziel-FPS; Frame oder None."""
         wartezeit = self._letzter_frame_ts + self.frame_intervall - time.time()
         if wartezeit > 0:
             time.sleep(wartezeit)
         self._letzter_frame_ts = time.time()
+        if self.live:
+            return self._frame_live()
 
         frame = (
-            self._frame_snapshot() if self.nutze_fallback else self._frame_rtsp()
+            self._frame_snapshot() if self.nutze_fallback else self._frame_datei()
         )
         if frame is None:
             self.fehler_in_folge += 1
@@ -242,6 +520,28 @@ class StreamHandler:
             log.info("Stream wieder stabil.")
         self.fehler_in_folge = 0
         return frame
+
+    def _frame_live(self) -> np.ndarray | None:
+        """Frisches Livebild; nach FEHLER_BIS_FALLBACK Abrufen ohne eines das
+        Snapshot-Polling, bis der Livestream wieder frisch ist (R6)."""
+        if self.greifer is None:
+            self.greifer = Bildgreifer(self._oeffne_live)
+        frame = self.greifer.hole()
+        if frame is not None:
+            if self.nutze_fallback:
+                log.info("Livestream wieder frisch – zurueck vom Snapshot-Polling.")
+                self.nutze_fallback = False
+            elif self.fehler_in_folge:
+                log.info("Stream wieder stabil.")
+            self.fehler_in_folge = 0
+            return frame
+        self.fehler_in_folge += 1
+        if self.fallback_url and self.fehler_in_folge >= self.FEHLER_BIS_FALLBACK:
+            if not self.nutze_fallback:
+                log.warning("RTSP instabil – wechsle auf Snapshot-Polling.")
+                self.nutze_fallback = True
+            return self._frame_snapshot()
+        return None
 
 
 class TotmannWaechter:
@@ -442,6 +742,24 @@ class InferenceEngine:
         self.cfg = cfg["modell"]
         self.kp = self.cfg["keypoints"]
         self.klassen = {int(v): k for k, v in self.cfg["klassen"].items()}
+        # Nur diese Klassen sind Tiere (Tracking, Schwanzwinkel, Brunst).
+        # Bisher galt jede Box als Kuh, die nicht Fruchtblase/Fuesse war: Mit
+        # einem allgemeinen Modell haette ein Mensch hinter einer Kuh einen
+        # Brunstverdacht ausgeloest (docs/ein-edge-agent-spezifikation.md, U2).
+        self.tier_klassen = set(self.cfg.get("tier_klassen") or ["kuh"])
+        # Klassenfilter fuer den Tracker: Tiere + Fruchtblase/Fuesse. Andere
+        # Boxen (Mensch, Fahrzeug) stehlen sonst Track-IDs. Unbekannte Namen
+        # -> kein Filter (Standardmodell: alle drei Klassen, also unveraendert).
+        bekannt = {k: v for v, k in self.klassen.items()}
+        filter_namen = self.tier_klassen | set(OBJEKT_KLASSEN)
+        self.klassen_filter: list[int] | None = sorted(
+            bekannt[n] for n in filter_namen if n in bekannt
+        ) or None
+        if not self.tier_klassen & set(bekannt):
+            log.warning(
+                "modell.tier_klassen %s kommt in modell.klassen nicht vor – "
+                "es wird keine Kuh erkannt.", sorted(self.tier_klassen),
+            )
         # Eigene Tracker-Konfiguration (z. B. tracker-kuh.yaml mit grossem
         # track_buffer fuer 1 FPS); leer -> Ultralytics-Default.
         self.tracker = (self.cfg.get("tracker") or "").strip() or "bytetrack.yaml"
@@ -453,6 +771,9 @@ class InferenceEngine:
         self._merke_traceback: float | None = None  # letzter voller Traceback
         pfad = (self.cfg.get("pfad") or "").strip()
         if pfad:
+            if alte_cpu.alte_cpu_aktiv(self.cfg.get("alte_cpu", "auto")):
+                # Vor dem ersten Import von ultralytics (U1).
+                log.info("Alte CPU ohne AVX: %s.", ", ".join(alte_cpu.aktiviere()))
             from ultralytics import YOLO  # Import nur bei Bedarf (Silent Mode braucht es nicht)
 
             log.info("Lade Modell %s (Tracker: %s) …", pfad, self.tracker)
@@ -504,7 +825,8 @@ class InferenceEngine:
         """Ein Frame -> getrackte Kuehe (mit Schwanzwinkel) + Spezialobjekte."""
         self._roh_objekte = None
         ergebnis = self.modell.track(
-            frame, persist=True, tracker=self.tracker, verbose=False
+            frame, persist=True, tracker=self.tracker, verbose=False,
+            classes=self.klassen_filter,
         )[0]
         roh = self._roh_objekte
 
@@ -524,6 +846,8 @@ class InferenceEngine:
             if name in OBJEKT_KLASSEN:
                 if roh is None:
                     objekte.append(ObjektErkennung(name, konf, box))
+                continue
+            if name not in self.tier_klassen:
                 continue
 
             track_id = int(boxen.id[i]) if boxen.id is not None else -1
@@ -1085,6 +1409,7 @@ class FeedbackSchleife:
         self._abruf_seit: float | None = None
         tg = cfg.get("telegram") or {}
         self.token = (tg.get("token") or "").strip()
+        GEHEIM.merke(self.token)
         self.chat = str(tg.get("chat_id") or "").strip()
         self.aktiv = bool(tg.get("feedback_buttons", True)) and bool(
             self.token and self.chat
@@ -1345,6 +1670,7 @@ class Notifier:
     def __init__(self, cfg: dict):
         tg = cfg.get("telegram") or {}
         self.tg_token = (tg.get("token") or "").strip()
+        GEHEIM.merke(self.tg_token)
         self.tg_chat = str(tg.get("chat_id") or "").strip()
         self.cooldown_s = float(tg.get("cooldown_minuten", 15)) * 60
         self.bildserie = max(1, int(tg.get("bildserie_frames", 4)))

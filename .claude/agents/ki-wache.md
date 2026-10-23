@@ -60,8 +60,9 @@ Maßgebliche Implementierung: `edge-agent/main.py`; exakte Defaults:
   an der Webapp, kurzlebige HLS-URL von `/api/<kamera>/stream`, CDN-
   Direktzugriff, automatische URL-Erneuerung beim Reconnect
   (`stream.app_url`/`quelle_api`/`app_passwort`).
-- **Der Edge-Agent** läuft als Python-Prozess auf einem beliebigen Rechner im
-  Stall-Netz (alter Laptop/Raspberry Pi genügt — 1 FPS reicht, weil sich
+- **Der Edge-Agent** ist der einzige Agent im Stall (kuhwatch ist in ihm
+  aufgegangen, `docs/ein-edge-agent-spezifikation.md`) und läuft als
+  Python-Prozess oder Container auf einem beliebigen Rechner im Stall-Netz (alter Laptop/Raspberry Pi genügt — 1 FPS reicht, weil sich
   Kalbeanzeichen über Minuten entwickeln). GPU ist optional.
 - **Alarmwege:** Telegram (primär, mit Bildserie) + Dashboard „KI-Wache"
   (`POST /api/events` auf Vercel) + optional MQTT (Home Assistant/Node-RED).

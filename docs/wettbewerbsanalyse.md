@@ -282,6 +282,7 @@ verwendet werden.
 | **P3** | **Ein-Befehl-Setup** (geführtes Install-Skript inkl. Telegram-Bot-Assistent) | CowCatcherAI setzt die Onboarding-Messlatte („Exe + JSON") — bei gleichem Preis muss Stallblick im Aufwand vorn bleiben |
 | **P3** | **Lahmheits-Frühwarnung** aus Rückenlinien-Winkel | CattleEye; Keypoints vorhanden, braucht aber eigene Validierung |
 | **P3** | **BCS-Schätzung** (Body Condition) | DeLaval/CattleEye; erst nach stabilem Kalbe-/Brunst-Betrieb |
+| **P1** | **Ein Edge-Agent statt zwei (23.10.2026)**: kuhwatch geht im Edge-Agenten auf; ein Container-Image für den Stall-Rechner (auch alte CPU ohne AVX), Umstieg in einem Befehl, kein Unruhe-Alarm ohne Modell-Befund | CowCatcherAI setzt die Messlatte „ein Tool, Exe/Docker“. Zwei parallele Agenten hießen: jeder Fix doppelt (Bildfrische), und auf dem Gerät lief der schwächere ohne Datensammlung. Entscheidung des Betreibers; Details [`ein-edge-agent-spezifikation.md`](./ein-edge-agent-spezifikation.md) |
 | **P1** | **Fernzugriff nur über Tailscale (15.10.2026)**: ein einziger öffentlicher Weg (Funnel → Token-Proxy → go2rtc), kein Cloudflare-Tunnel, keine Termux-Bridge, kein öffentlicher Cloud-Transcoder | Weniger Angriffsfläche: Der Tunnel legte die komplette go2rtc-API offen. Entscheidung des Betreibers; Details [`fernzugriff-spezifikation.md`](./fernzugriff-spezifikation.md) |
 
 
