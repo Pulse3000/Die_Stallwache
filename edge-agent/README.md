@@ -219,8 +219,17 @@ python3 edge-agent/tests/alle_tests.py
 
 ## Robustheit
 
-* RTSP-Reconnect mit Wartezeit; nach 5 Fehlversuchen automatischer Wechsel auf
-  **Snapshot-Polling** über die go2rtc-API (funktioniert selbst bei zickigem WLAN).
+* **Immer das jüngste Bild:** Ein Bildgreifer-Thread liest den Livestream
+  ständig mit und hält nur das neueste Bild. Vorher bekam die Analyse das
+  nächste Bild im OpenCV-Puffer, nach wenigen Minuten also Minuten Altes
+  (`docs/bildfrische-spezifikation.md`). Ohne frisches Bild (> 5 s) gibt es
+  keines. Verbindungsaufbau und Reconnect laufen im Greifer mit
+  exponentiellem Backoff (5 → 60 s). Die Analyseschleife wartet nie darauf.
+  Meldet das Log „Bildgreifer … hinter dem Stream“, ist der Rechner zu
+  langsam für den Stream: den Substream der Kamera bzw. von go2rtc
+  eintragen. Eine Datei als `stream.url` wird weiter Bild für Bild gelesen.
+* Nach 5 Abrufen ohne frisches Livebild Wechsel auf **Snapshot-Polling** über
+  die go2rtc-API. Sobald der Livestream wieder frisch ist, gilt wieder er.
 * Jede Iteration ist mit Exception-Handling abgesichert – der Prozess läuft
   24/7 weiter, `systemd` startet ihn zur Not neu.
 * Telegram-/Dashboard-Ausfälle blockieren die Analyse nicht: Je Kanal ein
