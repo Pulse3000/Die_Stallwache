@@ -113,8 +113,10 @@ Zwei Befunde, beide vor dem Merge behoben:
   Telegram-URL samt Bot-Token. Solange Telegram nicht erreichbar war, stand
   der Token alle 10 s im Log, und im Container ist das per `docker logs`
   lesbar. Jetzt schwärzt ein `GeheimFilter` den Token in jeder Logzeile des
-  Agenten, auch in Tracebacks (`test_geheimnisse.py`, 7 Checks; ohne den Filter
-  scheitern 3).
+  Agenten, auch in Tracebacks (`test_geheimnisse.py`, 8 Checks; ohne den Filter
+  scheitern 3). Nachprüfung (H1): Ein fehlerhafter Log-Aufruf wirft auch mit
+  Filter nie an der Aufrufstelle, er endet wie ohne Filter als „Logging
+  error“ auf stderr.
 
 Nebenbei: `DASHBOARD_TOKEN` steht beim Erzeugen der `config.yaml` nicht mehr
 in der Prozessliste.

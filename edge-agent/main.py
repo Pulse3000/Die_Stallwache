@@ -73,13 +73,20 @@ class GeheimFilter(logging.Filter):
             self.geheim.add(wert)
 
     def _schwaerze(self, text: str) -> str:
-        for wert in self.geheim:
+        for wert in tuple(self.geheim):  # merke() darf parallel laufen
             text = text.replace(wert, "***")
         return text
 
     def filter(self, record: logging.LogRecord) -> bool:
         if self.geheim:
-            record.msg, record.args = self._schwaerze(record.getMessage()), None
+            try:
+                nachricht = record.getMessage()
+            except Exception:  # noqa: BLE001
+                # Fehlerhafter Aufruf (Platzhalter passen nicht): wie ohne
+                # Filter an logging weiterreichen, das meldet "Logging error"
+                # – nie an der Aufrufstelle werfen (Befund qa-waechter H1).
+                return True
+            record.msg, record.args = self._schwaerze(nachricht), None
             if record.exc_info:
                 record.exc_text = self._schwaerze(
                     logging.Formatter().formatException(record.exc_info)

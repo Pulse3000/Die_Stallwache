@@ -65,10 +65,24 @@ m.log.info("Lebenszeichen zugestellt (nach %d Fehlversuchen) an %s", 3, "Dashboa
 p.check("3: normale Zeile unveraendert",
         "Lebenszeichen zugestellt (nach 3 Fehlversuchen) an Dashboard" in puffer.getvalue())
 
-# --- 4. Kurze/leere Werte werden nicht geschwaerzt -------------------------
+# --- 4. Fehlerhafter Aufruf wirft nie an der Aufrufstelle (H1) -------------
+# Ohne Filter meldet logging nur "--- Logging error ---" auf stderr; der
+# Filter darf daraus keine Ausnahme im Agenten machen.
+import contextlib  # noqa: E402
+
+geworfen = []
+with contextlib.redirect_stderr(io.StringIO()):
+    for aufruf in (lambda: m.log.warning("x %s %s", 1), lambda: m.log.warning("n=%d", None)):
+        try:
+            aufruf()
+        except Exception as e:  # noqa: BLE001
+            geworfen.append(repr(e))
+p.check(f"4: fehlerhafte Platzhalter werfen nicht ({geworfen or 'ok'})", not geworfen)
+
+# --- 5. Kurze/leere Werte werden nicht geschwaerzt -------------------------
 vorher = set(m.GEHEIM.geheim)
 m.GEHEIM.merke("")
 m.GEHEIM.merke("42")
-p.check("4: leere und kurze Werte nicht gemerkt", m.GEHEIM.geheim == vorher)
+p.check("5: leere und kurze Werte nicht gemerkt", m.GEHEIM.geheim == vorher)
 
 sys.exit(p.bericht())
