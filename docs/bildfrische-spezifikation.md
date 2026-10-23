@@ -90,12 +90,12 @@ Wahrheit.
 | --- | --- |
 | R1 | **Live oder Datei:** Live ist eine URL mit Schema `rtsp`, `rtsps`, `rtmp`, `rtmps`, `http`, `https`, `udp`, `tcp` oder `srt`. Alles andere ist eine Datei. |
 | R2 | **Greifen statt Lesen:** Der Greifer ruft fortlaufend `grab()` auf (dekodieren, ohne Farbumwandlung). Nur auf Abruf folgt einmal `retrieve()`. Nur der Greifer-Thread berührt die `VideoCapture`; die Übergabe läuft über ein Ereignis. Das jüngste Bild ist damit immer das nach dem Abruf gegriffene. |
-| R3 | **Frische:** Ein Abruf liefert nur ein Bild, wenn der letzte erfolgreiche `grab()` höchstens 5 s zurückliegt. Die Wartezeit auf die Übergabe ist auf 2 s begrenzt. |
+| R3 | **Frische:** Ein Abruf liefert nur ein Bild, wenn der letzte erfolgreiche `grab()` höchstens 5 s zurückliegt. Die Wartezeit auf die Übergabe ist auf 2 s begrenzt. Ein Auftrag bleibt stehen, bis der Greifer ihn beantwortet, auch über diese Grenzen hinaus. Eine Antwort, die nach dem Warten kommt, holt der nächste Abruf ab, solange ihr Bild höchstens 5 s alt ist. Grund ist HLS (Cloud-Quelle): Dort kommen die Bilder stoßweise je Segment (Abschnitt 8). |
 | R4 | **Timeouts:** Öffnen und Lesen sind auf je 10 s begrenzt (`CAP_PROP_OPEN_TIMEOUT_MSEC`/`CAP_PROP_READ_TIMEOUT_MSEC`, sofern die OpenCV-Version sie kennt; sonst gilt der OpenCV-Standard von 30 s). |
-| R5 | **Reconnect mit exponentiellem Backoff:** 5 → 10 → 20 → 40 → 60 s (Deckel). Zurückgesetzt wird erst nach dem ersten erfolgreich gegriffenen Bild. Die Cloud-Quelle holt bei jedem Versuch eine frische URL (wie bisher), jetzt im Greifer-Thread. |
+| R5 | **Reconnect mit exponentiellem Backoff:** 5 → 10 → 20 → 30 s (Deckel; nach der fachlichen Prüfung von 60 s gesenkt, weil nach dem Ende eines Ausfalls bis zu einem Deckel lang kein Bild kommt). Zurückgesetzt wird erst nach dem ersten erfolgreich gegriffenen Bild. Die Cloud-Quelle holt bei jedem Versuch eine frische URL (wie bisher), jetzt im Greifer-Thread. |
 | R6 | **Snapshot-Fallback (Edge-Agent):** Nach 5 Abrufen in Folge ohne frisches Livebild nutzt der Agent das Snapshot-Polling, sofern `fallback_snapshot_url` gesetzt ist (wie bisher). **Neu:** Sobald der Greifer wieder frisch ist, gewinnt der Livestream. Bisher blieb der Agent nach einem kurzen WLAN-Aussetzer für immer im Snapshot-Polling. Jeder Wechsel steht genau einmal im Log. |
 | R7 | **Tracker je Kamera (kuhwatch):** Jede Kamera hat ihre eigene Modell- und ByteTrack-Instanz. Ein gemeinsamer Tracker vermischt die Bilder mehrerer Kameras. Kuh-IDs springen dann, und ein Kamerawechsel sieht aus wie eine Bewegung. |
-| R9 | **Rückstand des Greifers:** Dekodiert der Rechner langsamer, als die Kamera sendet, entsteht der Puffer im Greifer selbst. Der Greifer vergleicht die Uhrzeit mit den Zeitstempeln des Streams (`CAP_PROP_POS_MSEC`, nur wenn sie steigen; Basis ist der Punkt mit dem kleinsten Rückstand). Ab 5 s Rückstand: Warnung im Log (höchstens 1×/h) mit dem Rat zum Substream. Ab 10 s: neu verbinden, das verwirft den Rückstand (Logzeile höchstens 1×/h mit Zähler). Quellen ohne Zeitstempel prüft er nie. |
+| R9 | **Rückstand des Greifers:** Dekodiert der Rechner langsamer, als die Kamera sendet, entsteht der Puffer im Greifer selbst. Der Greifer vergleicht die Uhrzeit mit den Zeitstempeln des Streams (`CAP_PROP_POS_MSEC`, nur wenn sie steigen; Basis ist der Punkt mit dem kleinsten Rückstand). Geurteilt wird alle 15 s über das **Minimum** des Rückstands in diesem Fenster: Bei HLS fällt er nach jedem Segment auf etwa 0, ein echter Rückstand fällt nie. Minimum ab 5 s: Warnung im Log (höchstens 1×/h) mit dem Rat zum Substream. Ab 10 s: neu verbinden, das verwirft den Rückstand (Logzeile höchstens 1×/h mit Zähler). Quellen ohne Zeitstempel prüft er nie. |
 | R8 | **Fehler des Greifers bleiben im Greifer.** Eine Ausnahme im Thread wird geloggt (voller Traceback höchstens einmal pro Stunde), die Verbindung geschlossen, der Backoff greift. Der Thread endet nie von selbst. |
 
 ## 3. Konfiguration
@@ -166,7 +166,8 @@ Bild je 5 s (kuhwatch).
 | früheres Lesemuster (`messung.py puffer`) | 56,9 s | 126,1 s | 0,040 s | 0 von 232 |
 | Edge-Agent neu (`messung.py agent`) | **0,17 s** | **0,18 s** | **1,000 s** | 2 von 241 (Verbindungsaufbau) |
 | kuhwatch neu (`tests/messe_bildalter.py`, 1 Bild je 5 s) | **0,17 s** | **0,17 s** | **5,04 s** | 2 von 50 (Verbindungsaufbau) |
-| Edge-Agent neu, Rechner zu langsam (`--bremse 0.06`: 10 statt 25 Bilder/s) | 5,8 s | 11,2 s | 0,680 s | 6 von 147 (Neuverbindungen) |
+| Edge-Agent neu, Rechner zu langsam (`--bremse 0.06`: 10 statt 25 Bilder/s), Urteil je Bild | 5,8 s | 11,2 s | 0,680 s | 6 von 147 (Neuverbindungen) |
+| dito, Urteil über das Minimum je 15 s (geltender Stand, Abschnitt 8) | 8,6 s | 16,3 s | 0,680 s | 11 von 181 |
 
 **Ausfall (Kriterium 4), zwei Läufe:**
 
@@ -197,7 +198,53 @@ waren verschmiert. Deshalb liegt die Grenze bei 10 s (R9).
 Abruf und Auswertung) brauchte 2 % eines Kerns (4-Kern-Cloud-Rechner).
 Auf der A6-3650 bleibt das Kriterium 10 offen.
 
-## 8. Risiken
+## 8. Ergebnis der fachlichen Prüfung (ki-wache, 23.10.2026)
+
+Alle Referenzregeln sind **treu**: Kalbeverdacht, Austreibung, Episodentakt,
+Eskalation, Brunst und Cooldown sind unverändert, ebenso Totmann und
+Lebenszeichen, Snapshot-Fallback und Datei-Replay. Die Zeitbasis
+`time.time()` stimmt bei RTSP jetzt mit der Bildzeit überein.
+
+**Schwerer Befund, behoben: Cloud-Quelle (Tuya-HLS).** Bei HLS kommen die
+Bilder stoßweise: Der Greifer dekodiert ein Segment in Bruchteilen einer
+Sekunde und wartet dann auf das nächste. Der erste Stand stellte nach 5 s ohne
+`grab()` keinen Auftrag mehr. Ein Auftrag, dessen Wartezeit ablief, wurde
+zwar beim nächsten Segment beantwortet, aber nie abgeholt. Ab 8 s
+Segmentdauer bekam die Analyse **kein einziges Bild**: keine Austreibung,
+nach 5 min ein falsches „blind“, keine Trainingsbilder. Dazu löste der
+Rückstands-Sägezahn je Segment falsche Warnungen und Neuverbindungen aus,
+jede davon mit einer neuen Tuya-URL. Behoben durch R3 (Auftrag bleibt
+stehen, späte Antwort wird abgeholt) und R9 (Minimum je 15 s).
+
+Messung (MediaMTX → `ffmpeg -c copy -f hls` → lokaler HTTP-Server,
+`main.py` als Cloud-Quelle-Muster, je 150 s):
+
+| Segmentdauer | erster Stand: Bilder | jetzt: Bilder | jetzt: Alter Median / max | Abstand im Video | falsche Neuverbindungen |
+| --- | --- | --- | --- | --- | --- |
+| 2 s | 74 von 75 | 75 von 76 | 3,4 s / 8,9 s | 2,00 s | 0 |
+| 6 s | 24 von 75 | 25 von 101 (1 je Segment) | 8,1 s / 24,8 s | 6,00 s | 0 |
+| 10 s | **0 von 106** | **15 von 121** (1 je Segment) | 15,1 s / 24,9 s | 10,00 s | 0 |
+
+Der alte Stand vor dem Bildgreifer lieferte bei 6 und 10 s zwar jedes Mal ein
+Bild, aber 93–180 s alt. Bei HLS sieht die Analyse ein Bild je Segment und
+höchstens zwei Segmentdauern alt. Ein Aufsprung, der kürzer als ein Segment
+ist, kann der Brunstregel entgehen; vorher war es schlechter.
+
+Weitere Hinweise der Prüfung:
+
+- Eine `http(s)`-URL gilt nach R1 als live, auch wenn sie auf eine Datei
+  zeigt. Für das Fehlalarm-Budget (`training/abnahme.py`, README Schritt 7)
+  muss `stream.url` ein lokaler Dateipfad sein. Das steht jetzt in der README.
+- Die Tuya-Segmentdauer ist unbekannt. Am Gerät nachsehen mit
+  `curl -s "<HLS-URL>" | grep TARGETDURATION` (Kriterium 11).
+- Bei Dauerüberlast pendelt der Agent je Neuverbindung zwischen Livestream und
+  Snapshot-Polling. Das ist Log-Rauschen, kein Alarm.
+
+| Nr. | Kriterium | Wo |
+| --- | --- | --- |
+| 11 | **Am Gerät:** Segmentdauer der Tuya-HLS-URL bestimmt. Die Cloud-Quelle liefert mindestens ein Bild je Segment, und es gibt keine Neuverbindung außer beim Ablauf der URL | Cloud-Quelle, offen |
+
+## 9. Risiken
 
 1. **CPU auf alter Hardware** (Abschnitt 5). Gegenmittel: Substream.
    Kriterium 10 entscheidet.

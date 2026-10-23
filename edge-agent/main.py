@@ -198,12 +198,15 @@ class Bildgreifer:
     FRISCH_S = 5.0            # letzter grab() aelter -> kein Bild (R3)
     UEBERGABE_S = 2.0         # so lange wartet ein Abruf hoechstens
     TIMEOUT_MS = 10_000       # Oeffnen/Lesen (R4)
-    BACKOFF_S = (5, 10, 20, 40, 60)  # Reconnect (R5), letzter Wert = Deckel
+    BACKOFF_S = (5, 10, 20, 30)  # Reconnect (R5), letzter Wert = Deckel
     # Rueckstand gegenueber der Stream-Uhr (R9): Rechner dekodiert langsamer,
-    # als die Kamera sendet. Ab WARNUNG ins Log, ab NEU neu verbinden (das
-    # verwirft den Rueckstand).
+    # als die Kamera sendet. Geurteilt wird ueber das Minimum eines Fensters:
+    # HLS liefert stossweise je Segment, der Rueckstand faellt dort nach jedem
+    # Segment auf ~0; ein echter Rueckstand faellt nie. Minimum ab WARNUNG ins
+    # Log, ab NEU neu verbinden (das verwirft den Rueckstand).
     RUECKSTAND_WARNUNG_S = 5.0
     RUECKSTAND_NEU_S = 10.0
+    RUECKSTAND_FENSTER_S = 15.0
 
     def __init__(self, oeffne, name: str = "bildgreifer"):
         # oeffne() -> geoeffnete VideoCapture oder None; laeuft im Thread.
@@ -212,10 +215,14 @@ class Bildgreifer:
         self._bedingung = threading.Condition()
         self._auftrag = 0         # zuletzt erteilter Abruf
         self._antwort_nr = 0      # zuletzt beantworteter Abruf
+        self._abgeholt = 0        # zuletzt abgeholte Antwort
         self._antwort = None
+        self._antwort_zeit = 0.0  # grab()-Zeit des Antwortbilds
         self._stopp = threading.Event()
         self._basis: tuple[float, float] | None = None  # (Uhrzeit, Stream-ms)
         self._letzte_pos = 0.0
+        self._fenster_start: float | None = None
+        self._fenster_min = 0.0
         self._warnung_zuletzt: float | None = None
         self._neu_log_zuletzt: float | None = None
         self._neu_seit_log = 0
@@ -230,17 +237,33 @@ class Bildgreifer:
         return t is not None and time.time() - t <= self.FRISCH_S
 
     def hole(self) -> np.ndarray | None:
-        """Juengstes Bild (nach diesem Abruf gegriffen) oder None."""
-        if not self.frisch:
-            return None
+        """Juengstes Bild (nach dem Abruf gegriffen) oder None.
+
+        Nur ein Aufrufer (Hauptschleife). Ein Auftrag bleibt stehen, bis der
+        Greifer ihn beantwortet: HLS (Cloud-Quelle) liefert Bilder stossweise
+        je Segment, die Antwort kommt dann oft erst nach dem Warten. Der
+        naechste Abruf holt sie ab, solange sie frisch ist. Ohne das bekam
+        die Analyse ab ~8 s Segmentdauer kein einziges Bild (Befund ki-wache).
+        """
         with self._bedingung:
-            self._auftrag += 1
+            if self._antwort_nr > self._abgeholt:
+                self._abgeholt = self._antwort_nr
+                if (
+                    self._antwort is not None
+                    and time.time() - self._antwort_zeit <= self.FRISCH_S
+                ):
+                    return self._antwort
+            if self._auftrag <= self._antwort_nr:
+                self._auftrag += 1
             nr = self._auftrag
+            if not self.frisch:
+                return None  # Auftrag bleibt stehen
             if not self._bedingung.wait_for(
                 lambda: self._antwort_nr >= nr, timeout=self.UEBERGABE_S
             ):
                 return None
-            return self._antwort if self._antwort_nr == nr else None
+            self._abgeholt = self._antwort_nr
+            return self._antwort
 
     def stopp(self) -> None:
         self._stopp.set()
@@ -252,6 +275,7 @@ class Bildgreifer:
                 if cap is None:
                     cap = self._oeffne()
                     self._basis, self._letzte_pos = None, 0.0
+                    self._fenster_start = None
                     if cap is None or not cap.isOpened():
                         cap = self._schliesse(cap)
                         self._warte()
@@ -273,6 +297,7 @@ class Bildgreifer:
                     ok, bild = cap.retrieve()
                     with self._bedingung:
                         self._antwort, self._antwort_nr = (bild if ok else None), nr
+                        self._antwort_zeit = jetzt
                         self._bedingung.notify_all()
             except Exception:  # noqa: BLE001 – der Greifer endet nie von selbst (R8)
                 jetzt = time.time()
@@ -287,7 +312,8 @@ class Bildgreifer:
         """Rueckstand des Greifers aus Uhrzeit gegen Stream-Zeitstempel (R9).
 
         Nur bei steigenden Zeitstempeln; Basis ist der Punkt mit dem
-        kleinsten Rueckstand. Quellen ohne Zeitstempel pruefen nie.
+        kleinsten Rueckstand. Geurteilt wird am Ende jedes Fensters ueber
+        dessen Minimum. Quellen ohne Zeitstempel pruefen nie.
         """
         try:
             pos = float(cap.get(cv2.CAP_PROP_POS_MSEC))
@@ -301,29 +327,36 @@ class Bildgreifer:
         self._letzte_pos = pos
         if self._basis is None:
             self._basis = (jetzt, pos)
-            return False
         rueckstand = (jetzt - self._basis[0]) - (pos - self._basis[1]) / 1000
         if rueckstand < 0:
             self._basis = (jetzt, pos)
+            rueckstand = 0.0
+        if self._fenster_start is None:
+            self._fenster_start, self._fenster_min = jetzt, rueckstand
             return False
-        if rueckstand >= self.RUECKSTAND_NEU_S:
-            # Bei Dauerueberlast alle ~30 s: hoechstens eine Zeile pro Stunde.
+        self._fenster_min = min(self._fenster_min, rueckstand)
+        if jetzt - self._fenster_start < self.RUECKSTAND_FENSTER_S:
+            return False
+        minimum = self._fenster_min
+        self._fenster_start, self._fenster_min = jetzt, rueckstand
+        if minimum >= self.RUECKSTAND_NEU_S:
+            # Bei Dauerueberlast regelmaessig: hoechstens eine Zeile pro Stunde.
             self._neu_seit_log += 1
             if self._neu_log_zuletzt is None or jetzt - self._neu_log_zuletzt >= 3600:
                 log.warning(
                     "Bildgreifer %.0f s hinter dem Stream – verbinde neu (%d-mal seit "
                     "der letzten Meldung). Rechner zu langsam fuer diesen Stream? "
-                    "Substream verwenden.", rueckstand, self._neu_seit_log,
+                    "Substream verwenden.", minimum, self._neu_seit_log,
                 )
                 self._neu_log_zuletzt, self._neu_seit_log = jetzt, 0
             return True
-        if rueckstand >= self.RUECKSTAND_WARNUNG_S and (
+        if minimum >= self.RUECKSTAND_WARNUNG_S and (
             self._warnung_zuletzt is None or jetzt - self._warnung_zuletzt >= 3600
         ):
             self._warnung_zuletzt = jetzt
             log.warning(
                 "Bildgreifer %.0f s hinter dem Stream – Rechner zu langsam fuer "
-                "diesen Stream? Substream verwenden.", rueckstand,
+                "diesen Stream? Substream verwenden.", minimum,
             )
         return False
 

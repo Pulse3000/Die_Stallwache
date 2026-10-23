@@ -29,6 +29,7 @@ class Quelle:
         self.haengt = False        # grab() blockiert ohne Daten
         self.wirf = False          # grab() wirft eine Ausnahme
         self.pos_faktor = 1.0      # Stream-Uhr / Wanduhr (0 = keine Zeitstempel)
+        self.segment = 0.0         # > 0: HLS, Bilder kommen stossweise je Segment
         self.oeffnungen: list[float] = []
 
     def bildnummer(self) -> int:
@@ -47,6 +48,12 @@ class ScheinCapture:
         self.t_offen = time.time()
         if not self.datei:
             Q.oeffnungen.append(time.time())
+        if Q.segment:  # HLS beginnt ein Segment vor der Livekante
+            self.aktuell = self._verfuegbar() - int(Q.segment * FPS) - 1
+
+    def _verfuegbar(self) -> int:
+        """HLS: Bilder bis zum Ende des letzten fertigen Segments."""
+        return int(int((time.time() - Q.t0) / Q.segment) * Q.segment * FPS)
 
     def isOpened(self):
         return self.offen
@@ -59,6 +66,11 @@ class ScheinCapture:
             return False
         while Q.haengt:
             time.sleep(0.01)
+        if Q.segment:
+            while self.aktuell + 1 >= self._verfuegbar():
+                time.sleep(0.005)  # wartet aufs naechste Segment
+            self.aktuell += 1      # Segment liegt vor: sofort dekodiert
+            return True
         # Blockiert bis zum naechsten Bild der Kamera (Livekante).
         naechstes = Q.bildnummer() + 1
         time.sleep(max(0.0, Q.t0 + naechstes / FPS - time.time()))
@@ -73,6 +85,8 @@ class ScheinCapture:
         return True, ("datei", self.aktuell)
 
     def get(self, prop):
+        if Q.segment:
+            return self.aktuell * 1000 / FPS
         return (time.time() - self.t_offen) * 1000 * Q.pos_faktor
 
     def release(self):
@@ -113,6 +127,7 @@ G.UEBERGABE_S = 0.3
 G.BACKOFF_S = (0.05, 0.1, 0.2, 0.4)
 G.RUECKSTAND_WARNUNG_S = 0.2
 G.RUECKSTAND_NEU_S = 0.6
+G.RUECKSTAND_FENSTER_S = 1.5   # > Segmentdauer im HLS-Test (wie 15 s > 10 s)
 
 
 def warte_bis(bedingung, timeout=3.0) -> bool:
@@ -221,7 +236,7 @@ g = neuer_greifer()
 warte_bis(lambda: g.frisch)
 Q.oeffnungen.clear()
 p.check("6: zu grosser Rueckstand -> neu verbinden",
-        warte_bis(lambda: len(Q.oeffnungen) >= 1, timeout=3.0))
+        warte_bis(lambda: len(Q.oeffnungen) >= 1, timeout=6.0))
 p.check("6: Warnung mit Rat zum Substream",
         any("hinter dem Stream" in z and "Substream" in z for z in sammler.zeilen))
 g.stopp()
@@ -231,7 +246,7 @@ for faktor, name in ((0.0, "ohne Zeitstempel"), (1.0, "im Takt")):
     g = neuer_greifer()
     warte_bis(lambda: g.frisch)
     Q.oeffnungen.clear()
-    time.sleep(1.2)
+    time.sleep(3.5)  # zwei Fenster
     p.check(f"6: Quelle {name}: keine Neuverbindung", len(Q.oeffnungen) == 0)
     g.stopp()
 Q.pos_faktor = 1.0
@@ -296,5 +311,30 @@ bilder = [sh.naechster_frame() for _ in range(5)]
 p.check(f"9: Datei sequenziell ({[b[1] for b in bilder]})",
         [b[1] for b in bilder] == [0, 1, 2, 3, 4])
 p.check("9: Datei ohne Greifer", sh.greifer is None and not sh.live)
+
+# --- 10. HLS: Bilder stossweise je Segment (Befund ki-wache) ----------------
+# Segment 1 s bei Frischegrenze 0,5 s und Uebergabe 0,3 s entspricht 10 s
+# Segmentdauer bei 5 s/2 s: vorher bekam die Analyse dort kein Bild.
+Q.segment = 1.0
+sammler.zeilen.clear()
+g = neuer_greifer()
+warte_bis(lambda: g.frisch, timeout=3.0)
+Q.oeffnungen.clear()
+geliefert, alter = 0, []
+ende = time.time() + 6.0
+while time.time() < ende:
+    bild = g.hole()
+    if bild is not None:
+        geliefert += 1
+        alter.append((Q.bildnummer() - bild[1]) / FPS)
+    time.sleep(0.2)
+p.check(f"10: HLS liefert mindestens ein Bild je Segment ({geliefert} in 6 Segmenten)", geliefert >= 5)
+p.check(f"10: Bildalter hoechstens zwei Segmente (max {max(alter or [9]):.1f} s)",
+        alter and max(alter) <= 2 * Q.segment + 0.2)
+p.check("10: HLS-Saegezahn loest keine Neuverbindung aus", len(Q.oeffnungen) == 0)
+p.check("10: und keine Warnung 'hinter dem Stream'",
+        not any("hinter dem Stream" in z for z in sammler.zeilen))
+g.stopp()
+Q.segment = 0.0
 
 sys.exit(p.bericht())
