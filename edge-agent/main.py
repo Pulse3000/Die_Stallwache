@@ -33,6 +33,7 @@ import json
 import logging
 import math
 import queue
+import secrets
 import sys
 import threading
 import time
@@ -1424,6 +1425,13 @@ class FeedbackSchleife:
         # Austreibungs-Episode je Feedback-ID (nur Austreibungs-Alarme).
         self._episode: dict[str, int] = {}
         self._reihenfolge: deque[str] = deque()
+        # fid = Start-Token + laufende Nummer: Nach einem Neustart treffen
+        # die Buttons alter Nachrichten eine unbekannte fid (laufen ins
+        # Leere) statt den neuen Alarm mit derselben Nummer, und die
+        # Dateinamen der Hard Negatives wiederholen sich nicht. Zufall statt
+        # Startzeit, weil Stallrechner ohne RTC mit falscher Uhr starten
+        # (docs/feedback-id-spezifikation.md).
+        self._start = secrets.token_hex(4)
         self._naechste_id = 0
         self._offset = 0
         self._letzter_poll = 0.0
@@ -1439,10 +1447,11 @@ class FeedbackSchleife:
         liefert das Telegram-reply_markup — oder None, wenn Feedback aus ist."""
         if not self.aktiv or alarm.typ == "info":
             return None
-        fid = str(self._naechste_id)
+        fid = f"{self._start}{self._naechste_id}"
         self._naechste_id += 1
-        # Nach einem Neustart kann ein Votum auf eine Alt-Nachricht diese ID
-        # schon belegt haben; der neue Alarm beginnt unabgestimmt.
+        # Der neue Alarm beginnt unabgestimmt. Seit dem Start-Token kann ein
+        # Votum auf eine Alt-Nachricht diese ID nur noch bei einer
+        # Token-Kollision (1 : 2**32) belegt haben.
         self._abgestimmt.pop(fid, None)
         self._offen[fid] = (alarm.typ, [b for b in bilder if b])
         if alarm.episode is not None:
@@ -1606,7 +1615,10 @@ class FeedbackSchleife:
         ordner = self.ordner / time.strftime("%Y-%m-%d")
         ordner.mkdir(parents=True, exist_ok=True)
         for i, b in enumerate(bilder):
-            (ordner / f"{typ}-{fid}-{i}.jpg").write_bytes(b)
+            # "xb": eine vorhandene Datei wird nie ueberschrieben; der
+            # FileExistsError endet als „NICHT gespeichert“-Antwort.
+            with (ordner / f"{typ}-{fid}-{i}.jpg").open("xb") as f:
+                f.write(b)
         log.info("Fehlalarm-Feedback: %d Bild(er) -> %s", len(bilder), ordner)
         # Zweitkopie in die Cloud – Hard Negatives sind die wertvollsten
         # Trainingsbilder ueberhaupt (echte Szenen aus genau diesem Stall,

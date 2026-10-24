@@ -251,7 +251,7 @@ Feedback-IDs, für die schon ein Votum gezählt wurde.
 | 3 | Der Tagesbericht setzt nur die Zähler zurück, nicht `_abgestimmt`. Ein Doppel-Tipp nach dem Bericht auf einen Alarm von vorher zählt ebenfalls nicht |
 | 4 | Unverändert: alle Antworttexte an den Landwirt (auch beim Doppel-Tipp), Hard-Negative-Speicherung, `bei_fehlalarm`-Rückruf und Entfernen der Buttons nur beim ersten Votum, Schwellen. Keine neuen Schalter |
 | 5 | `_abgestimmt` wird nur im Hauptthread gelesen und geschrieben (wie `zaehler` und `_offen`, Grundsatz 4) |
-| 6 | `registriere()` nimmt die neu vergebene ID aus `_abgestimmt`. Innerhalb eines Laufs ist das wirkungslos (IDs sind eindeutig). Nach einem Neustart verhindert es, dass ein Votum auf eine Alt-Nachricht (ID ≥ aktueller Zähler) später das echte erste Votum des neuen Alarms mit derselben ID verschluckt |
+| 6 | `registriere()` nimmt die neu vergebene ID aus `_abgestimmt`. Innerhalb eines Laufs ist das wirkungslos (IDs sind eindeutig). Nach einem Neustart verhindert es, dass ein Votum auf eine Alt-Nachricht (ID ≥ aktueller Zähler) später das echte erste Votum des neuen Alarms mit derselben ID verschluckt. Seit den eindeutigen Feedback-IDs ([`feedback-id-spezifikation.md`](./feedback-id-spezifikation.md)) greift das nur noch bei einer Token-Kollision (1 : 2³²) |
 
 Bewusst nicht abgedeckt:
 
@@ -323,8 +323,8 @@ nie über 200 IDs (16–31 KB). Befunde, alle niedrig oder kosmetisch:
 
 ### 7.4 Risiken
 
-1. **Kollision der Feedback-IDs nach Neustart (vorbestehend, nicht Teil
-   dieser Änderung).** `_naechste_id` beginnt nach jedem Start bei 0. Ein
+1. **Kollision der Feedback-IDs nach Neustart (vorbestehend, inzwischen
+   behoben).** `_naechste_id` beginnt nach jedem Start bei 0. Ein
    Tipp auf die noch stehenden Buttons eines Alarms von *vor* dem Neustart
    trifft die gleichnamige ID eines neuen Alarms: Dessen Bilder würden als
    Hard Negatives abgelegt, und `bei_fehlalarm` griffe in die falsche
@@ -336,7 +336,11 @@ nie über 200 IDs (16–31 KB). Befunde, alle niedrig oder kosmetisch:
    bleiben dabei stehen (kein `_offen`-Eintrag); ein weiterer Tipp nach der
    Neuvergabe trifft den neuen Alarm wie oben. Abhilfe für die Kollision
    selbst wäre eine Start-Kennung in `callback_data` (Grenze 64 Byte); das
-   ist ein eigener Schritt.
+   ist ein eigener Schritt. **Umgesetzt** in
+   [`feedback-id-spezifikation.md`](./feedback-id-spezifikation.md): Jede
+   Feedback-ID trägt einen zufälligen Start-Token je Prozess. Ein Tipp auf
+   eine Alt-Nachricht trifft keine neue ID mehr, Hard Negatives werden nie
+   überschrieben.
 2. **Gefälschte `callback_data`** (nur aus dem Chat, mit manipuliertem
    Client): erhöhen den Zähler wie bisher. Neu ist, dass sie echte IDs aus
    `_abgestimmt` verdrängen können. Die Menge bleibt dabei auf 200 IDs
