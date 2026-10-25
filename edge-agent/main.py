@@ -32,6 +32,7 @@ import datetime as dt
 import json
 import logging
 import math
+import os
 import queue
 import sys
 import threading
@@ -606,6 +607,11 @@ class Lebenszeichen:
     darf die Analyseschleife nie aufhalten. Haengt ein Versand noch, faellt
     der naechste aus, statt Threads aufzustauen. Den Offline-Puffer der
     Alarme fasst er bewusst nicht an (gehoert dem Hauptthread).
+
+    Dazu die Zahl der Trainingsbilder im Silent-Mode-Ordner, damit der
+    Tagesreport den Fortschritt der Datensammlung belegen kann
+    (Spezifikation Abschnitt 9). Gezaehlt wird im Sende-Thread, nie in der
+    Hauptschleife.
     """
 
     TIMEOUT_S = 10
@@ -619,6 +625,8 @@ class Lebenszeichen:
         self.token = (db.get("token") or "").strip()
         self.intervall_s = float(db.get("lebenszeichen_minuten", 5) or 0) * 60
         self.kamera = (cfg.get("stream") or {}).get("kamera", "stallwache")
+        ordner = (cfg.get("silent_mode") or {}).get("ordner")
+        self.ordner = Path(ordner) if ordner else None
         self._zuletzt: float | None = None
         self._zustand: tuple[str, bool] | None = None
         self._thread: threading.Thread | None = None
@@ -663,7 +671,25 @@ class Lebenszeichen:
             log.exception("Lebenszeichen konnte nicht gestartet werden")
             return False
 
+    def zaehle_trainingsbilder(self) -> int | None:
+        """*.jpg im Silent-Mode-Ordner (nicht rekursiv); None, wenn der Ordner
+        fehlt oder nicht lesbar ist. Wirft nie."""
+        if self.ordner is None:
+            return None
+        try:
+            with os.scandir(self.ordner) as eintraege:
+                return sum(
+                    1
+                    for e in eintraege
+                    if e.name.lower().endswith(".jpg") and e.is_file()
+                )
+        except Exception:  # noqa: BLE001 – Zaehlen darf den Versand nie stoeren
+            return None
+
     def _sende(self, nutzlast: dict) -> None:
+        anzahl = self.zaehle_trainingsbilder()
+        if anzahl is not None:
+            nutzlast["lebenszeichen"]["trainingsbilder"] = anzahl
         try:
             requests.post(
                 self.url,

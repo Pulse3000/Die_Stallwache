@@ -29,6 +29,19 @@ export interface Lebenszeichen {
   modus: AgentModus | null;
   /** Stream liefert verwertbare Frames; null = unbekannt. */
   bild: boolean | null;
+  /**
+   * Zahl der Trainingsbilder im Silent-Mode-Ordner des Agenten; fehlt bei
+   * aelteren Agenten und Eintraegen, null = ungueltig gemeldet.
+   */
+  trainingsbilder?: number | null;
+}
+
+/** Kamera-Zustand aus dem Lebenszeichen eines Ingest-Stapels. */
+export interface KameraZustand {
+  kamera: string;
+  modus: AgentModus | null;
+  bild: boolean | null;
+  trainingsbilder: number | null;
 }
 
 export interface StatusEingabe {
@@ -96,12 +109,23 @@ export interface Datenlage {
   grund: string | null;
 }
 
+/** info-Ereignis des Agenten (Start, Stream weg/wieder da, Bild eingefroren). */
+export interface Systemmeldung {
+  id: string;
+  zeit: string;
+  nachricht: string;
+}
+
 export interface KameraStatus {
   kamera: string;
   stufe: Stufe;
   datenlage: Datenlage;
   /** Ereignisse ohne Kuh-Bezug (Austreibung, Eskalation). */
   kameraAlarme: StatusAlarm[];
+  /** Juengste Systemmeldungen im Fenster (hoechstens 5); aendern die Stufe nie. */
+  systemmeldungen: Systemmeldung[];
+  /** Alle Systemmeldungen dieser Kamera im Fenster. */
+  systemmeldungenAnzahl: number;
   cooldown: Cooldown[];
   kuehe: KuhStatus[];
   text: string;
@@ -119,6 +143,8 @@ export interface StallStatus {
 
 export const STANDARD_FENSTER_STUNDEN = 12;
 export const MAX_FENSTER_STUNDEN = 72;
+export const MAX_SYSTEMMELDUNGEN = 5;
+const MAX_TRAININGSBILDER = 10_000_000;
 const ALARM_TYPEN: readonly EreignisTyp[] = [
   "kalbeverdacht",
   "austreibung",
@@ -275,14 +301,33 @@ export function baueStallStatus(
       jetzt,
       cooldownMs,
     );
+    // Systemmeldungen: Kontext, kein Befund — sie fliessen in keine Stufe ein.
+    const alleMeldungen = imFenster
+      .filter((e) => e.kamera === kamera && e.typ === "info")
+      .sort((a, b) => (Date.parse(b.zeit) || 0) - (Date.parse(a.zeit) || 0));
+    const systemmeldungen = alleMeldungen
+      .slice(0, MAX_SYSTEMMELDUNGEN)
+      .map((e) => ({ id: e.id, zeit: e.zeit, nachricht: e.nachricht }));
     return {
       kamera,
       stufe,
       datenlage,
       kameraAlarme,
+      systemmeldungen,
+      systemmeldungenAnzahl: alleMeldungen.length,
       cooldown,
       kuehe,
-      text: kameraText(kamera, stufe, datenlage, kameraAlarme, kuehe, stunden, uhr),
+      text: kameraText(
+        kamera,
+        stufe,
+        datenlage,
+        kameraAlarme,
+        kuehe,
+        stunden,
+        uhr,
+        systemmeldungen,
+        alleMeldungen.length,
+      ),
     };
   });
 
@@ -340,7 +385,11 @@ function bewerteDatenlage(
       ? `letztes Lebenszeichen ${uhr(lz.zeit)} (vor ${Math.round(alterMs / 60_000)} min)`
       : "Lebenszeichen ohne gültige Zeit";
   } else if (lz.modus === "silent") {
-    grund = "Silent Mode (Datensammlung), Tiere werden noch nicht analysiert";
+    const n = lz.trainingsbilder;
+    grund =
+      typeof n === "number"
+        ? `Silent Mode (Datensammlung, ${n.toLocaleString("de-DE")} Trainingsbilder), Tiere werden noch nicht analysiert`
+        : "Silent Mode (Datensammlung), Tiere werden noch nicht analysiert";
   } else if (lz.modus !== "analyse") {
     grund = "Betriebsmodus des Agenten unbekannt";
   } else if (lz.bild === false) {
@@ -425,6 +474,8 @@ function kameraText(
   kuehe: KuhStatus[],
   stunden: number,
   uhr: (iso: string) => string,
+  systemmeldungen: Systemmeldung[],
+  meldungenAnzahl: number,
 ): string {
   const name = kamera.charAt(0).toUpperCase() + kamera.slice(1);
   const teile: string[] = [];
@@ -454,7 +505,38 @@ function kameraText(
   } else if (!datenlage.aktuell) {
     teile.push(`Achtung: ${datenlage.grund}.`);
   }
+  const letzte = systemmeldungen[0];
+  if (letzte) {
+    const kurz =
+      letzte.nachricht.length > 160 ? `${letzte.nachricht.slice(0, 159)}…` : letzte.nachricht;
+    const ende = /[.!?…]$/.test(kurz) ? "" : ".";
+    teile.push(
+      `${meldungenAnzahl} Systemmeldung${meldungenAnzahl === 1 ? "" : "en"}, zuletzt ${uhr(letzte.zeit)}: ${kurz}${ende}`,
+    );
+  }
   return `${name}: ${stufe} – ${teile.join(" ")}`;
+}
+
+/**
+ * Kamera-Zustand aus dem Feld `lebenszeichen` eines Ingest-Stapels;
+ * undefined bei fehlendem/kaputtem Feld. Fehlerhafte Einzelwerte werden
+ * null, statt den Stapel abzulehnen (docs/statusabfrage-spezifikation.md).
+ */
+export function leseLebenszeichen(roh: unknown): KameraZustand | undefined {
+  if (typeof roh !== "object" || roh === null) return undefined;
+  const r = roh as Record<string, unknown>;
+  const kamera = typeof r.kamera === "string" ? r.kamera.trim() : "";
+  if (!/^[a-z0-9_-]{1,50}$/i.test(kamera)) return undefined;
+  const n = r.trainingsbilder;
+  return {
+    kamera,
+    modus: r.modus === "analyse" || r.modus === "silent" ? r.modus : null,
+    bild: typeof r.bild === "boolean" ? r.bild : null,
+    trainingsbilder:
+      typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= MAX_TRAININGSBILDER
+        ? n
+        : null,
+  };
 }
 
 /** "HH:MM" in Ortszeit, aeltere Tage mit Datum davor ("13.10. 22:14"). */

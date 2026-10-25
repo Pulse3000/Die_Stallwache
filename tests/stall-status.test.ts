@@ -4,7 +4,7 @@
  * Die gefaehrlichste Fehlerart hier ist ein falsches „OK": Der Landwirt
  * fragt nachts „alles ruhig?", bekommt „OK" und schlaeft weiter — obwohl
  * der Agent seit einer Stunde schweigt. Deshalb pruefen die meisten Faelle,
- * wann es KEIN OK geben darf. Abnahmekriterien 1–14 aus
+ * wann es KEIN OK geben darf. Abnahmekriterien 1–14 und 19–23 aus
  * docs/statusabfrage-spezifikation.md.
  *
  *     npm test        (node --test --experimental-strip-types)
@@ -14,6 +14,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import {
   baueStallStatus,
+  leseLebenszeichen,
   type Lebenszeichen,
   type StatusEingabe,
   type StatusOptionen,
@@ -293,4 +294,94 @@ test("Fenster wird auf 1–72 h begrenzt, Alarme vom Vortag tragen ein Datum", (
   });
   assert.equal(s.fensterStunden, 72);
   assert.match(s.kameras[0].text, /Austreibung 12\.10\. 22:00/);
+});
+
+// --- Abschnitt 9: Systemmeldungen und Datensammlung ------------------------
+
+test("19: Systemmeldung wird aufgefuehrt, Stufe bleibt OK", () => {
+  const s = status([
+    ereignis("info", 5, { nachricht: "Kamerastream wieder da (Ausfall 12 min)" }),
+  ]);
+  assert.equal(s.stufe, "OK");
+  const k = s.kameras[0];
+  assert.equal(k.systemmeldungenAnzahl, 1);
+  assert.equal(k.systemmeldungen[0].nachricht, "Kamerastream wieder da (Ausfall 12 min)");
+  assert.match(
+    k.text,
+    /^Stallwache: OK – keine offenen Alarme .* 1 Systemmeldung, zuletzt 03:55: Kamerastream wieder da \(Ausfall 12 min\)\.$/,
+  );
+});
+
+test("20: hoechstens 5 Systemmeldungen, juengste zuerst, Anzahl stimmt", () => {
+  const s = status(
+    [1, 2, 3, 4, 5, 6, 7].map((m) => ereignis("info", m * 10, { nachricht: `Meldung ${m}` })),
+  );
+  const k = s.kameras[0];
+  assert.equal(k.systemmeldungenAnzahl, 7);
+  assert.deepEqual(
+    k.systemmeldungen.map((m) => m.nachricht),
+    ["Meldung 1", "Meldung 2", "Meldung 3", "Meldung 4", "Meldung 5"],
+  );
+  assert.match(k.text, /7 Systemmeldungen, zuletzt 03:50: Meldung 1\.$/);
+  assert.equal(s.stufe, "OK");
+});
+
+test("21: Systemmeldungen ausserhalb des Fensters oder anderer Kameras fehlen", () => {
+  const s = status(
+    [
+      ereignis("info", 13 * 60, { nachricht: "zu alt" }),
+      ereignis("info", 5, { nachricht: "Futter-Meldung", kamera: "futterwache" }),
+    ],
+    { stallwache: frisch(), futterwache: frisch() },
+  );
+  const stall = s.kameras.find((k) => k.kamera === "stallwache")!;
+  const futter = s.kameras.find((k) => k.kamera === "futterwache")!;
+  assert.equal(stall.systemmeldungenAnzahl, 0);
+  assert.doesNotMatch(stall.text, /Systemmeldung/);
+  assert.deepEqual(futter.systemmeldungen.map((m) => m.nachricht), ["Futter-Meldung"]);
+  // Kamera-Filter wirkt, Kuh-Filter laesst die Meldungen stehen
+  const nurFutter = status(
+    [ereignis("info", 5, { nachricht: "Futter-Meldung", kamera: "futterwache" })],
+    { stallwache: frisch(), futterwache: frisch() },
+    { kamera: "futterwache", kuh: "42" },
+  );
+  assert.equal(nurFutter.kameras.length, 1);
+  assert.equal(nurFutter.kameras[0].systemmeldungenAnzahl, 1);
+});
+
+test("21a: lange Systemmeldung wird im Text gekuerzt, im Feld nicht", () => {
+  const lang = "x".repeat(300);
+  const k = status([ereignis("info", 5, { nachricht: lang })]).kameras[0];
+  assert.equal(k.systemmeldungen[0].nachricht.length, 300);
+  assert.match(k.text, /zuletzt 03:55: x{159}…$/);
+});
+
+test("22: Silent Mode nennt die Zahl der Trainingsbilder", () => {
+  const mit = status([], { stallwache: frisch({ modus: "silent", trainingsbilder: 1234 }) });
+  assert.equal(mit.stufe, "UNBEKANNT");
+  assert.match(
+    mit.kameras[0].text,
+    /Silent Mode \(Datensammlung, 1\.234 Trainingsbilder\), Tiere werden noch nicht analysiert\. Keine Aussage/,
+  );
+  assert.equal(mit.kameras[0].datenlage.lebenszeichen!.trainingsbilder, 1234);
+  const ohne = status([], { stallwache: frisch({ modus: "silent" }) });
+  assert.match(ohne.kameras[0].text, /Silent Mode \(Datensammlung\), Tiere/);
+  const ungueltig = status([], { stallwache: frisch({ modus: "silent", trainingsbilder: null }) });
+  assert.match(ungueltig.kameras[0].text, /Silent Mode \(Datensammlung\), Tiere/);
+});
+
+test("23: Lebenszeichen-Parser prueft trainingsbilder, verwirft den Rest nicht", () => {
+  const gut = leseLebenszeichen({ kamera: "stallwache", modus: "silent", bild: true, trainingsbilder: 1234 });
+  assert.deepEqual(gut, { kamera: "stallwache", modus: "silent", bild: true, trainingsbilder: 1234 });
+  for (const falsch of [-1, 1.5, "12", 10_000_001, Number.NaN, null, undefined]) {
+    const lz = leseLebenszeichen({ kamera: "stallwache", modus: "analyse", bild: true, trainingsbilder: falsch });
+    assert.equal(lz?.trainingsbilder, null, String(falsch));
+    assert.equal(lz?.modus, "analyse");
+  }
+  assert.equal(leseLebenszeichen({ kamera: "stallwache", trainingsbilder: 0 })?.trainingsbilder, 0);
+  // Bisheriges Verhalten bleibt: kaputte Kamera -> kein Kamera-Zustand
+  assert.equal(leseLebenszeichen({ kamera: "../etc", modus: "analyse" }), undefined);
+  assert.equal(leseLebenszeichen("kaputt"), undefined);
+  const altFormat = leseLebenszeichen({ kamera: "stallwache", modus: "turbo", bild: "ja" });
+  assert.deepEqual(altFormat, { kamera: "stallwache", modus: null, bild: null, trainingsbilder: null });
 });

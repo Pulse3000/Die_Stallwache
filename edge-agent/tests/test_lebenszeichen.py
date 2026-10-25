@@ -2,13 +2,15 @@
 """Logiktests Lebenszeichen an die App (Grundlage der Statusabfrage).
 
 Geprueft wird die Zusage aus docs/statusabfrage-spezifikation.md
-(Abnahmekriterium 15): Das Lebenszeichen nennt Kamera, Modus und
+(Abnahmekriterien 15 und 24): Das Lebenszeichen nennt Kamera, Modus und
 Bildzustand, haelt sein Intervall ein, meldet Zustandswechsel frueher, und
-ein toter oder haengender Uplink blockiert die Hauptschleife nie. HTTP ist
+ein toter oder haengender Uplink blockiert die Hauptschleife nie. Dazu die
+Zahl der Trainingsbilder im Silent-Mode-Ordner, gezaehlt im Sende-Thread. HTTP ist
 komplett gestubbt — es geht nie ein echter Request raus.
 """
 
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -153,5 +155,68 @@ try:
     p.check("Thread-Startfehler -> False statt Ausnahme", kaputt.tick(True, True, 0.0) is False)
 finally:
     m.threading.Thread = original
+
+# --- 8. Trainingsbilder im Silent-Mode-Ordner (Kriterium 24) --------------
+netz_an()
+with tempfile.TemporaryDirectory() as tmp:
+    ordner = Path(tmp) / "aufnahmen"
+    ordner.mkdir()
+    for name in ("stallwache_20261025-080000.jpg", "stallwache_20261025-080200.JPG",
+                 "stallwache_20261025-080400.jpg", "notiz.txt", "labels.json"):
+        (ordner / name).write_bytes(b"x")
+    (ordner / "unterordner.jpg").mkdir()  # Ordner mit .jpg-Namen zaehlt nicht
+    (ordner / "tiefer").mkdir()
+    (ordner / "tiefer" / "nicht_rekursiv.jpg").write_bytes(b"x")
+
+    def mit_ordner(pfad):
+        return m.Lebenszeichen({
+            "stream": {"kamera": "stallwache"},
+            "dashboard": {"url": URL, "token": "T"},
+            "silent_mode": {"ordner": str(pfad)},
+        })
+
+    gesendet.clear()
+    t = mit_ordner(ordner)
+    p.check("Ordner aus silent_mode.ordner", t.ordner == ordner)
+    p.check("zaehlt nur *.jpg-Dateien, nicht rekursiv", t.zaehle_trainingsbilder() == 3)
+    p.check("Versand startet", t.tick(False, True, 0.0) is True)
+    warte(t)
+    p.check(
+        "Lebenszeichen traegt trainingsbilder",
+        gesendet[-1][1]["json"]["lebenszeichen"]
+        == {"kamera": "stallwache", "modus": "silent", "bild": True, "trainingsbilder": 3},
+    )
+
+    # Zaehlen im Sende-Thread, nicht beim Tick: ein neues Bild zwischen zwei
+    # Lebenszeichen steht im naechsten Versand.
+    (ordner / "stallwache_20261025-080600.jpg").write_bytes(b"x")
+    gesendet.clear()
+    p.check("naechstes Lebenszeichen", t.tick(False, True, 400.0) is True)
+    warte(t)
+    p.check("neue Zahl", gesendet[-1][1]["json"]["lebenszeichen"]["trainingsbilder"] == 4)
+
+    gesendet.clear()
+    fehlt = mit_ordner(Path(tmp) / "gibt-es-nicht")
+    p.check("fehlender Ordner -> None", fehlt.zaehle_trainingsbilder() is None)
+    fehlt.tick(False, True, 0.0)
+    warte(fehlt)
+    p.check("fehlender Ordner -> Feld fehlt, Versand trotzdem",
+            len(gesendet) == 1 and "trainingsbilder" not in gesendet[-1][1]["json"]["lebenszeichen"])
+
+    original_scandir = m.os.scandir
+
+    def scandir_kaputt(_):
+        raise PermissionError("kein Zugriff")
+
+    m.os.scandir = scandir_kaputt
+    try:
+        gesendet.clear()
+        k = mit_ordner(ordner)
+        p.check("Lesefehler -> None statt Ausnahme", k.zaehle_trainingsbilder() is None)
+        k.tick(False, True, 0.0)
+        warte(k)
+        p.check("Lesefehler blockiert den Versand nicht", len(gesendet) == 1)
+    finally:
+        m.os.scandir = original_scandir
 
 sys.exit(p.bericht())
