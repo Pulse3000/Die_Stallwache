@@ -30,10 +30,15 @@ export interface Lebenszeichen {
   /** Stream liefert verwertbare Frames; null = unbekannt. */
   bild: boolean | null;
   /**
-   * Zahl der Trainingsbilder im Silent-Mode-Ordner des Agenten; fehlt bei
-   * aelteren Agenten und Eintraegen, null = ungueltig gemeldet.
+   * Bildbestand im Silent Mode (Spezifikation Abschnitt 9). Fehlt = alter
+   * Agent oder Analyse-Modus; null = Bildordner am Stallrechner fehlt oder
+   * ist nicht lesbar (bzw. ungueltig gemeldet).
    */
   trainingsbilder?: number | null;
+  /** Davon mit Aufnahmezeit in den letzten 24 h. */
+  trainingsbilder24h?: number | null;
+  /** Aufnahmezeit des juengsten Bilds (ISO, aus dem Dateinamen). */
+  trainingsbildZuletzt?: string;
 }
 
 /** Kamera-Zustand aus dem Lebenszeichen eines Ingest-Stapels. */
@@ -41,7 +46,9 @@ export interface KameraZustand {
   kamera: string;
   modus: AgentModus | null;
   bild: boolean | null;
-  trainingsbilder: number | null;
+  trainingsbilder?: number | null;
+  trainingsbilder24h?: number | null;
+  trainingsbildZuletzt?: string;
 }
 
 export interface StatusEingabe {
@@ -385,11 +392,7 @@ function bewerteDatenlage(
       ? `letztes Lebenszeichen ${uhr(lz.zeit)} (vor ${Math.round(alterMs / 60_000)} min)`
       : "Lebenszeichen ohne gültige Zeit";
   } else if (lz.modus === "silent") {
-    const n = lz.trainingsbilder;
-    grund =
-      typeof n === "number"
-        ? `Silent Mode (Datensammlung, ${n.toLocaleString("de-DE")} Trainingsbilder), Tiere werden noch nicht analysiert`
-        : "Silent Mode (Datensammlung), Tiere werden noch nicht analysiert";
+    grund = silentGrund(lz, uhr);
   } else if (lz.modus !== "analyse") {
     grund = "Betriebsmodus des Agenten unbekannt";
   } else if (lz.bild === false) {
@@ -404,6 +407,23 @@ function bewerteDatenlage(
       "keine dauerhafte Ereignisablage (KV-Store fehlt oder nicht erreichbar) – Alarme anderer App-Instanzen oder von vor einem Neustart wären hier nicht sichtbar";
   }
   return { aktuell: grund === null, quelle: "kamera", lebenszeichen: lz, grund };
+}
+
+/** Silent-Mode-Grund mit Bildbestand, soweit der Agent ihn meldet. */
+function silentGrund(lz: Lebenszeichen, uhr: (iso: string) => string): string {
+  const n = lz.trainingsbilder;
+  if (n === null) {
+    return "Silent Mode (Datensammlung), aber der Bildordner am Stallrechner ist nicht lesbar – bitte prüfen, ob noch Bilder gespeichert werden";
+  }
+  if (typeof n !== "number") {
+    return "Silent Mode (Datensammlung), Tiere werden noch nicht analysiert";
+  }
+  const teile = [`${n.toLocaleString("de-DE")} ${n === 1 ? "Bild" : "Bilder"} gesammelt`];
+  if (typeof lz.trainingsbilder24h === "number") {
+    teile.push(`${lz.trainingsbilder24h.toLocaleString("de-DE")} in den letzten 24 h`);
+  }
+  if (lz.trainingsbildZuletzt) teile.push(`letztes ${uhr(lz.trainingsbildZuletzt)}`);
+  return `Silent Mode (Datensammlung: ${teile.join(", ")}), Tiere werden noch nicht analysiert`;
 }
 
 /** Juengster Alarm je Typ + Cooldown, solange er noch laeuft. */
@@ -507,12 +527,18 @@ function kameraText(
   }
   const letzte = systemmeldungen[0];
   if (letzte) {
-    const kurz =
-      letzte.nachricht.length > 160 ? `${letzte.nachricht.slice(0, 159)}…` : letzte.nachricht;
-    const ende = /[.!?…]$/.test(kurz) ? "" : ".";
-    teile.push(
-      `${meldungenAnzahl} Systemmeldung${meldungenAnzahl === 1 ? "" : "en"}, zuletzt ${uhr(letzte.zeit)}: ${kurz}${ende}`,
-    );
+    // Nach Zeichen, nicht nach UTF-16-Einheiten kuerzen (Emoji bleiben ganz).
+    const zeichen = Array.from(letzte.nachricht);
+    const kurz = zeichen.length > 160 ? `${zeichen.slice(0, 159).join("")}…` : letzte.nachricht;
+    let satz = `${meldungenAnzahl} Systemmeldung${meldungenAnzahl === 1 ? "" : "en"}, zuletzt ${uhr(letzte.zeit)}: „${kurz}“`;
+    // Nur Zeitstempel und Bildzustand, keine Textdeutung: Kam danach noch
+    // ein Lebenszeichen mit Bild, steht das dabei — sonst bliebe z. B. ein
+    // „Kamerastream ausgefallen“ als letzter Eindruck hinter einem OK stehen.
+    const lz = datenlage.lebenszeichen;
+    if (lz?.bild === true && Date.parse(lz.zeit) > Date.parse(letzte.zeit)) {
+      satz += `; Lebenszeichen danach (${uhr(lz.zeit)}): Bild da`;
+    }
+    teile.push(`${satz}.`);
   }
   return `${name}: ${stufe} – ${teile.join(" ")}`;
 }
@@ -527,16 +553,28 @@ export function leseLebenszeichen(roh: unknown): KameraZustand | undefined {
   const r = roh as Record<string, unknown>;
   const kamera = typeof r.kamera === "string" ? r.kamera.trim() : "";
   if (!/^[a-z0-9_-]{1,50}$/i.test(kamera)) return undefined;
-  const n = r.trainingsbilder;
-  return {
+  const zustand: KameraZustand = {
     kamera,
     modus: r.modus === "analyse" || r.modus === "silent" ? r.modus : null,
     bild: typeof r.bild === "boolean" ? r.bild : null,
-    trainingsbilder:
-      typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= MAX_TRAININGSBILDER
-        ? n
-        : null,
   };
+  // Fehlendes Feld bleibt weg (alter Agent, Analyse-Modus); gesendet, aber
+  // null oder ungueltig -> null (Bildordner nicht lesbar).
+  if ("trainingsbilder" in r) zustand.trainingsbilder = anzahlOderNull(r.trainingsbilder);
+  if ("trainingsbilder_24h" in r) {
+    zustand.trainingsbilder24h = anzahlOderNull(r.trainingsbilder_24h);
+  }
+  const zuletzt = r.trainingsbild_zuletzt;
+  if (typeof zuletzt === "string" && zuletzt.length <= 40 && !Number.isNaN(Date.parse(zuletzt))) {
+    zustand.trainingsbildZuletzt = new Date(zuletzt).toISOString();
+  }
+  return zustand;
+}
+
+function anzahlOderNull(n: unknown): number | null {
+  return typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= MAX_TRAININGSBILDER
+    ? n
+    : null;
 }
 
 /** "HH:MM" in Ortszeit, aeltere Tage mit Datum davor ("13.10. 22:14"). */

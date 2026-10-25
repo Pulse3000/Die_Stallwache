@@ -2,13 +2,15 @@
 """Logiktests Lebenszeichen an die App (Grundlage der Statusabfrage).
 
 Geprueft wird die Zusage aus docs/statusabfrage-spezifikation.md
-(Abnahmekriterien 15 und 24): Das Lebenszeichen nennt Kamera, Modus und
-Bildzustand, haelt sein Intervall ein, meldet Zustandswechsel frueher, und
-ein toter oder haengender Uplink blockiert die Hauptschleife nie. Dazu die
-Zahl der Trainingsbilder im Silent-Mode-Ordner, gezaehlt im Sende-Thread. HTTP ist
+(Abnahmekriterien 15, 24 und 24a): Das Lebenszeichen nennt Kamera, Modus
+und Bildzustand, haelt sein Intervall ein, meldet Zustandswechsel frueher,
+und ein toter oder haengender Uplink blockiert die Hauptschleife nie. Im
+Silent Mode dazu der Bildbestand der Kamera, gezaehlt im Sende-Thread; im
+Analyse-Modus wird nie gezaehlt. HTTP ist
 komplett gestubbt — es geht nie ein echter Request raus.
 """
 
+import datetime as dt
 import sys
 import tempfile
 import threading
@@ -156,54 +158,79 @@ try:
 finally:
     m.threading.Thread = original
 
-# --- 8. Trainingsbilder im Silent-Mode-Ordner (Kriterium 24) --------------
+# --- 8. Bildbestand im Silent Mode (Kriterien 24, 24a) --------------------
 netz_an()
+JETZT = time.time()
 with tempfile.TemporaryDirectory() as tmp:
     ordner = Path(tmp) / "aufnahmen"
     ordner.mkdir()
-    for name in ("stallwache_20261025-080000.jpg", "stallwache_20261025-080200.JPG",
-                 "stallwache_20261025-080400.jpg", "notiz.txt", "labels.json"):
-        (ordner / name).write_bytes(b"x")
-    (ordner / "unterordner.jpg").mkdir()  # Ordner mit .jpg-Namen zaehlt nicht
+    eigene = [JETZT - 3 * 86400, JETZT - 2 * 3600, JETZT - 600]  # 1 alt, 2 juenger als 24 h
+    for t in eigene:
+        (ordner / m.trainingsbild_name("stallwache", t)).write_bytes(b"x")
+    (ordner / m.trainingsbild_name("futterwache", JETZT)).write_bytes(b"x")  # andere Kamera
+    for fremd in ("screenshot.jpg", "stallwache_export.jpg", "notiz.txt"):
+        (ordner / fremd).write_bytes(b"x")
+    (ordner / m.trainingsbild_name("stallwache", JETZT - 60)).mkdir()  # Ordner, keine Datei
     (ordner / "tiefer").mkdir()
-    (ordner / "tiefer" / "nicht_rekursiv.jpg").write_bytes(b"x")
+    (ordner / "tiefer" / m.trainingsbild_name("stallwache", JETZT)).write_bytes(b"x")
 
-    def mit_ordner(pfad):
+    def mit_ordner(pfad, kamera="stallwache"):
         return m.Lebenszeichen({
-            "stream": {"kamera": "stallwache"},
+            "stream": {"kamera": kamera},
             "dashboard": {"url": URL, "token": "T"},
             "silent_mode": {"ordner": str(pfad)},
         })
 
-    gesendet.clear()
     t = mit_ordner(ordner)
+    b = t.bildbestand(JETZT)
     p.check("Ordner aus silent_mode.ordner", t.ordner == ordner)
-    p.check("zaehlt nur *.jpg-Dateien, nicht rekursiv", t.zaehle_trainingsbilder() == 3)
-    p.check("Versand startet", t.tick(False, True, 0.0) is True)
-    warte(t)
-    p.check(
-        "Lebenszeichen traegt trainingsbilder",
-        gesendet[-1][1]["json"]["lebenszeichen"]
-        == {"kamera": "stallwache", "modus": "silent", "bild": True, "trainingsbilder": 3},
-    )
+    p.check("zaehlt nur eigene Bilder (Praefix, Zeitstempel, Datei, nicht rekursiv)",
+            b is not None and b["trainingsbilder"] == 3)
+    p.check("davon juenger als 24 h", b["trainingsbilder_24h"] == 2)
+    erwartet = dt.datetime.fromtimestamp(int(JETZT - 600), dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    p.check("juengstes Bild als UTC-Zeit aus dem Dateinamen", b.get("trainingsbild_zuletzt") == erwartet)
+    p.check("andere Kamera zaehlt ihre eigenen", mit_ordner(ordner, "futterwache").bildbestand(JETZT)["trainingsbilder"] == 1)
 
-    # Zaehlen im Sende-Thread, nicht beim Tick: ein neues Bild zwischen zwei
-    # Lebenszeichen steht im naechsten Versand.
-    (ordner / "stallwache_20261025-080600.jpg").write_bytes(b"x")
+    gesendet.clear()
+    p.check("Versand startet (Silent)", t.tick(False, True, 0.0) is True)
+    warte(t)
+    lzs = gesendet[-1][1]["json"]["lebenszeichen"]
+    p.check("Lebenszeichen traegt den Bildbestand",
+            lzs["modus"] == "silent" and lzs["trainingsbilder"] == 3
+            and lzs["trainingsbilder_24h"] == 2 and lzs["trainingsbild_zuletzt"] == erwartet)
+
+    # Gezaehlt wird beim Versand, nicht beim Tick
+    (ordner / m.trainingsbild_name("stallwache", JETZT - 5)).write_bytes(b"x")
     gesendet.clear()
     p.check("naechstes Lebenszeichen", t.tick(False, True, 400.0) is True)
     warte(t)
     p.check("neue Zahl", gesendet[-1][1]["json"]["lebenszeichen"]["trainingsbilder"] == 4)
 
+    # Analyse-Modus: nie zaehlen (ein haengender Ordner darf kein altes
+    # „Bild da" verspaeten) -> scandir wird gar nicht aufgerufen
+    aufrufe = []
+    original_scandir = m.os.scandir
+    m.os.scandir = lambda pfad: (aufrufe.append(pfad), original_scandir(pfad))[1]
+    try:
+        gesendet.clear()
+        a = mit_ordner(ordner)
+        a.tick(True, True, 0.0)
+        warte(a)
+        p.check("Analyse-Modus: scandir nie aufgerufen", aufrufe == [])
+        p.check("Analyse-Modus: kein Bildbestand im Lebenszeichen",
+                gesendet[-1][1]["json"]["lebenszeichen"]
+                == {"kamera": "stallwache", "modus": "analyse", "bild": True})
+    finally:
+        m.os.scandir = original_scandir
+
     gesendet.clear()
     fehlt = mit_ordner(Path(tmp) / "gibt-es-nicht")
-    p.check("fehlender Ordner -> None", fehlt.zaehle_trainingsbilder() is None)
+    p.check("fehlender Ordner -> None", fehlt.bildbestand() is None)
     fehlt.tick(False, True, 0.0)
     warte(fehlt)
-    p.check("fehlender Ordner -> Feld fehlt, Versand trotzdem",
-            len(gesendet) == 1 and "trainingsbilder" not in gesendet[-1][1]["json"]["lebenszeichen"])
-
-    original_scandir = m.os.scandir
+    lzf = gesendet[-1][1]["json"]["lebenszeichen"] if gesendet else {}
+    p.check("fehlender Ordner (Silent) -> trainingsbilder ausdruecklich null, Versand trotzdem",
+            len(gesendet) == 1 and "trainingsbilder" in lzf and lzf["trainingsbilder"] is None)
 
     def scandir_kaputt(_):
         raise PermissionError("kein Zugriff")
@@ -212,11 +239,19 @@ with tempfile.TemporaryDirectory() as tmp:
     try:
         gesendet.clear()
         k = mit_ordner(ordner)
-        p.check("Lesefehler -> None statt Ausnahme", k.zaehle_trainingsbilder() is None)
+        p.check("Lesefehler -> None statt Ausnahme", k.bildbestand() is None)
         k.tick(False, True, 0.0)
         warte(k)
-        p.check("Lesefehler blockiert den Versand nicht", len(gesendet) == 1)
+        p.check("Lesefehler blockiert den Versand nicht, meldet null",
+                len(gesendet) == 1 and gesendet[-1][1]["json"]["lebenszeichen"]["trainingsbilder"] is None)
     finally:
         m.os.scandir = original_scandir
+
+    gesendet.clear()
+    ohne_cfg = lz()  # kein silent_mode-Abschnitt
+    ohne_cfg.tick(False, True, 0.0)
+    warte(ohne_cfg)
+    p.check("ohne silent_mode-Konfiguration: kein Feld",
+            "trainingsbilder" not in gesendet[-1][1]["json"]["lebenszeichen"])
 
 sys.exit(p.bericht())

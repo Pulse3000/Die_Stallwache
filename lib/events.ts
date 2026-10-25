@@ -182,12 +182,11 @@ export async function meldeKontakt(kamera?: KameraZustand): Promise<void> {
   store.letzterKontakt = jetzt;
   const befehle: (string | number)[][] = [["SET", KV_KONTAKT, jetzt]];
   if (kamera) {
-    const lz: Lebenszeichen = {
-      zeit: jetzt,
-      modus: kamera.modus,
-      bild: kamera.bild,
-      trainingsbilder: kamera.trainingsbilder,
-    };
+    const lz: Lebenszeichen = { zeit: jetzt, modus: kamera.modus, bild: kamera.bild };
+    // Bildbestand nur uebernehmen, wenn gemeldet (fehlt = alter Agent).
+    if (kamera.trainingsbilder !== undefined) lz.trainingsbilder = kamera.trainingsbilder;
+    if (kamera.trainingsbilder24h !== undefined) lz.trainingsbilder24h = kamera.trainingsbilder24h;
+    if (kamera.trainingsbildZuletzt) lz.trainingsbildZuletzt = kamera.trainingsbildZuletzt;
     store.lebenszeichen.set(kamera.kamera, lz);
     befehle.push(["HSET", KV_LEBENSZEICHEN, kamera.kamera, JSON.stringify(lz)]);
   }
