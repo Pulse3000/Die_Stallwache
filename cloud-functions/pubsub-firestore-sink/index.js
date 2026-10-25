@@ -21,17 +21,30 @@ const COLLECTION = process.env.FIRESTORE_COLLECTION || "stall_ereignisse";
 
 /**
  * Cloud Functions (2nd gen) Pub/Sub-Handler.
+ *
+ * gen2 liefert ein CloudEvent: Die Pub/Sub-Nachricht steckt in
+ * `cloudEvent.data.message`. Genau EIN Parameter, denn bei zweien ruft das
+ * Functions Framework `(cloudEvent, callback)` auf und wartet auf den
+ * Callback statt auf das Promise (jeder Aufruf liefe in den Timeout).
+ * Die gen1-Form (Nachricht direkt als erstes Argument) wird weiter
+ * verstanden, damit ein Deploy ohne `--gen2` nicht still verwirft.
+ *
  * `message.data` ist Base64-kodiertes JSON, `message.attributes` enthält
  * typ/kamera/kuhId (siehe lib/pubsub.ts — dort gesetzt, damit Filter ohne
  * Payload-Parsing möglich sind).
  */
-exports.pubsubFirestoreSink = async (message, context) => {
+exports.pubsubFirestoreSink = async (cloudEvent) => {
+  const message = cloudEvent?.data?.message ?? cloudEvent ?? {};
   let ereignis;
   try {
     const roh = Buffer.from(message.data || "", "base64").toString("utf8");
     ereignis = JSON.parse(roh);
   } catch (e) {
     console.error("Nutzlast ist kein gültiges JSON, verwerfe Nachricht:", e);
+    return;
+  }
+  if (typeof ereignis !== "object" || ereignis === null) {
+    console.error("Nutzlast ist kein JSON-Objekt, verwerfe Nachricht.");
     return;
   }
 
@@ -42,7 +55,7 @@ exports.pubsubFirestoreSink = async (message, context) => {
     kamera: attribute.kamera ?? ereignis.kamera ?? null,
     kuhId: attribute.kuhId ?? ereignis.kuhId ?? null,
     empfangenAm: Firestore.Timestamp.now(),
-    pubsubMessageId: context?.eventId ?? null,
+    pubsubMessageId: message.messageId ?? message.message_id ?? cloudEvent?.id ?? null,
   };
 
   // ID aus dem Ereignis übernehmen, wenn vorhanden — macht den Sink

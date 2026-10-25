@@ -20,6 +20,9 @@
 # README.md in diesem Ordner beschreibt die einzelnen Schritte.
 # ============================================================================
 set -euo pipefail
+# Nie interaktiv nachfragen: Eine Rueckfrage (z. B. „API aktivieren?") bei
+# einem describe mit umgeleiteter Ausgabe wuerde unsichtbar haengen.
+export CLOUDSDK_CORE_DISABLE_PROMPTS=1
 GRUEN='\033[0;32m'; GELB='\033[1;33m'; ROT='\033[0;31m'; AUS='\033[0m'
 info()  { printf '%b==>%b %s\n' "$GRUEN" "$AUS" "$1"; }
 warn()  { printf '%b!! %b %s\n' "$GELB" "$AUS" "$1"; }
@@ -63,7 +66,7 @@ rolle() {  # rolle <Mitglied> <Rolle>; neue Konten sind erst nach Sekunden sicht
 }
 
 command -v gcloud >/dev/null || fehler "gcloud fehlt – in der Google Cloud Shell ausfuehren."
-KONTO=$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -1)
+KONTO=$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -1 || true)
 [ -n "$KONTO" ] || fehler "gcloud ist nicht angemeldet (gcloud auth login)."
 [ -n "$PROJEKT" ] || PROJEKT=$(gcloud config get-value project 2>/dev/null || true)
 [ -n "$PROJEKT" ] || fehler "Kein Projekt gesetzt: --projekt <ID> oder gcloud config set project <ID>."
@@ -121,7 +124,7 @@ rolle "serviceAccount:$PUBSUB_AGENT" roles/iam.serviceAccountTokenCreator
 
 # --- 5. Function ----------------------------------------------------------------
 info "Deploye $FUNKTION (dauert 2–4 min) …"
-fuehre gcloud functions deploy "$FUNKTION" --gen2 --runtime=nodejs20 --region="$REGION" \
+fuehre gcloud functions deploy "$FUNKTION" --gen2 --runtime=nodejs22 --region="$REGION" \
   --source="$HIER" --entry-point=pubsubFirestoreSink --trigger-topic="$TOPIC" \
   --service-account="$LAUFZEIT_SA" --trigger-service-account="$LAUFZEIT_SA" \
   --memory=256MB --timeout=30s --max-instances=5 --project="$PROJEKT" --quiet
@@ -140,8 +143,12 @@ DOKUMENT="$FIRESTORE_API/projects/$PROJEKT/databases/(default)/documents/$COLLEC
 TOKEN=$(gcloud auth print-access-token)
 for _ in $(seq 1 18); do
   if curl -sf -o /dev/null -H "Authorization: Bearer $TOKEN" "$DOKUMENT"; then
-    curl -sf -o /dev/null -X DELETE -H "Authorization: Bearer $TOKEN" "$DOKUMENT" || true
-    info "Probe bestanden: Dokument $ID kam in $COLLECTION an (wieder geloescht)."
+    if curl -sf -o /dev/null -X DELETE -H "Authorization: Bearer $TOKEN" "$DOKUMENT"; then
+      info "Probe bestanden: Dokument $ID kam in $COLLECTION an (wieder geloescht)."
+    else
+      info "Probe bestanden: Dokument $ID kam in $COLLECTION an."
+      warn "Testdokument liess sich nicht loeschen – in der Firestore-Konsole entfernen."
+    fi
     info "Ab jetzt landet jedes Ereignis, das die Webapp nach Pub/Sub spiegelt, in Firestore."
     exit 0
   fi

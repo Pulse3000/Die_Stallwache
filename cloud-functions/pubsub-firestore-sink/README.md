@@ -45,7 +45,8 @@ bash Die_Stallwache/cloud-functions/pubsub-firestore-sink/einrichten.sh         
    `roles/eventarc.eventReceiver`; Compute-Default-Konto bekommt
    `roles/cloudbuild.builds.builder` (baut die Function), der
    Pub/Sub-Dienstagent `roles/iam.serviceAccountTokenCreator`.
-5. Function deployen (gen2, Node 20, `europe-west4`).
+5. Function deployen (gen2, Node 22, `europe-west4`; Node 20 ist seit
+   April 2026 ohne Node-Support).
 6. **Probe:** Testnachricht ins Topic, wartet bis 90 s auf das Dokument in
    `stall_ereignisse`, löscht es wieder. Ohne Dokument: letzte Logs der
    Function und Abbruch mit Fehler.
@@ -61,7 +62,7 @@ cd cloud-functions/pubsub-firestore-sink
 
 gcloud functions deploy pubsub-firestore-sink \
   --gen2 \
-  --runtime=nodejs20 \
+  --runtime=nodejs22 \
   --region=europe-west4 \
   --source=. \
   --entry-point=pubsubFirestoreSink \
