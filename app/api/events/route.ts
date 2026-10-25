@@ -8,7 +8,7 @@ import {
 } from "@/lib/events";
 import { sendeAlarmPush } from "@/lib/push";
 import { veroeffentlicheEreignis } from "@/lib/pubsub";
-import type { AgentModus } from "@/lib/stall-status";
+import { leseLebenszeichen } from "@/lib/stall-status";
 import { tokenGleich } from "@/lib/token";
 
 export const dynamic = "force-dynamic";
@@ -71,8 +71,9 @@ export async function GET(req: NextRequest) {
  * Agenten legen den Zustand ihrer Kamera daneben (Grundlage der
  * Statusabfrage, docs/statusabfrage-spezifikation.md):
  *   { "ereignisse": [],
- *     "lebenszeichen": { "kamera": "stallwache", "modus": "analyse", "bild": true } }
- * Ein fehlerhaftes Feld wird ignoriert, nicht abgelehnt.
+ *     "lebenszeichen": { "kamera": "stallwache", "modus": "silent", "bild": true,
+ *                        "trainingsbilder": 1234 } }
+ * Ein fehlerhaftes Feld wird ignoriert, nicht abgelehnt (`leseLebenszeichen`).
  *
  * Optionale Felder je Ereignis:
  *   bild      Base64-JPEG (ohne data:-Praefix)  – Einzelbild
@@ -139,21 +140,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(ergebnis, { status: 400 });
   }
   return NextResponse.json({ ok: true, ...ergebnis }, { status: 201 });
-}
-
-/** Kamera-Zustand aus dem Lebenszeichen; undefined bei fehlendem/kaputtem Feld. */
-function leseLebenszeichen(
-  roh: unknown,
-): { kamera: string; modus: AgentModus | null; bild: boolean | null } | undefined {
-  if (typeof roh !== "object" || roh === null) return undefined;
-  const r = roh as Record<string, unknown>;
-  const kamera = typeof r.kamera === "string" ? r.kamera.trim() : "";
-  if (!/^[a-z0-9_-]{1,50}$/i.test(kamera)) return undefined;
-  return {
-    kamera,
-    modus: r.modus === "analyse" || r.modus === "silent" ? r.modus : null,
-    bild: typeof r.bild === "boolean" ? r.bild : null,
-  };
 }
 
 type Ergebnis =

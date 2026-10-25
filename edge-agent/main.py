@@ -32,7 +32,9 @@ import datetime as dt
 import json
 import logging
 import math
+import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -589,7 +591,7 @@ class TotmannWaechter:
             dauer_min = (t - self.ausfall_start) / 60
             return (
                 f"Kamerastream seit {dauer_min:.0f} min ausgefallen – das "
-                "dritte Auge ist blind! Bitte Bridge, WLAN und Kamera pruefen."
+                "dritte Auge ist blind! Bitte Bridge, WLAN und Kamera prüfen."
             )
         return None
 
@@ -606,6 +608,13 @@ class Lebenszeichen:
     darf die Analyseschleife nie aufhalten. Haengt ein Versand noch, faellt
     der naechste aus, statt Threads aufzustauen. Den Offline-Puffer der
     Alarme fasst er bewusst nicht an (gehoert dem Hauptthread).
+
+    Im Silent Mode dazu der Bildbestand dieser Kamera (Anzahl, davon in
+    den letzten 24 h, juengstes Bild), damit der Tagesreport den Fortschritt
+    der Datensammlung belegen kann (Spezifikation Abschnitt 9). Gezaehlt
+    wird im Sende-Thread, nie in der Hauptschleife, und nur im Silent Mode:
+    Haengt der Ordner (USB-Platte, NFS), haelt das den Versand auf, und ein
+    verspaetetes „Bild da" darf im Analyse-Modus kein falsches OK tragen.
     """
 
     TIMEOUT_S = 10
@@ -619,6 +628,8 @@ class Lebenszeichen:
         self.token = (db.get("token") or "").strip()
         self.intervall_s = float(db.get("lebenszeichen_minuten", 5) or 0) * 60
         self.kamera = (cfg.get("stream") or {}).get("kamera", "stallwache")
+        ordner = (cfg.get("silent_mode") or {}).get("ordner")
+        self.ordner = Path(ordner) if ordner else None
         self._zuletzt: float | None = None
         self._zustand: tuple[str, bool] | None = None
         self._thread: threading.Thread | None = None
@@ -663,7 +674,53 @@ class Lebenszeichen:
             log.exception("Lebenszeichen konnte nicht gestartet werden")
             return False
 
+    def bildbestand(self, jetzt: float | None = None) -> dict | None:
+        """Silent-Mode-Bilder DIESER Kamera (``<kamera>_JJJJMMTT-HHMMSS.jpg``,
+        nicht rekursiv). Die Zeiten stammen aus dem Dateinamen, ohne stat.
+        None, wenn der Ordner fehlt oder nicht lesbar ist. Wirft nie."""
+        if self.ordner is None:
+            return None
+        t = time.time() if jetzt is None else jetzt
+        praefix = trainingsbild_praefix(self.kamera) + "_"
+        grenze_24h = time.strftime("%Y%m%d-%H%M%S", time.localtime(t - 86400))
+        anzahl = juenger = 0
+        zuletzt = ""
+        try:
+            with os.scandir(self.ordner) as eintraege:
+                for e in eintraege:
+                    name = e.name
+                    if not (name.startswith(praefix) and name.lower().endswith(".jpg")):
+                        continue
+                    stempel = name[len(praefix):-4]
+                    if not _TRAININGSBILD_ZEIT.fullmatch(stempel) or not e.is_file():
+                        continue
+                    anzahl += 1
+                    # Festes Format -> Textvergleich = Zeitvergleich (Ortszeit)
+                    if stempel >= grenze_24h:
+                        juenger += 1
+                    zuletzt = max(zuletzt, stempel)
+        except Exception:  # noqa: BLE001 – Zaehlen darf den Versand nie stoeren
+            return None
+        bestand: dict = {"trainingsbilder": anzahl, "trainingsbilder_24h": juenger}
+        if zuletzt:
+            try:
+                epoche = time.mktime(time.strptime(zuletzt, "%Y%m%d-%H%M%S"))
+                bestand["trainingsbild_zuletzt"] = (
+                    dt.datetime.fromtimestamp(epoche, dt.timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z")
+                )
+            except (ValueError, OverflowError):
+                pass
+        return bestand
+
     def _sende(self, nutzlast: dict) -> None:
+        lz = nutzlast["lebenszeichen"]
+        if lz.get("modus") == "silent" and self.ordner is not None:
+            bestand = self.bildbestand()
+            # Ausdruecklich null: Ordner weg/unlesbar -> Datensammlung steht.
+            # Ein fehlendes Feld hiesse dagegen „alter Agent".
+            lz.update(bestand if bestand is not None else {"trainingsbilder": None})
         try:
             requests.post(
                 self.url,
@@ -2303,6 +2360,14 @@ def pruefe_kamerabild(
     return defekt
 
 
+_TRAININGSBILD_ZEIT = re.compile(r"\d{8}-\d{6}")
+
+
+def trainingsbild_praefix(kamera: str) -> str:
+    """Kamera-Teil des Dateinamens, so bereinigt wie in trainingsbild_name."""
+    return "".join(c if c.isalnum() or c == "-" else "-" for c in kamera) or "kamera"
+
+
 def trainingsbild_name(kamera: str, zeit: float | None = None) -> str:
     """Dateiname eines Silent-Mode-Bilds: <kamera>_<JJJJMMTT-HHMMSS>.jpg.
 
@@ -2310,8 +2375,7 @@ def trainingsbild_name(kamera: str, zeit: float | None = None) -> str:
     Datensatz landen. Die Zeit steht im Namen, weil der Split nach Tagen
     (training/datensatz.py) sie daraus liest.
     """
-    kamera = "".join(c if c.isalnum() or c == "-" else "-" for c in kamera) or "kamera"
-    return f"{kamera}_{time.strftime('%Y%m%d-%H%M%S', time.localtime(zeit))}.jpg"
+    return f"{trainingsbild_praefix(kamera)}_{time.strftime('%Y%m%d-%H%M%S', time.localtime(zeit))}.jpg"
 
 
 # --------------------------------------------------------------------------

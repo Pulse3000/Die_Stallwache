@@ -29,6 +29,26 @@ export interface Lebenszeichen {
   modus: AgentModus | null;
   /** Stream liefert verwertbare Frames; null = unbekannt. */
   bild: boolean | null;
+  /**
+   * Bildbestand im Silent Mode (Spezifikation Abschnitt 9). Fehlt = alter
+   * Agent oder Analyse-Modus; null = Bildordner am Stallrechner fehlt oder
+   * ist nicht lesbar (bzw. ungueltig gemeldet).
+   */
+  trainingsbilder?: number | null;
+  /** Davon mit Aufnahmezeit in den letzten 24 h. */
+  trainingsbilder24h?: number | null;
+  /** Aufnahmezeit des juengsten Bilds (ISO, aus dem Dateinamen). */
+  trainingsbildZuletzt?: string;
+}
+
+/** Kamera-Zustand aus dem Lebenszeichen eines Ingest-Stapels. */
+export interface KameraZustand {
+  kamera: string;
+  modus: AgentModus | null;
+  bild: boolean | null;
+  trainingsbilder?: number | null;
+  trainingsbilder24h?: number | null;
+  trainingsbildZuletzt?: string;
 }
 
 export interface StatusEingabe {
@@ -96,12 +116,23 @@ export interface Datenlage {
   grund: string | null;
 }
 
+/** info-Ereignis des Agenten (Start, Stream weg/wieder da, Bild eingefroren). */
+export interface Systemmeldung {
+  id: string;
+  zeit: string;
+  nachricht: string;
+}
+
 export interface KameraStatus {
   kamera: string;
   stufe: Stufe;
   datenlage: Datenlage;
   /** Ereignisse ohne Kuh-Bezug (Austreibung, Eskalation). */
   kameraAlarme: StatusAlarm[];
+  /** Juengste Systemmeldungen im Fenster (hoechstens 5); aendern die Stufe nie. */
+  systemmeldungen: Systemmeldung[];
+  /** Alle Systemmeldungen dieser Kamera im Fenster. */
+  systemmeldungenAnzahl: number;
   cooldown: Cooldown[];
   kuehe: KuhStatus[];
   text: string;
@@ -119,6 +150,8 @@ export interface StallStatus {
 
 export const STANDARD_FENSTER_STUNDEN = 12;
 export const MAX_FENSTER_STUNDEN = 72;
+export const MAX_SYSTEMMELDUNGEN = 5;
+const MAX_TRAININGSBILDER = 10_000_000;
 const ALARM_TYPEN: readonly EreignisTyp[] = [
   "kalbeverdacht",
   "austreibung",
@@ -275,14 +308,33 @@ export function baueStallStatus(
       jetzt,
       cooldownMs,
     );
+    // Systemmeldungen: Kontext, kein Befund — sie fliessen in keine Stufe ein.
+    const alleMeldungen = imFenster
+      .filter((e) => e.kamera === kamera && e.typ === "info")
+      .sort((a, b) => (Date.parse(b.zeit) || 0) - (Date.parse(a.zeit) || 0));
+    const systemmeldungen = alleMeldungen
+      .slice(0, MAX_SYSTEMMELDUNGEN)
+      .map((e) => ({ id: e.id, zeit: e.zeit, nachricht: e.nachricht }));
     return {
       kamera,
       stufe,
       datenlage,
       kameraAlarme,
+      systemmeldungen,
+      systemmeldungenAnzahl: alleMeldungen.length,
       cooldown,
       kuehe,
-      text: kameraText(kamera, stufe, datenlage, kameraAlarme, kuehe, stunden, uhr),
+      text: kameraText(
+        kamera,
+        stufe,
+        datenlage,
+        kameraAlarme,
+        kuehe,
+        stunden,
+        uhr,
+        systemmeldungen,
+        alleMeldungen.length,
+      ),
     };
   });
 
@@ -340,7 +392,7 @@ function bewerteDatenlage(
       ? `letztes Lebenszeichen ${uhr(lz.zeit)} (vor ${Math.round(alterMs / 60_000)} min)`
       : "Lebenszeichen ohne gültige Zeit";
   } else if (lz.modus === "silent") {
-    grund = "Silent Mode (Datensammlung), Tiere werden noch nicht analysiert";
+    grund = silentGrund(lz, uhr);
   } else if (lz.modus !== "analyse") {
     grund = "Betriebsmodus des Agenten unbekannt";
   } else if (lz.bild === false) {
@@ -355,6 +407,23 @@ function bewerteDatenlage(
       "keine dauerhafte Ereignisablage (KV-Store fehlt oder nicht erreichbar) – Alarme anderer App-Instanzen oder von vor einem Neustart wären hier nicht sichtbar";
   }
   return { aktuell: grund === null, quelle: "kamera", lebenszeichen: lz, grund };
+}
+
+/** Silent-Mode-Grund mit Bildbestand, soweit der Agent ihn meldet. */
+function silentGrund(lz: Lebenszeichen, uhr: (iso: string) => string): string {
+  const n = lz.trainingsbilder;
+  if (n === null) {
+    return "Silent Mode (Datensammlung), aber der Bildordner am Stallrechner ist nicht lesbar – bitte prüfen, ob noch Bilder gespeichert werden";
+  }
+  if (typeof n !== "number") {
+    return "Silent Mode (Datensammlung), Tiere werden noch nicht analysiert";
+  }
+  const teile = [`${n.toLocaleString("de-DE")} ${n === 1 ? "Bild" : "Bilder"} gesammelt`];
+  if (typeof lz.trainingsbilder24h === "number") {
+    teile.push(`${lz.trainingsbilder24h.toLocaleString("de-DE")} in den letzten 24 h`);
+  }
+  if (lz.trainingsbildZuletzt) teile.push(`letztes ${uhr(lz.trainingsbildZuletzt)}`);
+  return `Silent Mode (Datensammlung: ${teile.join(", ")}), Tiere werden noch nicht analysiert`;
 }
 
 /** Juengster Alarm je Typ + Cooldown, solange er noch laeuft. */
@@ -425,6 +494,8 @@ function kameraText(
   kuehe: KuhStatus[],
   stunden: number,
   uhr: (iso: string) => string,
+  systemmeldungen: Systemmeldung[],
+  meldungenAnzahl: number,
 ): string {
   const name = kamera.charAt(0).toUpperCase() + kamera.slice(1);
   const teile: string[] = [];
@@ -454,7 +525,56 @@ function kameraText(
   } else if (!datenlage.aktuell) {
     teile.push(`Achtung: ${datenlage.grund}.`);
   }
+  const letzte = systemmeldungen[0];
+  if (letzte) {
+    // Nach Zeichen, nicht nach UTF-16-Einheiten kuerzen (Emoji bleiben ganz).
+    const zeichen = Array.from(letzte.nachricht);
+    const kurz = zeichen.length > 160 ? `${zeichen.slice(0, 159).join("")}…` : letzte.nachricht;
+    let satz = `${meldungenAnzahl} Systemmeldung${meldungenAnzahl === 1 ? "" : "en"}, zuletzt ${uhr(letzte.zeit)}: „${kurz}“`;
+    // Nur Zeitstempel und Bildzustand, keine Textdeutung: Kam danach noch
+    // ein Lebenszeichen mit Bild, steht das dabei — sonst bliebe z. B. ein
+    // „Kamerastream ausgefallen“ als letzter Eindruck hinter einem OK stehen.
+    const lz = datenlage.lebenszeichen;
+    if (lz?.bild === true && Date.parse(lz.zeit) > Date.parse(letzte.zeit)) {
+      satz += `; Lebenszeichen danach (${uhr(lz.zeit)}): Bild da`;
+    }
+    teile.push(`${satz}.`);
+  }
   return `${name}: ${stufe} – ${teile.join(" ")}`;
+}
+
+/**
+ * Kamera-Zustand aus dem Feld `lebenszeichen` eines Ingest-Stapels;
+ * undefined bei fehlendem/kaputtem Feld. Fehlerhafte Einzelwerte werden
+ * null, statt den Stapel abzulehnen (docs/statusabfrage-spezifikation.md).
+ */
+export function leseLebenszeichen(roh: unknown): KameraZustand | undefined {
+  if (typeof roh !== "object" || roh === null) return undefined;
+  const r = roh as Record<string, unknown>;
+  const kamera = typeof r.kamera === "string" ? r.kamera.trim() : "";
+  if (!/^[a-z0-9_-]{1,50}$/i.test(kamera)) return undefined;
+  const zustand: KameraZustand = {
+    kamera,
+    modus: r.modus === "analyse" || r.modus === "silent" ? r.modus : null,
+    bild: typeof r.bild === "boolean" ? r.bild : null,
+  };
+  // Fehlendes Feld bleibt weg (alter Agent, Analyse-Modus); gesendet, aber
+  // null oder ungueltig -> null (Bildordner nicht lesbar).
+  if ("trainingsbilder" in r) zustand.trainingsbilder = anzahlOderNull(r.trainingsbilder);
+  if ("trainingsbilder_24h" in r) {
+    zustand.trainingsbilder24h = anzahlOderNull(r.trainingsbilder_24h);
+  }
+  const zuletzt = r.trainingsbild_zuletzt;
+  if (typeof zuletzt === "string" && zuletzt.length <= 40 && !Number.isNaN(Date.parse(zuletzt))) {
+    zustand.trainingsbildZuletzt = new Date(zuletzt).toISOString();
+  }
+  return zustand;
+}
+
+function anzahlOderNull(n: unknown): number | null {
+  return typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= MAX_TRAININGSBILDER
+    ? n
+    : null;
 }
 
 /** "HH:MM" in Ortszeit, aeltere Tage mit Datum davor ("13.10. 22:14"). */

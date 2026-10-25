@@ -30,7 +30,7 @@ import {
   type EreignisTyp,
   type StallEreignis,
 } from "@/lib/ereignis-modell";
-import type { AgentModus, Lebenszeichen } from "@/lib/stall-status";
+import type { KameraZustand, Lebenszeichen } from "@/lib/stall-status";
 
 export { ALARM_TYPEN, EREIGNIS_TYPEN };
 export type { EreignisTyp, StallEreignis };
@@ -177,14 +177,16 @@ export async function addEreignis(
  * Mit `kamera` (neuere Agenten) zusaetzlich Modus und Bildzustand dieser
  * Kamera — Grundlage dafuer, dass die Statusabfrage „OK" sagen darf.
  */
-export async function meldeKontakt(
-  kamera?: { kamera: string; modus: AgentModus | null; bild: boolean | null },
-): Promise<void> {
+export async function meldeKontakt(kamera?: KameraZustand): Promise<void> {
   const jetzt = new Date().toISOString();
   store.letzterKontakt = jetzt;
   const befehle: (string | number)[][] = [["SET", KV_KONTAKT, jetzt]];
   if (kamera) {
     const lz: Lebenszeichen = { zeit: jetzt, modus: kamera.modus, bild: kamera.bild };
+    // Bildbestand nur uebernehmen, wenn gemeldet (fehlt = alter Agent).
+    if (kamera.trainingsbilder !== undefined) lz.trainingsbilder = kamera.trainingsbilder;
+    if (kamera.trainingsbilder24h !== undefined) lz.trainingsbilder24h = kamera.trainingsbilder24h;
+    if (kamera.trainingsbildZuletzt) lz.trainingsbildZuletzt = kamera.trainingsbildZuletzt;
     store.lebenszeichen.set(kamera.kamera, lz);
     befehle.push(["HSET", KV_LEBENSZEICHEN, kamera.kamera, JSON.stringify(lz)]);
   }

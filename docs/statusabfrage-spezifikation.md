@@ -186,3 +186,149 @@ Alarmlogik in der Cloud erzeugt Doppel- oder Gegen-Alarme und bräuchte
 laufende Telemetrie-Uploads statt Einzelereignisse (Edge-First). Wer die
 GCP-Werte will, ändert sie **am Edge** — mit Beschluss in
 `wettbewerbsanalyse.md` und Test am realen Stream.
+
+## 9. Erweiterung (25.10.2026): Systemmeldungen und Datensammlung
+
+Anlass: Punkt 3 („Sonstige Auffälligkeiten im Stall“) und Punkt 4
+(„YOLO-Modelltraining“) des Tagesreports. Auch mit Live-Daten blieben
+beide leer, denn die Statusabfrage wertete nur Alarme aus und das
+Lebenszeichen sagte nichts über die Datensammlung. Entwurf: Orchestrator.
+Fachliche Prüfung: `ki-wache` (25.10., Befund B1 blockierend, übernommen).
+
+### 9.1 Grundsatz
+
+1. **Systemmeldungen sind Kontext, kein Befund.** Die `info`-Ereignisse des
+   Agenten (Startmeldung, Kamerastream ausgefallen/wieder da, Bild
+   eingefroren/gestreift) werden je Kamera **aufgeführt**. Die Stufe
+   ändern sie nicht, denn die Statusabfrage deutet keine Texte
+   (Grundsatz 2). Wie gut die Kamera arbeitet, sagt weiter das
+   Lebenszeichen (`bild`, Freeze-Watchdog).
+2. **Datensammlung belegen statt raten.** Im Silent Mode trägt das
+   Lebenszeichen den Bildbestand der Kamera: Anzahl, davon in den letzten
+   24 h, Zeit des jüngsten Bilds. „24 h“ und „jüngstes Bild“ zeigen, ob
+   die Sammlung *gerade* läuft, die Anzahl allein zeigt das nicht. Den
+   Vergleich mit dem Vortag macht der Report: Der Server speichert nur das
+   letzte Lebenszeichen.
+3. **Nur im Silent Mode zählen.** Hängt der Bildordner (USB-Platte läuft an,
+   SD-Karte stirbt, NFS), verzögert das Zählen den Versand. Im
+   Analyse-Modus würde dann ein veraltetes „Bild da“ ein falsches OK
+   tragen. Im Silent Mode ist die Stufe ohnehin `UNBEKANNT`, und ein
+   hängender Ordner blockiert dort schon das Speichern der Bilder selbst.
+
+### 9.2 Grenzen
+
+| Grenze | Folge |
+| --- | --- |
+| Sichtbar sind nur Meldungen, die der Agent an die App schickt. Tempguard (eigenes Skript, `deploy/tempguard/`) meldet nur lokal | Drosselungen durch Tempguard erscheinen nicht. Der Report sagt dazu „Tempguard: aus der Ferne nicht einsehbar“ |
+| Gezählt werden nur Dateien der eigenen Kamera nach dem Muster `<kamera>_JJJJMMTT-HHMMSS.jpg` (wie `trainingsbild_name`), nicht rekursiv | Fremde Dateien, Exporte, Screenshots und Bilder einer zweiten Instanz im selben Ordner zählen nicht mit. Bilder mit anderem Namensschema (z. B. aus dem früheren kuhwatch) ebenfalls nicht |
+| Zeiten stammen aus dem Dateinamen (Ortszeit des Stallrechners), nicht aus `stat` | Eine falsch gestellte Uhr am Stallrechner verschiebt „24 h“ und „jüngstes Bild“ |
+| Gezählt werden gesammelte Bilder, keine gelabelten. Die Abdeckung von Tag, Dämmerung und IR-Nacht steht nicht darin | Die Zahl nie mit der Faustzahl für *gelabelte* Bilder (README) vergleichen. Maßgeblich für den Datensatz bleibt `training/datensatz.py bilanz` |
+| Wird der Ordner nach dem CVAT-Export geleert, fällt die Zahl | korrekt, kein Fehler |
+
+### 9.3 Regeln und Schwellenwerte
+
+- `systemmeldungen` je Kamera: `info`-Ereignisse dieser Kamera **im
+  Fenster**, die jüngsten zuerst, **höchstens 5** (`{ id, zeit, nachricht }`),
+  dazu `systemmeldungenAnzahl` (alle im Fenster). Der Kamera-Filter wirkt,
+  der Kuh-Filter nicht, denn Meldungen haben keinen Kuh-Bezug.
+- Kamera-Text: Gibt es Meldungen, folgt **nach** Alarm- und
+  Datenlage-Satz ein Satz mit Anzahl, Uhrzeit und der letzten Meldung in
+  „…“. Gekürzt wird nach 160 Zeichen, gezählt in Zeichen, nicht in
+  UTF-16-Einheiten. Kam danach noch ein Lebenszeichen mit `bild: true`,
+  steht „; Lebenszeichen danach (HH:MM): Bild da“ dabei. Dafür zählen nur
+  Zeitstempel und Bildzustand, keine Textdeutung.
+- Lebenszeichen-Felder (Agent → Server), nur im Silent Mode und nur mit
+  `silent_mode.ordner`:
+  `trainingsbilder` (Anzahl), `trainingsbilder_24h` (Aufnahmezeit jünger als
+  24 h), `trainingsbild_zuletzt` (ISO-Zeit UTC). Ist der Ordner nicht da
+  oder nicht lesbar, steht ausdrücklich `"trainingsbilder": null`.
+- Server (`leseLebenszeichen`): Anzahlen sind ganze Zahlen von 0 bis
+  10 000 000. Ein **fehlendes** Feld bleibt weg (alter Agent oder
+  Analyse-Modus), `null` oder ein ungültiger Wert wird `null`. Eine
+  `trainingsbild_zuletzt`, die sich nicht als Zeit lesen lässt, entfällt.
+  Der Stapel wird deswegen nie abgelehnt.
+- Antwort: `kameras[].datenlage.lebenszeichen.trainingsbilder`,
+  `.trainingsbilder24h`, `.trainingsbildZuletzt`.
+
+### 9.4 Konfiguration
+
+Keine neuen Schlüssel. Der Ordner ist `silent_mode.ordner` (Default
+`./aufnahmen`). Die Grenze von 5 Meldungen steht als Konstante im Code.
+
+### 9.5 Texte
+
+| Lage | Text |
+| --- | --- |
+| Silent Mode mit Bestand | „Stallwache: UNBEKANNT – Silent Mode (Datensammlung: 1.234 Bilder gesammelt, 31 in den letzten 24 h, letztes 03:58), Tiere werden noch nicht analysiert. Keine Aussage über die Tiere möglich.“ |
+| Silent Mode, Ordner fehlt/unlesbar | „Stallwache: UNBEKANNT – Silent Mode (Datensammlung), aber der Bildordner am Stallrechner ist nicht lesbar – bitte prüfen, ob noch Bilder gespeichert werden. Keine Aussage über die Tiere möglich.“ |
+| Silent Mode, alter Agent | wie bisher: „… Silent Mode (Datensammlung), Tiere werden noch nicht analysiert …“ |
+| OK mit Meldung | „Stallwache: OK – keine offenen Alarme in den letzten 12 h. Analyse läuft, letztes Lebenszeichen 03:58. 1 Systemmeldung, zuletzt 03:55: „Kamerastream wieder da (Ausfall 12 min)“; Lebenszeichen danach (03:58): Bild da.“ |
+
+Dazu korrigiert: Die Totmann-Meldung des Agenten lautet jetzt „… Bitte
+Bridge, WLAN und Kamera prüfen.“ statt „pruefen“, weil sie jetzt im
+Status und im Report erscheint.
+
+### 9.6 Abnahmekriterien
+
+Automatisiert (`tests/stall-status.test.ts`, `edge-agent/tests/test_lebenszeichen.py`).
+Damit Kriterium 23 ohne Next-Laufzeit testbar ist, liegt der
+Lebenszeichen-Parser jetzt als `leseLebenszeichen` in `lib/stall-status.ts`,
+die Route ruft ihn auf:
+
+19. `info`-Ereignis im Fenster → in `systemmeldungen` der Kamera, Stufe
+    bleibt `OK`, Kamera-Text nennt Zeit und Nachricht. Bei jüngerem
+    Lebenszeichen mit Bild kommt der Zusatz dazu, sonst nicht (19a).
+19b. Eine offene Austreibung steht vor jeder Systemmeldung, die Stufe bleibt `KRITISCH`.
+20. 7 Meldungen im Fenster → 5 aufgeführt (die jüngsten zuerst),
+    `systemmeldungenAnzahl` = 7, Text „7 Systemmeldungen“.
+21. Meldung außerhalb des Fensters → nicht aufgeführt; Meldung einer
+    anderen Kamera → nur dort. Kürzung nach Zeichen, Emoji bleiben ganz (21a).
+22. Silent Mode: Grund nennt Anzahl (Singular „1 Bild“), 24-h-Zahl und
+    Uhrzeit des jüngsten Bilds. `null` → Ordner-Hinweis. Feld fehlt →
+    bisheriger Text.
+23. Ingest: gültige Werte werden übernommen. −1, 1.5, "12", 10 000 001, NaN
+    und `null` werden `null`, ein fehlendes Feld bleibt weg. Der Stapel
+    wird nie abgelehnt.
+24. Agent im Silent Mode: zählt nur eigene Bilder (Präfix, Zeitstempel,
+    Datei, nicht rekursiv), dazu die 24-h-Zahl und das jüngste Bild.
+    Fehlender oder unlesbarer Ordner → `trainingsbilder: null`, und der
+    Versand läuft trotzdem.
+24a. Agent im Analyse-Modus: `scandir` wird nie aufgerufen, das
+     Lebenszeichen hat keinen Bildbestand.
+
+Am realen System (Beweispflicht, offen):
+
+25. Silent Mode 1 h laufen lassen → `trainingsbilder` steigt um etwa 30
+    (Intervall 120 s), `trainingsbildZuletzt` ist höchstens 2 min alt, und
+    der Report nennt die Zahlen.
+26. Kamera 6 min abziehen → nach der Rückkehr steht „Kamerastream wieder da“
+    unter `systemmeldungen`.
+
+### 9.7 Risiken und Folgepunkte
+
+1. **Hängender Bildordner:** Der Versand-Timeout begrenzt das Zählen
+   **nicht**. Deshalb wird nur im Silent Mode gezählt (Grundsatz 3). Bei
+   einer lokalen Platte dauert es 0,03 s für 100 000 Dateien (gemessen).
+2. **Meldungsflut** (z. B. flackernder Stream): Totmann und Watchdog melden
+   je Episode einmal, die Antwort zeigt höchstens 5 Meldungen, die Anzahl
+   bleibt sichtbar.
+3. **Systemmeldungen teilen sich die Ereignisliste mit den Alarmen**
+   (KV-Liste, höchstens 200 Einträge, `lib/events.ts`). Bei sehr vielen
+   Meldungen in 12 h kann ein älterer Alarm im Fenster aus der Liste fallen.
+   Dann zeigt der Status `OK` statt `WARNUNG`/`KRITISCH`. Den Telegram-Alarm
+   betrifft das nicht. Dieses Risiko bestand schon vor dieser Erweiterung.
+   **Folgepunkt:** Alarme und Meldungen getrennt speichern oder Alarme beim
+   Kürzen bevorzugen.
+4. **Ein Neustart verdeckt den Ausfall im Text:** Der Text nennt nur die
+   jüngste Meldung (z. B. „Edge-Agent gestartet“). Den Ausfall davor zeigt
+   nur das Feld `systemmeldungen`, das der Report liest. **Folgepunkt:**
+   Der Agent unterscheidet schon `Notifier.wichtig` und `status`. Als Feld
+   `wichtig` mitschicken und im Text die jüngste wichtige Meldung nennen.
+5. **Nachtanteil der Sammlung:** Fällt die Sammlung nur nachts aus
+   (Tempguard, Freeze-Watchdog bei ruhiger IR-Szene), steigt die Anzahl
+   tagsüber weiter. **Folgepunkt:** im selben Scan die Bilder mit
+   Aufnahmezeit 18–06 Uhr mitzählen, als Uhrzeit-Näherung gekennzeichnet,
+   nicht als IR-Erkennung.
+6. **Inhalt der Meldungen:** Die Texte stammen nur vom Agenten
+   (Ingest-Token) und enthalten keine Stream-URLs oder Zugangsdaten. Die
+   Lese-Antwort zeigt sie so, wie sie im Dashboard schon stehen.
