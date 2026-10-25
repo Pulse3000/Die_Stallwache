@@ -242,6 +242,13 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
   // {result} — das wie eine leere Liste zu behandeln, ergaebe in der
   // Statusabfrage ein falsches „OK".
   const kvGelesen = kv !== null && Array.isArray(kv[0]?.result);
+  // Kontakt zaehlt auch ohne Ereignis: Ein Agent im Silent Mode oder bei
+  // ruhiger Herde schickt nur Lebenszeichen (leerer Stapel). Vorher fiel
+  // der Kontakt dann weg und das Dashboard zeigte „nicht verbunden".
+  const kontakt = juengsterKontakt(
+    typeof kv?.[1]?.result === "string" ? (kv[1].result as string) : null,
+    store.letzterKontakt,
+  );
   if (kv && kvGelesen) {
     const roh = kv[0].result as string[];
     // HGETALL liefert ein flaches Array [feld1, wert1, feld2, wert2, …].
@@ -265,8 +272,7 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
     if (ereignisse.length > 0) {
       return {
         ereignisse,
-        letzterKontakt:
-          typeof kv[1]?.result === "string" ? kv[1].result : null,
+        letzterKontakt: kontakt,
         quelle: "edge-agent",
         speicher: "kv",
       };
@@ -276,9 +282,22 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
   if (store.ereignisse.length > 0) {
     return {
       ereignisse: store.ereignisse,
-      letzterKontakt: store.letzterKontakt,
+      letzterKontakt: kontakt,
       quelle: "edge-agent",
       speicher: "instanz",
+    };
+  }
+  // Agent hat sich gemeldet, aber (noch) nichts erkannt: leere Liste statt
+  // Demo-Daten — die Demo stuende sonst als echte Alarme im Dashboard.
+  // Nur wenn die Liste wirklich gelesen wurde (oder es gar kein KV gibt):
+  // Bei einem KV-Lesefehler koennte dort eine offene Austreibung liegen —
+  // dann lieber Demo/„nicht verbunden" als ein ruhiges „Keine Alarme".
+  if (kontakt && (kvGelesen || !kvAktiv)) {
+    return {
+      ereignisse: [],
+      letzterKontakt: kontakt,
+      quelle: "edge-agent",
+      speicher: kvGelesen ? "kv" : "instanz",
     };
   }
   // KV gelesen und leer = wirklich nichts gespeichert; ohne KV weiss diese
@@ -289,6 +308,15 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
     quelle: "demo",
     speicher: kvGelesen ? "kv" : "instanz",
   };
+}
+
+/** Der juengere von zwei ISO-Zeitpunkten (KV und Instanzpuffer); null, wenn keiner gueltig ist. */
+function juengsterKontakt(a: string | null, b: string | null): string | null {
+  const ta = a ? Date.parse(a) : Number.NaN;
+  const tb = b ? Date.parse(b) : Number.NaN;
+  if (Number.isNaN(ta)) return Number.isNaN(tb) ? null : b;
+  if (Number.isNaN(tb)) return a;
+  return tb > ta ? b : a;
 }
 
 /** Ergaenzt Felder, die aeltere (vor dem Bild-Update geschriebene) Eintraege nicht haben. */

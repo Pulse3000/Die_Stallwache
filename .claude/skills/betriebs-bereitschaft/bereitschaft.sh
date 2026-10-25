@@ -48,10 +48,22 @@ EV=$(hole /api/events)
 if echo "$EV" | grep -q '"quelle"'; then
   QUELLE=$(echo "$EV" | python3 -c 'import sys,json;print(json.load(sys.stdin)["quelle"])' 2>/dev/null)
   KONTAKT=$(echo "$EV" | python3 -c 'import sys,json;print(json.load(sys.stdin)["letzterKontakt"] or "nie")' 2>/dev/null)
+  # Alter des Kontakts in Minuten (-1 = keiner/unlesbar). Seit die App den
+  # Kontakt auch ohne Ereignis liefert, heisst „kein Demo" nicht mehr „lebt".
+  ALTER=$(echo "$EV" | python3 -c '
+import sys, json, datetime as d
+k = json.load(sys.stdin).get("letzterKontakt")
+try:
+    t = d.datetime.fromisoformat(k.replace("Z", "+00:00"))
+    print(int((d.datetime.now(d.timezone.utc) - t).total_seconds() // 60))
+except Exception:
+    print(-1)' 2>/dev/null)
   if [ "$QUELLE" = "demo" ]; then
-    zeile "Edge-Agent" "SCHLAEFT" "nur Demo-Daten — noch kein Ereignis gemeldet"
+    zeile "Edge-Agent" "SCHLAEFT" "nur Demo-Daten — noch kein Kontakt"
+  elif [ "${ALTER:--1}" -lt 0 ] || [ "$ALTER" -gt 15 ]; then
+    zeile "Edge-Agent" "DEFEKT" "letzter Kontakt vor ${ALTER} min ($KONTAKT) — Agent offline?"
   else
-    zeile "Edge-Agent" "SCHARF" "letzter Kontakt: $KONTAKT"
+    zeile "Edge-Agent" "SCHARF" "letzter Kontakt vor ${ALTER} min"
   fi
 else
   zeile "Edge-Agent" "UNKLAR" "Ereignisliste nicht lesbar (Anmeldung noetig?)"
