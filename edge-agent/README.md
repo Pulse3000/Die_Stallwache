@@ -279,8 +279,9 @@ python3 edge-agent/tests/alle_tests.py
   `OPENCV_FFMPEG_LOGLEVEL=16 docker compose up -d` (weitere Kameras mit
   `KAMERA=…`/`-p …` wie beim Start). Der Grund steht dann als
   `[OPENCV:FFMPEG:16] method DESCRIBE failed: 401 Unauthorized` (falsche
-  Zugangsdaten), `404 Not Found` (falscher Streamname) oder
-  `Connection refused` (go2rtc/Kamera nicht erreichbar) im Log. Danach
+  Zugangsdaten), `404 Not Found` (Streamname unbekannt; manche Server
+  antworten dabei mit 400 ohne Logzeile) oder `Connection refused`
+  (go2rtc/Kamera nicht erreichbar) im Log. Danach
   `docker compose up -d` ohne Variable, sonst kommt die Flut zurück. Liest der
   Agent den go2rtc-Restream, stehen Zugangsfehler zur Kamera im go2rtc-Log.
   Unter systemd: `Environment=OPENCV_FFMPEG_LOGLEVEL=16` in der Unit.
