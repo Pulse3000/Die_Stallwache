@@ -90,9 +90,10 @@ das Log `401 Client Error: Unauthorized`, passt der Token nicht zu
 Skript ausgeführt hat (als `root` also unter `/root/Die_Stallwache/…`). Den
 genauen Ordner zeigt `docker inspect -f '{{range .Mounts}}{{.Source}}{{end}}'
 stallwache-agent-stallwache`. Dort `dashboard.token` ändern und den Agenten mit
-`docker restart stallwache-agent-stallwache` neu starten. Beim Token einlesen
-mit `read -rs DASHBOARD_TOKEN` die Befehle einzeln eingeben, sonst liest
-`read` die nächste eingefügte Zeile als Token.
+`docker restart stallwache-agent-stallwache` neu starten. Wer den Token für das
+Umstiegsskript mit `read -rs DASHBOARD_TOKEN` einliest, gibt die Befehle
+einzeln ein: Mehrere eingefügte Zeilen auf einmal liest `read` sonst die
+nächste Zeile als Token.
 
 Ohne Modell (`modell.pfad` leer) startet der Agent im **Silent Mode** und
 sammelt alle 2 Minuten ein Trainingsbild in `./aufnahmen` – genau das
@@ -108,7 +109,7 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=/home/pi/Die_Stallwache/edge-agent
-ExecStart=/home/pi/Die_Stallwache/edge-agent/venv/bin/python3 main.py
+ExecStart=/home/pi/Die_Stallwache/edge-agent/venv/bin/python3 -u main.py
 Restart=always
 RestartSec=10
 
@@ -268,12 +269,21 @@ python3 edge-agent/tests/alle_tests.py
   eintragen. Eine Datei als `stream.url` wird weiter Bild für Bild gelesen.
 * Nach 5 Abrufen ohne frisches Livebild Wechsel auf **Snapshot-Polling** über
   die go2rtc-API. Sobald der Livestream wieder frisch ist, gilt wieder er.
-* **Ruhiges Log:** FFmpeg meldet nur noch „fatal“ (`OPENCV_FFMPEG_LOGLEVEL=8`,
-  per Umgebung überschreibbar, z. B. `16` zur Fehlersuche). Manche Kameras
-  hängen Zusatzdaten an jedes Bild, und der Decoder meldete dazu mehrmals pro
-  Sekunde „SEI type … truncated“. Das verdrängte im rotierenden Docker-Log
-  binnen Minuten die Meldungen des Agenten. Echte Ausfälle erkennt der Agent
-  selbst (kein Bild → Reconnect, Totmann).
+* **Ruhiges Log:** FFmpeg meldet nur noch „fatal“ (`OPENCV_FFMPEG_LOGLEVEL=8`).
+  Manche Kameras hängen Zusatzdaten an jedes Bild, und der Decoder meldete
+  dazu mehrmals pro Sekunde „SEI type … truncated“. Das verdrängte im
+  rotierenden Docker-Log binnen Minuten die Meldungen des Agenten. Echte
+  Ausfälle erkennt der Agent selbst (kein Bild → Reconnect, Totmann), den
+  *Grund* nennt das Log dann aber nicht mehr.
+  **Fehlersuche**, wenn das Log nur „Stream nicht erreichbar“ zeigt:
+  `OPENCV_FFMPEG_LOGLEVEL=16 docker compose up -d` (weitere Kameras mit
+  `KAMERA=…`/`-p …` wie beim Start). Der Grund steht dann als
+  `[OPENCV:FFMPEG:16] method DESCRIBE failed: 401 Unauthorized` (falsche
+  Zugangsdaten), `404 Not Found` (falscher Streamname) oder
+  `Connection refused` (go2rtc/Kamera nicht erreichbar) im Log. Danach
+  `docker compose up -d` ohne Variable, sonst kommt die Flut zurück. Liest der
+  Agent den go2rtc-Restream, stehen Zugangsfehler zur Kamera im go2rtc-Log.
+  Unter systemd: `Environment=OPENCV_FFMPEG_LOGLEVEL=16` in der Unit.
 * Jede Iteration ist mit Exception-Handling abgesichert – der Prozess läuft
   24/7 weiter, `systemd` startet ihn zur Not neu.
 * Telegram-/Dashboard-Ausfälle blockieren die Analyse nicht: Je Kanal ein

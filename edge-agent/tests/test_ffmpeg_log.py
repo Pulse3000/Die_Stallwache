@@ -4,7 +4,8 @@
 Manche Kameras haengen Zusatzdaten an jedes Bild an, und der h264-Decoder
 meldet „SEI type … truncated" auf Fehlerstufe, im Stall mehrmals pro
 Sekunde. main.py setzt deshalb OPENCV_FFMPEG_LOGLEVEL=8 (nur „fatal"),
-bevor cv2 geladen wird. Ein Wert aus der Umgebung hat Vorrang.
+bevor cv2 geladen wird. Ein Wert aus der Umgebung hat Vorrang, ein leerer
+nicht (docker compose reicht die Variable leer durch, wenn sie fehlt).
 Gegenprobe am echten OpenCV 4.10: 20 Decodermeldungen ohne die Einstellung,
 0 mit ihr, gleich viele Bilder gelesen.
 """
@@ -21,7 +22,7 @@ p = Pruefer("FFmpeg-Log")
 
 # --- 1. Gesetzt, bevor cv2 importiert wird ---------------------------------
 quelle = MAIN_PY.read_text(encoding="utf-8")
-setzen = quelle.find('os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "8")')
+setzen = quelle.find('os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "8"')
 import_cv2 = quelle.find("\nimport cv2")
 p.check("1: Einstellung steht in main.py", setzen >= 0)
 p.check("1: vor dem ersten 'import cv2'", 0 <= setzen < import_cv2)
@@ -41,5 +42,12 @@ umgebung = dict(os.environ, OPENCV_FFMPEG_LOGLEVEL="16")
 aus = subprocess.run([sys.executable, "-c", skript], env=umgebung,
                      capture_output=True, text=True, timeout=60)
 p.check("3: Vorgabe 16 bleibt 16", aus.stdout.strip().splitlines()[-1:] == ["16"])
+
+# --- 4. Leer (docker compose reicht eine ungesetzte Variable leer durch) ----
+for leer in ("", "  "):
+    aus = subprocess.run([sys.executable, "-c", skript],
+                         env=dict(os.environ, OPENCV_FFMPEG_LOGLEVEL=leer),
+                         capture_output=True, text=True, timeout=60)
+    p.check(f"4: leer ({leer!r}) -> 8", aus.stdout.strip().splitlines()[-1:] == ["8"])
 
 sys.exit(p.bericht())
