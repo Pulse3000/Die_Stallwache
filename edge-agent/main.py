@@ -49,9 +49,12 @@ from pathlib import Path
 # fuellt das rotierende Docker-Log in Minuten und verdraengt die eigenen
 # Meldungen des Agenten. Echte Ausfaelle sieht der Agent selbst (read()
 # liefert kein Bild -> Reconnect, Totmann). Ueberschreibbar per Umgebung,
-# z. B. OPENCV_FFMPEG_LOGLEVEL=16 zur Fehlersuche. Muss vor dem ersten
-# VideoCapture gesetzt sein.
-os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "8")
+# z. B. OPENCV_FFMPEG_LOGLEVEL=16 zur Fehlersuche (README „Ruhiges Log").
+# Leer zaehlt als nicht gesetzt (docker-compose.yml reicht die Variable durch,
+# `VAR= docker compose up` ergaebe sonst Loglevel 0).
+# Muss vor dem ersten VideoCapture gesetzt sein.
+if not os.environ.get("OPENCV_FFMPEG_LOGLEVEL", "").strip():
+    os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "8"
 
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402

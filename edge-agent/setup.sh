@@ -134,7 +134,7 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=$HIER
-ExecStart=$HIER/venv/bin/python3 $HIER/main.py
+ExecStart=$HIER/venv/bin/python3 -u $HIER/main.py
 Restart=always
 RestartSec=10
 
