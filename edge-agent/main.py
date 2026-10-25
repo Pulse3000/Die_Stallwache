@@ -43,10 +43,20 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import cv2
-import numpy as np
-import requests
-import yaml
+# FFmpeg-Meldungen erst ab „fatal" ausgeben: Manche Kameras haengen
+# Zusatzdaten an jedes Bild („SEI type 764 size 272 truncated at 256"), der
+# Decoder meldet das auf Fehlerstufe — im Stall mehrmals pro Sekunde. Das
+# fuellt das rotierende Docker-Log in Minuten und verdraengt die eigenen
+# Meldungen des Agenten. Echte Ausfaelle sieht der Agent selbst (read()
+# liefert kein Bild -> Reconnect, Totmann). Ueberschreibbar per Umgebung,
+# z. B. OPENCV_FFMPEG_LOGLEVEL=16 zur Fehlersuche. Muss vor dem ersten
+# VideoCapture gesetzt sein.
+os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "8")
+
+import cv2  # noqa: E402
+import numpy as np  # noqa: E402
+import requests  # noqa: E402
+import yaml  # noqa: E402
 
 # Geschwistermodul freeze_watchdog.py auch dann finden, wenn main.py per runpy
 # (Docker) oder aus dem Testlader geladen wird.
