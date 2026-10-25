@@ -13,13 +13,48 @@ einem Pub/Sub-Topic sind der Normalfall.
 ## Voraussetzung
 
 - Die GCP-Anbindung aus Skill `gcp-anbindung` ist scharf (Service Account +
-  `PUBSUB_TOPIC` gesetzt, Topic existiert, `/api/events` liefert
-  `"pubsub": true`).
-- Firestore (Native Mode) ist im selben GCP-Projekt angelegt (Firestore →
-  Datenbank erstellen, falls noch nicht vorhanden; Region frei wählbar, EU
-  empfohlen).
+  `PUBSUB_TOPIC` in Vercel gesetzt, `/api/events` liefert `"pubsub": true`).
+  Ohne sie kommt im Topic nichts an — der Sink läuft dann, bleibt aber leer.
+- Abrechnung (Billing) ist im GCP-Projekt aktiv; Cloud Functions gen2 lässt
+  sich sonst nicht deployen. Bei einigen hundert Ereignissen pro Tag liegt
+  der Betrieb in den kostenlosen Kontingenten von Cloud Functions und
+  Firestore; das Build-Image in Artifact Registry kann wenige Cent im Monat
+  kosten.
 
-## Deploy (Betreiber, einmalig)
+## Einrichten in einem Befehl (Betreiber, einmalig)
+
+In der [Google Cloud Shell](https://shell.cloud.google.com) (gcloud ist
+dort bereits angemeldet):
+
+```bash
+git clone https://github.com/Pulse3000/Die_Stallwache.git
+bash Die_Stallwache/cloud-functions/pubsub-firestore-sink/einrichten.sh --trocken   # nur zeigen
+bash Die_Stallwache/cloud-functions/pubsub-firestore-sink/einrichten.sh             # einrichten
+```
+
+`einrichten.sh` ist idempotent und erledigt der Reihe nach:
+
+1. APIs aktivieren (Functions, Run, Eventarc, Pub/Sub, Firestore, Build,
+   Artifact Registry, IAM).
+2. Firestore (Native Mode, `eur3`) anlegen, falls noch keine
+   `(default)`-Datenbank existiert.
+3. Topic `stall-ereignisse` anlegen, falls es fehlt (muss gleich
+   `PUBSUB_TOPIC` in Vercel sein).
+4. Eigenes Laufzeit-Konto `stall-firestore-sink@<PROJEKT>.iam.gserviceaccount.com`
+   mit nur `roles/datastore.user`, `roles/run.invoker`,
+   `roles/eventarc.eventReceiver`; Compute-Default-Konto bekommt
+   `roles/cloudbuild.builds.builder` (baut die Function), der
+   Pub/Sub-Dienstagent `roles/iam.serviceAccountTokenCreator`.
+5. Function deployen (gen2, Node 20, `europe-west4`).
+6. **Probe:** Testnachricht ins Topic, wartet bis 90 s auf das Dokument in
+   `stall_ereignisse`, löscht es wieder. Ohne Dokument: letzte Logs der
+   Function und Abbruch mit Fehler.
+
+Optionen: `--projekt <ID>`, `--topic <Name>`, `--region <Region>`,
+`--firestore-ort <Ort>`. Ihre Rolle im Projekt muss IAM-Rollen vergeben
+dürfen (Inhaber oder Projekt-IAM-Administrator).
+
+## Einzelschritte von Hand (Alternative)
 
 ```bash
 cd cloud-functions/pubsub-firestore-sink
@@ -38,16 +73,19 @@ gcloud functions deploy pubsub-firestore-sink \
 
 `--trigger-topic` auf den tatsächlichen `PUBSUB_TOPIC`-Namen anpassen, falls
 abweichend von `stall-ereignisse`. Das Service-Konto, unter dem die Function
-läuft (Standard: `<PROJECT_ID>@appspot.gserviceaccount.com` bzw. das
-Compute-Default-SA), braucht die Rolle `roles/datastore.user` auf
-Firestore — in der GCP-Konsole unter IAM nachtragen, falls das Schreiben mit
-`PERMISSION_DENIED` fehlschlägt.
+läuft (ohne `--service-account` das Compute-Default-Konto), braucht die
+Rolle `roles/datastore.user` auf Firestore — in der GCP-Konsole unter IAM
+nachtragen, falls das Schreiben mit `PERMISSION_DENIED` fehlschlägt.
 
 Optional: `FIRESTORE_COLLECTION` als Env-Variable der Function setzen, wenn
 nicht `stall_ereignisse` heißen soll
-(`--set-env-vars=FIRESTORE_COLLECTION=...`).
+(`--set-env-vars=FIRESTORE_COLLECTION=...`; `einrichten.sh` prüft dann die
+falsche Collection — in dem Fall von Hand verifizieren).
 
 ## Verifizieren
+
+`einrichten.sh` prüft den Weg Topic → Function → Firestore selbst. Den
+ganzen Weg ab der Webapp prüft man so:
 
 1. Testereignis wie in `gcp-anbindung` Schritt 2 einspeisen:
    `POST /api/events` mit `x-ingest-token` und
