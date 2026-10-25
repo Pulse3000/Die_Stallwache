@@ -289,7 +289,10 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
   }
   // Agent hat sich gemeldet, aber (noch) nichts erkannt: leere Liste statt
   // Demo-Daten — die Demo stuende sonst als echte Alarme im Dashboard.
-  if (kontakt) {
+  // Nur wenn die Liste wirklich gelesen wurde (oder es gar kein KV gibt):
+  // Bei einem KV-Lesefehler koennte dort eine offene Austreibung liegen —
+  // dann lieber Demo/„nicht verbunden" als ein ruhiges „Keine Alarme".
+  if (kontakt && (kvGelesen || !kvAktiv)) {
     return {
       ereignisse: [],
       letzterKontakt: kontakt,

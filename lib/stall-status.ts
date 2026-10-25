@@ -346,7 +346,7 @@ export function baueStallStatus(
   if (kameras.length === 0) {
     zeilen.push(
       eingabe.letzterKontakt
-        ? `Edge-Agent meldet sich (letzter Kontakt ${uhr(eingabe.letzterKontakt)}), aber ohne Kamera-Lebenszeichen (Agent-Update nötig) – keine Aussage über den Stall möglich.`
+        ? `Edge-Agent hat sich zuletzt ${uhr(eingabe.letzterKontakt)} gemeldet, aber ohne Kamera-Lebenszeichen (Agent-Update nötig) – keine Aussage über den Stall möglich.`
         : "Kein Edge-Agent hat sich gemeldet – keine Aussage über den Stall möglich.",
     );
   }

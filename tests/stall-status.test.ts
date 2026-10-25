@@ -453,6 +453,6 @@ test("Kontakt ohne Ereignisse und ohne Kamera-Lebenszeichen: nicht „kein Agent
   const s = status([], {}, {}, { letzterKontakt: vor(3) });
   assert.equal(s.stufe, "UNBEKANNT");
   assert.equal(s.kameras.length, 0);
-  assert.match(s.text, /Edge-Agent meldet sich \(letzter Kontakt 03:57\), aber ohne Kamera-Lebenszeichen/);
+  assert.match(s.text, /Edge-Agent hat sich zuletzt 03:57 gemeldet, aber ohne Kamera-Lebenszeichen/);
   assert.doesNotMatch(s.text, /Kein Edge-Agent/);
 });
