@@ -35,33 +35,70 @@ kein Schwellenwert-Problem (Schwellen bewacht der Agent `ki-wache`).
 | `new_track_thresh` | 0.5 | 0.6 (bis 8.3.2x) · 0.25 (ab 8.3.30) | Schwelle für neue IDs (gegen Geister-IDs durch Rauschen). Eine Kuh, die nur darunter erkannt wird, bekommt nie eine ID und fehlt in der Analyse |
 
 Die Defaults hängen an der Ultralytics-Version (`requirements.txt` erlaubt
-`>=8.2,<9`): auf dem Stall-Rechner `pip show ultralytics` prüfen.
+`>=8.2,<9`). **Im Agent-Image ist 8.3.40 fest eingestellt** (`Dockerfile`),
+dort gelten die Defaults 0.25 / 0.1 / 0.25 / 30 / 0.8.
+
+**Zählweise von `track_buffer`:** Ultralytics ruft den Tracker nur für Bilder
+mit mindestens einer Erkennung auf (`ultralytics/trackers/track.py`). In
+Bildern ganz ohne Erkennung altern verlorene Tracks nicht. Steht in der
+Abkalbebox nur eine Kuh und verschwindet sie ganz, bleibt ihre ID also über
+beliebig lange Pausen erhalten. Mit weiteren Kühen im Bild gilt: 90 Bilder ≈
+90 s.
+
+## Vor dem Modell: Simulation mit dem echten Tracker
+
+`edge-agent/training/tracker_simulation.py` füttert den Ultralytics-
+`BYTETracker` mit erfundenen Erkennungen bei 1 FPS und vergleicht beliebige
+`tracker-*.yaml`. Szenarien: Verdeckung, zwei Kühe gehen aneinander vorbei,
+schwache Erkennung nachts, Einzelbild-Rauschen, dauerhafte Fehlerkennung
+(z. B. ein Heuballen):
+
+```bash
+cd edge-agent/training
+python3 tracker_simulation.py ../tracker-kuh.yaml bytetrack.yaml
+```
+
+Ergebnis mit Ultralytics 8.3.40 (25.10.2026, `kuh_03` = tracker-kuh mit
+`track_high_thresh`/`new_track_thresh` 0.3):
+
+| Szenario | tracker-kuh | kuh_03 | Default |
+|---|---|---|---|
+| Verdeckung 45–85 s | ID bleibt | ID bleibt | neue ID |
+| Verdeckung ≥ 100 s | neue ID | neue ID | neue ID |
+| Vorbeigehen 10 / 30 px/s | kein Wechsel | kein Wechsel | kein Wechsel |
+| Kuh erscheint nachts neu, conf 0.3 bzw. 0.45 | **0 % mit ID** | 100 % | 100 % |
+| Kuh tagsüber getrackt, nachts conf 0.3 | 100 %, 0 Wechsel | 100 % | 100 % |
+| Einzelbild-Rauschen (5 % der Bilder) | 0 Geister-IDs | 0 | 0 |
+| Dauer-Fehlerkennung conf 0.3 / 0.45 | keine ID | **Geister-ID** | **Geister-ID** |
+
+Die Simulation ersetzt die Messung am Stall nicht, zeigt aber, was eine
+Einstellung grundsätzlich tut.
 
 ## Verifikation (auf dem Stall-Rechner, mit Modell)
 
 Ziel: **< 1 ID-Wechsel pro Kuh in 10 Minuten** Testmaterial, geprüft je
-Lichtverhältnis (Tag UND IR-Nacht).
+Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
 
-1. 10-Minuten-Clip aufnehmen (z. B. `ffmpeg -i rtsp://BRIDGE:8554/stallwache
-   -t 600 -r 1 test-tag.mp4` — 1 FPS wie im Betrieb).
-2. Tracking laufen lassen und IDs zählen:
+1. 10-Minuten-Clips aufnehmen, 1 FPS wie im Betrieb, Tag und Nacht:
+   `ffmpeg -i rtsp://127.0.0.1:8554/stallwache -t 600 -r 1 nacht.mp4`
+2. Messen (`edge-agent/training/tracking_pruefung.py`). Das Modell rechnet
+   den Clip nur einmal, die Erkennungen landen in `nacht.erkennungen.json`:
 
-   ```python
-   from collections import Counter
-   from ultralytics import YOLO
-   m = YOLO("best.pt")
-   ids = Counter()
-   for erg in m.track("test-tag.mp4", tracker="tracker-kuh.yaml",
-                      persist=True, stream=True, verbose=False):
-       if erg.boxes is not None and erg.boxes.id is not None:
-           ids.update(int(i) for i in erg.boxes.id)
-   print(f"{len(ids)} verschiedene IDs:", dict(ids))
+   ```bash
+   cd edge-agent/training
+   python3 tracking_pruefung.py nacht.mp4 --modell best.pt \
+       --tracker ../tracker-kuh.yaml bytetrack.yaml
+   # weitere Variante ohne neue Inferenz:
+   python3 tracking_pruefung.py nacht.mp4 --tracker variante.yaml
    ```
 
-3. Bewerten: Anzahl verschiedener IDs ≈ Anzahl Kühe im Clip → gut.
-   Deutlich mehr IDs als Kühe → ID-Wechsel, siehe Fehlersuche.
-4. Nach jeder Änderung an `tracker-kuh.yaml` neu messen — immer nur EINEN
-   Wert drehen.
+3. Die Tabelle nennt je Einstellung: geschätzte Kühe, IDs, ID-Wechsel je Kuh
+   und 10 min (✓/✗), Erkennungen ohne ID je Konfidenzband, die Bildrate des
+   Rechners. Ein **Achtung**-Hinweis kommt, wenn mehr als 5 % der
+   Erkennungen ab conf 0.25 keine ID bekamen. Diese Kühe fehlen in der
+   Auswertung, dann trügt auch ein „0 Wechsel ✓“.
+4. Nach jeder Änderung an `tracker-kuh.yaml` neu messen, immer nur EINEN
+   Wert drehen. Die Tabelle gehört in die Modellkarte.
 
 ## Fehlersuche
 
