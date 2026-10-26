@@ -2,10 +2,13 @@
 """Logiktests der Tracking-Pruefung (training/tracking_pruefung.py).
 
 Die Zusagen: Aus einem Video wird 1 Bild je Sekunde genommen wie im
-Agenten; ID-Wechsel werden gegen die Zahl gleichzeitig sichtbarer Kuehe
-gezaehlt, Flackern unter 10 s zaehlt nicht als Kuh; Erkennungen ohne ID
-werden je Konfidenzband ausgewiesen (nachts unter new_track_thresh
-bekommt eine neu auftauchende Kuh keine ID). Ohne numpy/cv2/ultralytics.
+Agenten, auch wenn der Container die Bildzahl nicht kennt; ID-Wechsel werden
+gegen die Zahl gleichzeitig sichtbarer Kuehe gezaehlt, Flackern unter 10 s
+zaehlt nicht als Kuh; Erkennungen ohne ID werden je Konfidenzband
+ausgewiesen (nachts unter new_track_thresh bekommt eine neu auftauchende Kuh
+keine ID). Das Gesamturteil faellt auch bei schnellem ID-Wechsel (neue ID
+alle paar Sekunden), bei einer Luecke ohne ID ab 30 min und bei Geistern
+(mehr Kuehe mit ID als angegeben). Ohne numpy/cv2/ultralytics.
 """
 
 import importlib.util
@@ -80,5 +83,51 @@ p.check("8: ohne Nacht-Luecke kein Achtung-Hinweis", "Achtung" not in md)
 md = tp.tabelle({"tracker-kuh.yaml": tp.kennzahlen(nacht)}, None)
 p.check("8: Nacht-Kuehe ohne ID -> Achtung-Hinweis", "**Achtung tracker-kuh.yaml:** 67%" in md)
 p.check("8: Anteil ab 0.25: 1200 ohne ID von 1800", abs(tp.ohne_id_anteil(tp.kennzahlen(nacht)) - 2 / 3) < 1e-9)
+
+# --- 9. Schneller ID-Wechsel faellt durch (vorher faelschlich ✓) -----------
+schnell = [[(0.8, 1000 + t // 5)] for t in range(600)]  # alle 5 s neue ID
+k = tp.kennzahlen(schnell)
+p.check("9: alle 5 s neue ID -> 100 % Kurz-ID", k["kurz_anteil"] == 1.0)
+p.check("9: keine lange ID -> Wechsel-Kriterium verfehlt", not k["wechsel_ok"])
+p.check("9: Gesamturteil verfehlt", not k["ziel_erfuellt"])
+neben = [[(0.8, 1), (0.7, 1000 + t // 5)] for t in range(600)]
+k = tp.kennzahlen(neben)
+p.check("9: neben stabiler Kuh -> Gesamturteil verfehlt",
+        not k["ziel_erfuellt"] and k["kurz_anteil"] == 0.5)
+md = tp.tabelle({"tracker-kuh.yaml": tp.kennzahlen(schnell)}, None)
+p.check("9: Achtung-Hinweis Kurz-ID", "keine 10 s hält" in md and "| **Gesamt** | ✗ |" in md)
+
+# --- 10. Laengste Luecke ohne ID -------------------------------------------
+luecke = ([[(0.8, 1)] for _ in range(300)]
+          + [[(0.8, 1), (0.45, None)] for _ in range(31 * 60)]
+          + [[(0.8, 1)] for _ in range(300)])
+k = tp.kennzahlen(luecke)
+p.check("10: 31 min am Stueck ohne ID", k["laengste_luecke_min"] == 31.0)
+p.check("10: Gesamturteil verfehlt", not k["ziel_erfuellt"])
+p.check("10: Hinweis Kalbeverdachts-Fenster",
+        "länger als ein Kalbeverdachts-Fenster" in tp.tabelle({"x": k}, None))
+k = tp.kennzahlen([[(0.8, 1), (0.2, None)] for _ in range(600)])
+p.check("10: unter conf 0.25 keine Luecke", k["laengste_luecke_min"] == 0.0)
+
+# --- 11. Echte Kuhzahl entlarvt Geister ------------------------------------
+geist = [[(0.8, 1), (0.3, 2)] for _ in range(600)]  # Heuballen mit eigener ID
+k = tp.kennzahlen(geist)
+p.check("11: ohne --kuehe zaehlt der Geist als Kuh (bekannte Grenze)",
+        k["kuehe"] == 2 and k["ziel_erfuellt"])
+k = tp.kennzahlen(geist, kuehe_echt=1)
+p.check("11: mit --kuehe 1 -> Geist erkannt, Gesamturteil verfehlt",
+        k["geister"] and not k["ziel_erfuellt"])
+md = tp.tabelle({"bytetrack.yaml": k}, None)
+p.check("11: Tabelle nennt echte Zahl und Geist", "(echt: 1)" in md and "Geist" in md)
+k = tp.kennzahlen(stabil, kuehe_echt=2)
+p.check("11: echte Zahl stimmt -> Ziel erfuellt", k["ziel_erfuellt"] and not k["geister"])
+
+# --- 12. Bildwahl ohne bekannte Bildzahl, Klassen wie im Agenten -----------
+nimm = tp.sekundenwahl(25)
+p.check("12: Strom ohne Bildzahl = sekundenbilder",
+        [i for i in range(250) if nimm(i)] == tp.sekundenbilder(25, 250))
+p.check("12: Kuh (cls 0) ist Tier", tp.ist_tier([1, 2, 3, 4, 0.8, 0], {0}))
+p.check("12: Fruchtblase (cls 1) ist kein Tier", not tp.ist_tier([1, 2, 3, 4, 0.9, 1], {0}))
+p.check("12: alte Ablage ohne Klasse -> Tier", tp.ist_tier([1, 2, 3, 4, 0.8], set()))
 
 sys.exit(p.bericht())

@@ -42,8 +42,10 @@ dort gelten die Defaults 0.25 / 0.1 / 0.25 / 30 / 0.8.
 mit mindestens einer Erkennung auf (`ultralytics/trackers/track.py`). In
 Bildern ganz ohne Erkennung altern verlorene Tracks nicht. Steht in der
 Abkalbebox nur eine Kuh und verschwindet sie ganz, bleibt ihre ID also über
-beliebig lange Pausen erhalten. Mit weiteren Kühen im Bild gilt: 90 Bilder ≈
-90 s.
+beliebig lange Pausen erhalten. Sieht der Tracker in der Zeit andere
+Erkennungen, gilt 90 Bilder ≈ 90 s. Das sind weitere Kühe, aber auch
+Fruchtblase, Kälberfüße und Fehlerkennungen: Der Agent gibt alle drei
+Klassen in denselben Tracker.
 
 ## Vor dem Modell: Simulation mit dem echten Tracker
 
@@ -81,10 +83,12 @@ Die Zeilen mit konstanter Konfidenz sind der Grenzfall. Schwankt die
 Konfidenz von Bild zu Bild, bekommt eine Kuh mit Mittel 0.45 auch mit
 tracker-kuh nach wenigen Sekunden eine Nummer, mit 0.35 nach gut einer
 Minute. Ein Heuballen mit gleicher Verteilung bekommt sie ebenso.
-Entscheidend ist, ob einzelne Bilder 0.5 erreichen. Die 54 % zeigen den
-zweiten Weg: Nach einem Aussetzer kehrt eine verlorene Spur nur mit einer
-Erkennung ≥ `track_high_thresh` (0.4) zurück. Bis dahin hat die Kuh keine
-Nummer.
+Entscheidend ist, ob einzelne Bilder 0.5 erreichen. Bei 0.30 ± 0.08 mit
+Aussetzern wirken beide Wege zusammen: Die erste Nummer kommt erst nach
+Minuten (ohne Aussetzer 78 %), und nach einem Aussetzer kehrt eine verlorene
+Spur nur mit einer Erkennung ≥ `track_high_thresh` (0.4) zurück. Die vier
+Läufe streuen stark (15–80 %); mit `track_high_thresh` 0.25 sind es im
+Mittel 82 %.
 
 Die Simulation ersetzt die Messung am Stall nicht, zeigt aber, was eine
 Einstellung grundsätzlich tut.
@@ -94,24 +98,42 @@ Einstellung grundsätzlich tut.
 Ziel: **< 1 ID-Wechsel pro Kuh in 10 Minuten** Testmaterial, geprüft je
 Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
 
-1. 10-Minuten-Clips aufnehmen, 1 FPS wie im Betrieb, Tag und Nacht:
-   `ffmpeg -i rtsp://127.0.0.1:8554/stallwache -t 600 -r 1 nacht.mp4`
+1. 10-Minuten-Clips aufnehmen, 1 FPS wie im Betrieb, Tag und Nacht. Quelle
+   ist `stream.url` aus `config.yaml`, also die Adresse, die der Agent liest:
+   `ffmpeg -i "<stream.url>" -t 600 -r 1 nacht.mp4`
 2. Messen (`edge-agent/training/tracking_pruefung.py`). Das Modell rechnet
    den Clip nur einmal, die Erkennungen landen in `nacht.erkennungen.json`:
 
    ```bash
    cd edge-agent/training
-   python3 tracking_pruefung.py nacht.mp4 --modell best.pt \
+   python3 tracking_pruefung.py nacht.mp4 --modell best.pt --kuehe 2 \
        --tracker ../tracker-kuh.yaml bytetrack.yaml
    # weitere Variante ohne neue Inferenz:
-   python3 tracking_pruefung.py nacht.mp4 --tracker variante.yaml
+   python3 tracking_pruefung.py nacht.mp4 --kuehe 2 --tracker variante.yaml
    ```
 
-3. Die Tabelle nennt je Einstellung: geschätzte Kühe, IDs, ID-Wechsel je Kuh
-   und 10 min (✓/✗), Erkennungen ohne ID je Konfidenzband, die Bildrate des
-   Rechners. Ein **Achtung**-Hinweis kommt, wenn mehr als 5 % der
-   Erkennungen ab conf 0.25 keine ID bekamen. Diese Kühe fehlen in der
-   Auswertung, dann trügt auch ein „0 Wechsel ✓“.
+   `--kuehe` ist die echte Zahl der Kühe im Clip. Ohne die Angabe schätzt
+   das Werkzeug sie, und ein Geist mit eigener ID zählt als Kuh.
+   `--tier-klassen` entspricht `modell.tier_klassen` (Default `kuh`).
+   Fruchtblase und Kälberfüße laufen wie im Agenten durch denselben Tracker,
+   gemessen werden nur die Tiere.
+3. Die Tabelle nennt je Einstellung:
+   - geschätzte (und echte) Kühe, IDs, ID-Wechsel je Kuh und 10 min,
+   - den Anteil der Erkennungen mit einer ID, die keine 10 s hält,
+   - die längste Lücke ohne ID,
+   - Erkennungen ohne ID je Konfidenzband und die Bildrate des Rechners.
+
+   **Gesamt ✓** gibt es nur, wenn alles zutrifft:
+   - < 1 Wechsel je Kuh und 10 min,
+   - höchstens 5 % der Erkennungen ab conf 0.25 ohne ID bzw. mit Kurz-ID,
+   - keine Lücke ohne ID ab 30 min,
+   - mit `--kuehe` keine Geister.
+
+   Jede Verfehlung ergibt ✗ und Exit 1: zu viele Wechsel in ihrer Zeile,
+   alles andere mit einem **Achtung**-Hinweis. Ein „0 Wechsel“ allein trügt: Kühe ohne ID oder mit ständig neuer ID fehlen in
+   der Auswertung. Die Lücke zählt Sekunden am Stück, in denen irgendeine
+   Erkennung ab 0.25 ohne ID bleibt; welche Kuh es ist, weiß das Werkzeug
+   nicht.
 4. Nach jeder Änderung an `tracker-kuh.yaml` neu messen, immer nur EINEN
    Wert drehen. Die Tabelle gehört in die Modellkarte.
 
@@ -121,18 +143,20 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
   Kuh. `tracking_pruefung.py` gegen `tracker-kuh.yaml`, eine Variante mit
   `track_high_thresh` 0.25 und eine mit `track_high_thresh` und
   `new_track_thresh` 0.3 laufen lassen.
-- **Handeln**, wenn der Achtung-Hinweis kommt (> 5 % ohne ID ab conf 0.25)
-  oder eine Kuh länger als 30 min am Stück (ein Kalbeverdachts-Fenster)
-  ohne Nummer ist.
-- **Geister erkennen:** „Kühe im Bild (geschätzt)“ ist größer als die
-  echte Kuhzahl.
+- **Handeln**, wenn ein Achtung-Hinweis kommt: > 5 % ohne ID oder mit
+  Kurz-ID ab conf 0.25, oder eine Lücke ohne ID ab 30 min (ein
+  Kalbeverdachts-Fenster).
+- **Geister erkennen:** immer mit `--kuehe` messen. Mehr Kühe mit ID als
+  angegeben ergibt einen Geist-Hinweis.
 - **Reihenfolge:**
   1. Zuerst das Modell nachtrainieren (IR-Bilder, Hard Negatives).
   2. Dann `track_high_thresh` 0.4 → 0.25. Das hilft Kühen, die ihre Nummer
      nach einem Aussetzer verlieren. Eine neue Nummer braucht weiter ein
-     Bild ≥ 0.5, die Bestätigung im Folgebild sinkt aber auf 0.25.
+     Bild ≥ 0.5, die Bestätigung im Folgebild sinkt aber auf etwa 0.3 (mit
+     `fuse_score` zählt IoU × Konfidenz > 0.3).
   3. Erst danach `new_track_thresh` 0.5 → 0.4 → 0.3, je Stufe auf Geister
-     prüfen.
+     prüfen. Wirksam ist der größere Wert von `new_track_thresh` und
+     `track_high_thresh`, darum diese Reihenfolge.
 - **Freigabe** einer Änderung nur nach einem 24-h-Lauf wie Gate 3
   (`edge-agent/training/abnahme.py`), der eine volle IR-Nacht enthält und
   zusätzlich höchstens 1 Brunstverdacht zeigt.
@@ -144,7 +168,7 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
 | Neue ID nach Verdeckung (Futtertisch, Kuh hinter Kuh) | `track_buffer` zu klein | Buffer erhöhen (90 → 120); Obergrenze: solange keine Fremdübernahmen auftreten |
 | IDs flackern zwischen zwei nahen Kühen | Matching zu großzügig | `match_thresh` senken (0.9 → 0.85) |
 | Geister-IDs bei Nacht/Rauschen | Neue Tracks zu billig | `new_track_thresh` erhöhen |
-| Kuh nachts nie mit Nummer (Achtung-Hinweis, Band 0.25–0.50 ohne ID) | kein Bild ≥ `new_track_thresh` (0.5) mit Bestätigung ≥ `track_high_thresh` (0.4) im Folgebild | Modell mit IR-Bildern nachtrainieren (Skill `modell-training`); danach `new_track_thresh` 0.5 → 0.4 → 0.3, je Stufe auf Geister prüfen |
+| Kuh nachts nie mit Nummer (Achtung-Hinweis, Band 0.25–0.50 ohne ID) | kein Bild ≥ `new_track_thresh` (0.5) mit Bestätigung ≥ `track_high_thresh` (0.4) im Folgebild | Modell mit IR-Bildern nachtrainieren (Skill `modell-training`); danach `new_track_thresh` 0.5 → 0.4, je Stufe auf Geister prüfen. Tiefer nur zusammen mit `track_high_thresh`, denn wirksam ist der größere der beiden Werte |
 | Kuh hatte eine Nummer und verliert sie nachts nach kurzem Aussetzer | verlorene Spur kehrt nur mit Erkennung ≥ `track_high_thresh` zurück | `track_high_thresh` 0.4 → 0.25; der Geisterschutz bleibt bei `new_track_thresh` |
 | „Kühe im Bild“ größer als die echte Kuhzahl, Alarme für eine Nummer, die es nicht gibt, stündlicher Brunstverdacht an einer liegenden Kuh | Dauer-Fehlerkennung mit Nummer | Bildstelle als Hard Negative labeln (Skill `fehlalarm-triage`), nachtrainieren; erst danach Schwelle anheben |
 | ID-Wechsel genau beim Aufsprung (Brunst) | zwei Boxen verschmelzen | erwartbar; die Brunst-Heuristik arbeitet mit IoU der Boxen, nicht mit IDs der Paarung — nichts drehen |
