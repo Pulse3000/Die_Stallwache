@@ -66,10 +66,25 @@ Ergebnis mit Ultralytics 8.3.40 (25.10.2026, `kuh_03` = tracker-kuh mit
 | Verdeckung 45–85 s | ID bleibt | ID bleibt | neue ID |
 | Verdeckung ≥ 100 s | neue ID | neue ID | neue ID |
 | Vorbeigehen 10 / 30 px/s | kein Wechsel | kein Wechsel | kein Wechsel |
-| Kuh erscheint nachts neu, conf 0.3 bzw. 0.45 | **0 % mit ID** | 100 % | 100 % |
+| Kuh erscheint nachts neu, conf 0.3 bzw. 0.45 (konstant) | **0 % mit ID** | 100 % | 100 % |
+| Kuh erscheint nachts neu, conf 0.35 ± 0.08 | 98 % | 100 % | 100 % |
+| Kuh erscheint nachts neu, conf 0.45 ± 0.08 | 100 % | 100 % | 100 % |
+| … conf 0.30 ± 0.08, 2 % der Bilder ohne Erkennung | **54 %** | 96 % | 97 % |
 | Kuh tagsüber getrackt, nachts conf 0.3 | 100 %, 0 Wechsel | 100 % | 100 % |
 | Einzelbild-Rauschen (5 % der Bilder) | 0 Geister-IDs | 0 | 0 |
 | Dauer-Fehlerkennung conf 0.3 / 0.45 | keine ID | **Geister-ID** | **Geister-ID** |
+
+(± = Standardabweichung der Konfidenz von Bild zu Bild, Mittel über 4
+Läufe à 1 h.)
+
+Die Zeilen mit konstanter Konfidenz sind der Grenzfall. Schwankt die
+Konfidenz von Bild zu Bild, bekommt eine Kuh mit Mittel 0.45 auch mit
+tracker-kuh nach wenigen Sekunden eine Nummer, mit 0.35 nach gut einer
+Minute. Ein Heuballen mit gleicher Verteilung bekommt sie ebenso.
+Entscheidend ist, ob einzelne Bilder 0.5 erreichen. Die 54 % zeigen den
+zweiten Weg: Nach einem Aussetzer kehrt eine verlorene Spur nur mit einer
+Erkennung ≥ `track_high_thresh` (0.4) zurück. Bis dahin hat die Kuh keine
+Nummer.
 
 Die Simulation ersetzt die Messung am Stall nicht, zeigt aber, was eine
 Einstellung grundsätzlich tut.
@@ -100,6 +115,28 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
 4. Nach jeder Änderung an `tracker-kuh.yaml` neu messen, immer nur EINEN
    Wert drehen. Die Tabelle gehört in die Modellkarte.
 
+### Entscheidungsregel für IR-Nachtclips (vorab festgelegt)
+
+- **Material:** mindestens eine volle Nacht mit liegender und stehender
+  Kuh. `tracking_pruefung.py` gegen `tracker-kuh.yaml`, eine Variante mit
+  `track_high_thresh` 0.25 und eine mit `track_high_thresh` und
+  `new_track_thresh` 0.3 laufen lassen.
+- **Handeln**, wenn der Achtung-Hinweis kommt (> 5 % ohne ID ab conf 0.25)
+  oder eine Kuh länger als 30 min am Stück (ein Kalbeverdachts-Fenster)
+  ohne Nummer ist.
+- **Geister erkennen:** „Kühe im Bild (geschätzt)“ ist größer als die
+  echte Kuhzahl.
+- **Reihenfolge:**
+  1. Zuerst das Modell nachtrainieren (IR-Bilder, Hard Negatives).
+  2. Dann `track_high_thresh` 0.4 → 0.25. Das hilft Kühen, die ihre Nummer
+     nach einem Aussetzer verlieren. Eine neue Nummer braucht weiter ein
+     Bild ≥ 0.5, die Bestätigung im Folgebild sinkt aber auf 0.25.
+  3. Erst danach `new_track_thresh` 0.5 → 0.4 → 0.3, je Stufe auf Geister
+     prüfen.
+- **Freigabe** einer Änderung nur nach einem 24-h-Lauf wie Gate 3
+  (`edge-agent/training/abnahme.py`), der eine volle IR-Nacht enthält und
+  zusätzlich höchstens 1 Brunstverdacht zeigt.
+
 ## Fehlersuche
 
 | Symptom | Ursache | Dreh |
@@ -107,7 +144,9 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
 | Neue ID nach Verdeckung (Futtertisch, Kuh hinter Kuh) | `track_buffer` zu klein | Buffer erhöhen (90 → 120); Obergrenze: solange keine Fremdübernahmen auftreten |
 | IDs flackern zwischen zwei nahen Kühen | Matching zu großzügig | `match_thresh` senken (0.9 → 0.85) |
 | Geister-IDs bei Nacht/Rauschen | Neue Tracks zu billig | `new_track_thresh` erhöhen |
-| Kuh nachts gar nicht getrackt | Konfidenz unter Schwelle | erst Modell nachtrainieren (IR-Bilder!), dann erst `track_high_thresh` senken — Skill `modell-training` |
+| Kuh nachts nie mit Nummer (Achtung-Hinweis, Band 0.25–0.50 ohne ID) | kein Bild ≥ `new_track_thresh` (0.5) mit Bestätigung ≥ `track_high_thresh` (0.4) im Folgebild | Modell mit IR-Bildern nachtrainieren (Skill `modell-training`); danach `new_track_thresh` 0.5 → 0.4 → 0.3, je Stufe auf Geister prüfen |
+| Kuh hatte eine Nummer und verliert sie nachts nach kurzem Aussetzer | verlorene Spur kehrt nur mit Erkennung ≥ `track_high_thresh` zurück | `track_high_thresh` 0.4 → 0.25; der Geisterschutz bleibt bei `new_track_thresh` |
+| „Kühe im Bild“ größer als die echte Kuhzahl, Alarme für eine Nummer, die es nicht gibt, stündlicher Brunstverdacht an einer liegenden Kuh | Dauer-Fehlerkennung mit Nummer | Bildstelle als Hard Negative labeln (Skill `fehlalarm-triage`), nachtrainieren; erst danach Schwelle anheben |
 | ID-Wechsel genau beim Aufsprung (Brunst) | zwei Boxen verschmelzen | erwartbar; die Brunst-Heuristik arbeitet mit IoU der Boxen, nicht mit IDs der Paarung — nichts drehen |
 
 ## Grenzen (ehrlich bleiben)
@@ -123,6 +162,22 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
   (`InferenceEngine._merke_objekte`). Ultralytics kürzt die Ergebnisse
   nach dem Tracking auf bestätigte Tracks – ohne diesen Abgriff ginge das
   erste Bild jeder Erkennung verloren und flackernde Erkennungen nie durch.
+- **Geister gegen blinde Kuh (`new_track_thresh`).** Der Tracker
+  unterscheidet eine schwach erkannte Kuh nicht von einer Dauer-Fehlerkennung
+  (Heuballen, Trennwand, halbe Box an einer liegenden Kuh): Für ihn sind
+  beides ruhende Kästen mit niedriger Konfidenz. Eine neue Nummer gibt es
+  erst, wenn ein Bild 0.5 erreicht und das nächste mindestens 0.4.
+  Hohe Schwelle: Geister bekommen keine Nummer – eine Kuh, die nachts im
+  Liegen nie 0.5 erreicht, aber auch nicht. Sie wird dann nicht auf Kalbe-
+  und Brunstzeichen ausgewertet, und niemand merkt es. Niedrige Schwelle:
+  Jede Kuh wird verfolgt, aber ein Dauer-Geist hinter oder auf einer
+  liegenden Kuh löst jede Nacht stündlich einen Brunstverdacht aus, bei
+  ungünstigen Keypoints zusätzlich alle 15 min einen Kalbeverdacht. Die
+  Austreibung (Fruchtblase, Kälberfüße) hängt an keiner Nummer und ist von
+  beidem nicht betroffen. Entschieden wird an echten IR-Nachtclips, nicht an
+  der Simulation. Die Ursache liegt fast immer im Modell (zu wenig
+  IR-Bilder, fehlende Hard Negatives) und wird dort behoben; erst danach an
+  der Schwelle drehen.
 
 ## Rollenverteilung
 

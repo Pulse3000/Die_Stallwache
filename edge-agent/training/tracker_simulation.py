@@ -134,6 +134,21 @@ def rauschen(rate: float, conf: float, sekunden: int = 3600, saat: int = 7) -> l
     return bilder
 
 
+def schwankend(mittel: float, sigma: float, aussetzer: float = 0.0,
+               sekunden: int = 3600, saat: int = 0) -> list[list[Box]]:
+    """Nachts taucht A neu auf, Konfidenz je Bild ~ N(mittel, sigma);
+    `aussetzer` = Anteil Bilder, in denen A gar nicht erkannt wird."""
+    rng = np.random.default_rng(saat)
+    bilder = []
+    for _ in range(sekunden):
+        bild = [Box("B", 700, 300)]
+        if rng.random() >= aussetzer:
+            conf = float(np.clip(rng.normal(mittel, sigma), 0.11, 0.99))
+            bild.append(Box("A", 300, 300, conf=conf))
+        bilder.append(bild)
+    return bilder
+
+
 def dauer_fehlerkennung(conf: float, sekunden: int = 600) -> list[list[Box]]:
     """Ein ruhendes Objekt (z. B. Heuballen) wird in jedem Bild mit `conf`
     als Kuh erkannt, daneben eine echte Kuh."""
@@ -169,6 +184,17 @@ def auswerten(pfade: list[str]) -> list[tuple[str, list[str]]]:
                 anteil = sum(1 for i in nachts if i is not None) / len(nachts)
                 werte.append(f"{anteil:.0%} mit ID" + ("" if neu else f", {wechsel(a)} Wechsel"))
             zeilen.append((f"Nachts conf {conf} ({'neu' if neu else 'schon getrackt'})", werte))
+
+    for mittel, sigma, aus in ((0.35, 0.08, 0.0), (0.45, 0.08, 0.0), (0.30, 0.08, 0.02)):
+        werte = []
+        for p in pfade:
+            anteile = []
+            for saat in range(4):
+                a = lauf(p, schwankend(mittel, sigma, aus, saat=saat))["A"]
+                anteile.append(sum(1 for i in a if i is not None) / len(a))
+            werte.append(f"{sum(anteile) / len(anteile):.0%} mit ID")
+        zeilen.append((f"Nachts neu, conf {mittel}±{sigma}"
+                       + (f", {aus:.0%} Aussetzer" if aus else ""), werte))
 
     for conf in (0.3, 0.6):
         werte = []
