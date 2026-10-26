@@ -100,7 +100,11 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
 
 1. 10-Minuten-Clips aufnehmen, 1 FPS wie im Betrieb, Tag und Nacht. Quelle
    ist `stream.url` aus `config.yaml`, also die Adresse, die der Agent liest:
-   `ffmpeg -i "<stream.url>" -t 600 -r 1 nacht.mp4`
+   `ffmpeg -i "<stream.url>" -t 600 -r 1 nacht.mp4`.
+   Bei der Cloud-Quelle ohne Bridge ist `stream.url` leer. Dann die
+   kurzlebige HLS-Adresse nehmen, die der Agent über `quelle_api` holt
+   (z. B. `/api/stallwache/stream`), und sie direkt vor der Aufnahme
+   abrufen.
 2. Messen (`edge-agent/training/tracking_pruefung.py`). Das Modell rechnet
    den Clip nur einmal, die Erkennungen landen in `nacht.erkennungen.json`:
 
@@ -112,28 +116,42 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
    python3 tracking_pruefung.py nacht.mp4 --kuehe 2 --tracker variante.yaml
    ```
 
-   `--kuehe` ist die echte Zahl der Kühe im Clip. Ohne die Angabe schätzt
-   das Werkzeug sie, und ein Geist mit eigener ID zählt als Kuh.
+   `--kuehe` ist die echte Zahl der Kühe im Clip und Pflicht für ein
+   Urteil. Ohne die Angabe schätzt das Werkzeug sie: Ein Geist mit eigener
+   ID zählt dann als Kuh, eine Kuh, die nie eine ID bekommt, fehlt.
    `--tier-klassen` entspricht `modell.tier_klassen` (Default `kuh`).
    Fruchtblase und Kälberfüße laufen wie im Agenten durch denselben Tracker,
    gemessen werden nur die Tiere.
 3. Die Tabelle nennt je Einstellung:
-   - geschätzte (und echte) Kühe, IDs, ID-Wechsel je Kuh und 10 min,
-   - den Anteil der Erkennungen mit einer ID, die keine 10 s hält,
-   - die längste Lücke ohne ID,
+   - geschätzte und angegebene Kühe, IDs, ID-Wechsel je Kuh und 10 min,
+   - Kurz-IDs (< 10 s) je Kuh und 10 min,
+   - den Anteil sichtbarer Kuh-Sekunden ohne lange ID und die längste
+     Lücke, in der eine sichtbare Kuh keine lange ID hat,
    - Erkennungen ohne ID je Konfidenzband und die Bildrate des Rechners.
 
-   **Gesamt ✓** gibt es nur, wenn alles zutrifft:
-   - < 1 Wechsel je Kuh und 10 min,
-   - höchstens 5 % der Erkennungen ab conf 0.25 ohne ID bzw. mit Kurz-ID,
-   - keine Lücke ohne ID ab 30 min,
-   - mit `--kuehe` keine Geister.
+   **Gesamt ✓** gibt es nur mit `--kuehe` und nur, wenn alles zutrifft:
+   - < 1 ID-Wechsel und < 1 Kurz-ID je Kuh und 10 min,
+   - höchstens 5 % der sichtbaren Kuh-Sekunden ohne lange ID,
+   - keine Lücke ab 30 min; in kürzeren Clips ab 80 % der Clipdauer,
+   - keine Geister (mehr Kühe gleichzeitig mit ID als angegeben).
 
-   Jede Verfehlung ergibt ✗ und Exit 1: zu viele Wechsel in ihrer Zeile,
-   alles andere mit einem **Achtung**-Hinweis. Ein „0 Wechsel“ allein trügt: Kühe ohne ID oder mit ständig neuer ID fehlen in
-   der Auswertung. Die Lücke zählt Sekunden am Stück, in denen irgendeine
-   Erkennung ab 0.25 ohne ID bleibt; welche Kuh es ist, weiß das Werkzeug
-   nicht.
+   Exit 0 = alle Einstellungen ✓, 1 = mindestens eine ✗, 2 = ohne
+   `--kuehe` oder Eingabefehler. Jede Verfehlung steht als ✗ in ihrer
+   Zeile; alle außer den ID-Wechseln bringen zusätzlich einen
+   **Achtung**-Hinweis.
+
+   Wie gezählt wird:
+   - **Sichtbar** heißt: Je Bild zählen die Tier-Erkennungen, höchstens so
+     viele, wie Kühe angegeben sind. Eine ganz verdeckte Kuh zählt also
+     nicht, eine nur schwach erkannte (auch unter 0.25) schon.
+   - **Lücke:** Unterbrechungen bis 10 s werden überbrückt. Welche Kuh es
+     ist, weiß das Werkzeug nicht.
+   - **Hinweis „ohne ID“:** Erkennungen ohne ID neben vollständig
+     getrackten Kühen sind Fehlerkennungen. Sie bringen nur einen
+     **Hinweis**, kein ✗.
+   - **Grenze:** Tauschen zwei Kühe ihre IDs, sieht das Werkzeug das nicht,
+     denn es zählt IDs, keine Tiere. Das Symptom „IDs flackern zwischen zwei
+     nahen Kühen“ also im Clip ansehen.
 4. Nach jeder Änderung an `tracker-kuh.yaml` neu messen, immer nur EINEN
    Wert drehen. Die Tabelle gehört in die Modellkarte.
 
@@ -143,9 +161,9 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
   Kuh. `tracking_pruefung.py` gegen `tracker-kuh.yaml`, eine Variante mit
   `track_high_thresh` 0.25 und eine mit `track_high_thresh` und
   `new_track_thresh` 0.3 laufen lassen.
-- **Handeln**, wenn ein Achtung-Hinweis kommt: > 5 % ohne ID oder mit
-  Kurz-ID ab conf 0.25, oder eine Lücke ohne ID ab 30 min (ein
-  Kalbeverdachts-Fenster).
+- **Handeln**, wenn eine Einstellung ✗ zeigt. Am wichtigsten ist die
+  Lücke: eine sichtbare Kuh 30 min oder länger ohne lange ID, also ein
+  ganzes Kalbeverdachts-Fenster.
 - **Geister erkennen:** immer mit `--kuehe` messen. Mehr Kühe mit ID als
   angegeben ergibt einen Geist-Hinweis.
 - **Reihenfolge:**

@@ -55,8 +55,10 @@ def lade_tracker(pfad: str):
 
     cfg = IterableSimpleNamespace(**yaml_load(check_yaml(pfad)))
     if getattr(cfg, "tracker_type", "bytetrack") != "bytetrack":
-        raise SystemExit(f"{pfad}: tracker_type {cfg.tracker_type!r} – nachgebildet "
-                         "wird nur ByteTrack (wie im Agenten).")
+        # Exit 2 = Eingabefehler (tracking_pruefung: 1 heisst „Ziel verfehlt“)
+        print(f"{pfad}: tracker_type {cfg.tracker_type!r} – nachgebildet wird nur "
+              "ByteTrack (wie im Agenten).", file=sys.stderr)
+        sys.exit(2)
     return BYTETracker(args=cfg, frame_rate=30)  # wie track.py: Frames = Sekunden bei 1 FPS
 
 
