@@ -7,6 +7,9 @@ aendern und Befehle auf dem Stall-Rechner ausfuehren. Dieser kleine Proxy
 oeffentlich wird. Er laesst ausschliesslich zu:
 
   * GET auf die HLS-Pfade der Stallwache (siehe ERLAUBT),
+  * GET /api/ki-ansicht: das letzte Analysebild des Edge-Agenten mit
+    Kaesten und Kuh-Nummern, direkt aus einer festen Datei (kein go2rtc,
+    keine Pfadangabe des Aufrufers; docs/ki-ansicht-spezifikation.md),
   * mit dem geheimen Header  x-stallwache-token,
   * die Quelle wird erzwungen (stallwache_sd) – der Aufrufer waehlt sie nie.
 
@@ -14,7 +17,8 @@ Alles andere: 403 (Token falsch/fehlt) bzw. 404 (Pfad nicht erlaubt).
 
 Start (siehe fern-einrichten.sh):
     FERN_TOKEN=<geheim, >= 24 Zeichen> python3 fern-proxy.py
-Env: FERN_PORT (8089), GO2RTC_PORT (1984), FERN_QUELLE (stallwache_sd).
+Env: FERN_PORT (8089), GO2RTC_PORT (1984), FERN_QUELLE (stallwache_sd),
+     KI_ANSICHT_DATEI (/dev/shm/stallwache-stallwache/ki-ansicht.jpg).
 Lauscht nur auf 127.0.0.1.
 """
 from __future__ import annotations
@@ -25,6 +29,7 @@ import os
 import re
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
@@ -39,6 +44,25 @@ ERLAUBT: dict[str, tuple[str, ...]] = {
 WERT = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 MAX_GLEICHZEITIG = 12
 UPSTREAM_TIMEOUT_S = 20
+KI_ANSICHT_PFAD = "/api/ki-ansicht"
+KI_ANSICHT_FRISCH_S = 10          # aelter -> 404, nie ein altes Bild als aktuell
+KI_ANSICHT_MAX_BYTES = 2 * 1024 * 1024
+
+
+def lies_ki_ansicht(datei: str, jetzt: float | None = None) -> tuple[bytes, float] | None:
+    """Inhalt und Dateizeit der KI-Ansicht – oder None, wenn sie fehlt, zu
+    alt oder zu gross ist. Der Agent ersetzt die Datei atomar (os.replace),
+    ein Leser sieht also nie eine halbe."""
+    try:
+        with open(datei, "rb") as f:
+            st = os.fstat(f.fileno())
+            if st.st_size > KI_ANSICHT_MAX_BYTES:
+                return None
+            if (jetzt if jetzt is not None else time.time()) - st.st_mtime > KI_ANSICHT_FRISCH_S:
+                return None
+            return f.read(KI_ANSICHT_MAX_BYTES + 1), st.st_mtime
+    except OSError:
+        return None
 
 
 def token_ok(erwartet: str, erhalten: str | None) -> bool:
@@ -75,6 +99,7 @@ class Handler(BaseHTTPRequestHandler):
     token = ""
     go2rtc_port = 1984
     quelle = "stallwache_sd"
+    ki_ansicht_datei = "/dev/shm/stallwache-stallwache/ki-ansicht.jpg"
     schranke = threading.BoundedSemaphore(MAX_GLEICHZEITIG)
 
     def _antwort(self, status: int, text: str = "") -> None:
@@ -85,9 +110,24 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _ki_ansicht(self) -> None:
+        erg = lies_ki_ansicht(self.ki_ansicht_datei)
+        if erg is None:
+            return self._antwort(404, "keine aktuelle KI-Ansicht")
+        inhalt, zeit = erg
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(inhalt)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Bild-Zeit", str(int(zeit)))
+        self.end_headers()
+        self.wfile.write(inhalt)
+
     def do_GET(self) -> None:  # noqa: N802 – Namensvorgabe von BaseHTTPRequestHandler
         if not token_ok(self.token, self.headers.get("x-stallwache-token")):
             return self._antwort(403, "verboten")
+        if urlsplit(self.path).path == KI_ANSICHT_PFAD:
+            return self._ki_ansicht()
         ziel = ziel_fuer(self.path, self.quelle)
         if ziel is None:
             return self._antwort(404, "nicht erlaubt")
@@ -133,6 +173,7 @@ def main() -> None:
     Handler.token = token
     Handler.go2rtc_port = int(os.environ.get("GO2RTC_PORT", "1984"))
     Handler.quelle = os.environ.get("FERN_QUELLE", "stallwache_sd")
+    Handler.ki_ansicht_datei = os.environ.get("KI_ANSICHT_DATEI", "").strip() or Handler.ki_ansicht_datei
     port = int(os.environ.get("FERN_PORT", "8089"))
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     srv.daemon_threads = True

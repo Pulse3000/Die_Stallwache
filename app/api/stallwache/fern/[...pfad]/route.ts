@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authAktiv } from "@/lib/auth";
-import { fernAbruf, schreibeManifestUm } from "@/lib/fern";
+import { authAktiv, pruefeToken, SESSION_COOKIE } from "@/lib/auth";
+import { bildZeitKopf, fernAbruf, KI_ANSICHT_PFAD, schreibeManifestUm } from "@/lib/fern";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -9,10 +9,15 @@ export const runtime = "nodejs";
  * Reicht das Stallwache-HLS vom Stall-Rechner durch (siehe lib/fern.ts).
  *
  * Liegt hinter dem App-Login (middleware.ts). Zusaetzlich verweigert die
- * Route selbst den Dienst, solange der Login nicht aktiv ist (fail-closed):
- * Das Stallbild darf nie ohne Anmeldung erreichbar sein, auch nicht durch
- * eine vergessene Umgebungsvariable. Erlaubt sind nur die HLS-Pfade der
- * Stallwache, alles andere ist 404.
+ * Route selbst den Dienst, solange der Login nicht aktiv ist (fail-closed),
+ * und prueft die Sitzung selbst: Das Stallbild darf nie ohne Anmeldung
+ * erreichbar sein, auch nicht durch eine vergessene Umgebungsvariable oder
+ * einen Pfad, den der Matcher der Middleware auslaesst (statische Bilder). Erlaubt sind nur die HLS-Pfade der
+ * Stallwache und die KI-Ansicht, alles andere ist 404.
+ *
+ * KI-Ansicht: 404 vom Stall-Rechner heisst „der Agent analysiert gerade
+ * nicht" und bleibt 404 (die Kachel zeigt dann den Hinweis statt
+ * „Fernzugriff gestoert"); die Bildzeit geht nur als Ganzzahl durch.
  */
 export async function GET(
   req: NextRequest,
@@ -24,13 +29,24 @@ export async function GET(
       { status: 503 },
     );
   }
+  if (!(await pruefeToken(req.cookies.get(SESSION_COOKIE)?.value))) {
+    return NextResponse.json({ fehler: "Nicht angemeldet" }, { status: 401 });
+  }
   const { pfad } = await params;
   const teil = pfad.join("/");
   const r = await fernAbruf(teil, req.nextUrl.searchParams);
-  if (!r.ok) return NextResponse.json({ fehler: r.fehler }, { status: r.status });
+  if (!r.ok) {
+    const keinBild = teil === KI_ANSICHT_PFAD && r.upstream === 404;
+    return NextResponse.json(
+      { fehler: keinBild ? "Keine aktuelle KI-Ansicht" : r.fehler },
+      { status: keinBild ? 404 : r.status },
+    );
+  }
 
   const typ = r.antwort.headers.get("content-type") ?? "application/octet-stream";
-  const headers = { "Content-Type": typ, "Cache-Control": "no-store" };
+  const headers: Record<string, string> = { "Content-Type": typ, "Cache-Control": "no-store" };
+  const bildZeit = bildZeitKopf(r.antwort.headers.get("x-bild-zeit"));
+  if (teil === KI_ANSICHT_PFAD && bildZeit) headers["X-Bild-Zeit"] = bildZeit;
 
   if (teil.endsWith(".m3u8")) {
     const text = await r.antwort.text();
