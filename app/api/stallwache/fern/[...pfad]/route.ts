@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAktiv, pruefeToken, SESSION_COOKIE } from "@/lib/auth";
-import { bildZeitKopf, fernAbruf, KI_ANSICHT_PFAD, schreibeManifestUm } from "@/lib/fern";
+import { fernAbruf, KI_ANSICHT_PFAD, schreibeManifestUm } from "@/lib/fern";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,11 +13,11 @@ export const runtime = "nodejs";
  * und prueft die Sitzung selbst: Das Stallbild darf nie ohne Anmeldung
  * erreichbar sein, auch nicht durch eine vergessene Umgebungsvariable oder
  * einen Pfad, den der Matcher der Middleware auslaesst (statische Bilder). Erlaubt sind nur die HLS-Pfade der
- * Stallwache und die KI-Ansicht, alles andere ist 404.
+ * Stallwache und die KI-Kaesten, alles andere ist 404.
  *
- * KI-Ansicht: 404 vom Stall-Rechner heisst „der Agent analysiert gerade
- * nicht" und bleibt 404 (die Kachel zeigt dann den Hinweis statt
- * „Fernzugriff gestoert"); die Bildzeit geht nur als Ganzzahl durch.
+ * KI-Kaesten: 404 vom Stall-Rechner heisst „keine aktuellen Erkennungen"
+ * und bleibt 404 (die Kachel zeigt dann den Hinweis statt „Fernzugriff
+ * gestoert").
  */
 export async function GET(
   req: NextRequest,
@@ -38,15 +38,13 @@ export async function GET(
   if (!r.ok) {
     const keinBild = teil === KI_ANSICHT_PFAD && r.upstream === 404;
     return NextResponse.json(
-      { fehler: keinBild ? "Keine aktuelle KI-Ansicht" : r.fehler },
+      { fehler: keinBild ? "Keine aktuellen KI-Kästen" : r.fehler },
       { status: keinBild ? 404 : r.status },
     );
   }
 
   const typ = r.antwort.headers.get("content-type") ?? "application/octet-stream";
-  const headers: Record<string, string> = { "Content-Type": typ, "Cache-Control": "no-store" };
-  const bildZeit = bildZeitKopf(r.antwort.headers.get("x-bild-zeit"));
-  if (teil === KI_ANSICHT_PFAD && bildZeit) headers["X-Bild-Zeit"] = bildZeit;
+  const headers = { "Content-Type": typ, "Cache-Control": "no-store" };
 
   if (teil.endsWith(".m3u8")) {
     const text = await r.antwort.text();

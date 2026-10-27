@@ -2392,81 +2392,89 @@ def trainingsbild_name(kamera: str, zeit: float | None = None) -> str:
 
 
 # --------------------------------------------------------------------------
-# KI-Ansicht: letztes analysiertes Bild mit Kaesten und Kuh-Nummern
+# KI-Ansicht: Kaesten und Kuh-Nummern fuer das Livebild der Kachel
 # --------------------------------------------------------------------------
 
 class KiAnsicht:
-    """Schreibt das zuletzt analysierte Bild mit Kaesten und „Kuh #ID“
-    fuer die Kachel der Webapp (docs/ki-ansicht-spezifikation.md).
+    """Schreibt die Kaesten der letzten Analyse als kleine JSON-Datei; die
+    Webapp legt sie ueber das Livevideo der Stallwache
+    (docs/ki-ansicht-spezifikation.md).
 
-    Kasten und Bild stammen aus demselben Frame. Geschrieben wird atomar
-    (temporaere Datei, dann os.replace), damit fern-proxy.py nie eine halbe
-    Datei ausliefert, und in den RAM (/dev/shm, siehe docker-compose.yml):
-    kein Plattenverschleiss bei einem Bild je Sekunde. Pfad aus
+    Koordinaten relativ zum analysierten Bild (0..1), damit sie auf jede
+    Aufloesung des Livebilds passen. Geschrieben wird atomar (temporaere
+    Datei, dann os.replace), damit fern-proxy.py nie eine halbe Datei
+    ausliefert, und in den RAM (/dev/shm, siehe docker-compose.yml). Kein
+    Zeichnen, kein JPEG: wenige hundert Bytes je Sekunde. Pfad aus
     ki_ansicht.datei oder KI_ANSICHT_DATEI; leer = aus. Fehler stoppen die
     Analyse nie (hoechstens eine Warnung je Stunde).
+
+    Was hineinkommt (Befund ki-wache):
+    - Kuehe nur mit Track-Nummer; ohne Nummer (-1) wertet die Logik sie
+      nicht aus, also zeigt die Kachel sie auch nicht.
+    - Fruchtblase/Kaelberfuesse ab ANZEIGE_AB; „alarm“ nach derselben Regel
+      wie LogicEngine.bewerte (>= logik.override_konfidenz). Prozent
+      abgerundet, damit nie „80 %“ ohne Alarm erscheint.
     """
 
-    BREITE = 960
-    QUALITAET = 70
-    KUH = (60, 200, 60)        # BGR gruen
-    OBJEKT = (40, 40, 230)     # BGR rot
-    # Hershey-Schrift kann nur ASCII
-    NAMEN = {"amniotic_sac": "Fruchtblase", "calf_legs": "Kaelberfuesse"}
+    ANZEIGE_AB = 0.25          # nur Anzeige; der Alarmweg ist davon unberuehrt
 
-    def __init__(self, cfg: dict, kamera: str):
+    def __init__(self, cfg: dict, kamera: str, alarm_ab: float = 0.80):
         k = cfg.get("ki_ansicht") or {}
+        if not isinstance(k, dict):  # z. B. „ki_ansicht: /pfad.json“ statt Abschnitt
+            log.warning("ki_ansicht in config.yaml ist kein Abschnitt – Eintrag ignoriert.")
+            k = {}
         pfad = str(k.get("datei") or os.environ.get("KI_ANSICHT_DATEI") or "").strip()
         self.datei: Path | None = Path(pfad) if pfad else None
         self.kamera = kamera
+        self.alarm_ab = alarm_ab
         self._letzte_warnung: float | None = None
 
     @property
     def aktiv(self) -> bool:
         return self.datei is not None
 
-    def zeichne(self, frame: np.ndarray, kuehe: list[KuhBeobachtung],
-                objekte: list[ObjektErkennung], zeit: float | None = None) -> np.ndarray:
-        """Erst verkleinern, dann zeichnen: spart CPU auf dem Stall-Rechner."""
-        h, w = frame.shape[:2]
-        f = self.BREITE / w if w > self.BREITE else 1.0
-        bild = (cv2.resize(frame, (round(w * f), round(h * f)), interpolation=cv2.INTER_AREA)
-                if f != 1.0 else frame.copy())
+    def daten(self, breite: int, hoehe: int, kuehe: list[KuhBeobachtung],
+              objekte: list[ObjektErkennung], zeit: float) -> dict:
+        """Inhalt der JSON-Datei (reine Funktion)."""
+        def rel(box: tuple) -> list[float]:
+            x1, y1, x2, y2 = box
+            return [round(min(1.0, max(0.0, v / g)), 4)
+                    for v, g in ((x1, breite), (y1, hoehe), (x2, breite), (y2, hoehe))]
 
-        def schrift(text: str, ort: tuple, farbe: tuple) -> None:
-            # Dunkle Kontur: lesbar auf hellem Fell wie auf dunklem Stroh
-            cv2.putText(bild, text, ort, cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 4)
-            cv2.putText(bild, text, ort, cv2.FONT_HERSHEY_SIMPLEX, 0.6, farbe, 2)
-
-        def kasten(box: tuple, farbe: tuple, text: str) -> None:
-            x1, y1, x2, y2 = (int(round(v * f)) for v in box)
-            cv2.rectangle(bild, (x1, y1), (x2, y2), farbe, 2)
-            schrift(text, (x1 + 3, max(18, y1 - 6)), farbe)
-
-        for kuh in kuehe:
-            text = f"Kuh #{kuh.track_id}"
-            if kuh.winkel_grad is not None:
-                text += f" {kuh.winkel_grad:.0f} Grad"
-            kasten(kuh.box, self.KUH, text)
-        for o in objekte:
-            kasten(o.box, self.OBJEKT, f"{self.NAMEN.get(o.klasse, o.klasse)} {o.konfidenz:.2f}")
-        schrift(f"{self.kamera} {time.strftime('%H:%M:%S', time.localtime(zeit))}",
-                (8, 22), (255, 255, 255))
-        return bild
+        return {
+            "v": 1,
+            "kamera": self.kamera,
+            "zeit": round(zeit, 2),
+            "breite": breite,
+            "hoehe": hoehe,
+            "alarm_ab": self.alarm_ab,
+            "kuehe": [
+                {"id": k.track_id, "box": rel(k.box),
+                 "winkel": None if k.winkel_grad is None else round(k.winkel_grad, 1)}
+                for k in kuehe if k.track_id >= 0
+            ],
+            "objekte": [
+                {"klasse": o.klasse, "box": rel(o.box),
+                 "prozent": math.floor(o.konfidenz * 100 + 1e-9),
+                 "alarm": o.konfidenz >= self.alarm_ab}  # dieselbe Regel wie LogicEngine.bewerte
+                for o in objekte if o.konfidenz >= self.ANZEIGE_AB
+            ],
+        }
 
     def schreibe(self, frame: np.ndarray, kuehe: list[KuhBeobachtung],
-                 objekte: list[ObjektErkennung]) -> bool:
-        """Zeichnet und schreibt atomar; True, wenn die Datei ersetzt wurde."""
+                 objekte: list[ObjektErkennung], zeit: float | None = None) -> bool:
+        """Schreibt atomar; True, wenn die Datei ersetzt wurde. `zeit` ist die
+        Aufnahmezeit des Bilds (Default: jetzt)."""
         if self.datei is None:
             return False
         tmp = self.datei.with_name(self.datei.name + ".tmp")
         try:
-            ok, jpg = cv2.imencode(".jpg", self.zeichne(frame, kuehe, objekte),
-                                   [cv2.IMWRITE_JPEG_QUALITY, self.QUALITAET])
-            if not ok:
-                raise ValueError("JPEG-Kodierung fehlgeschlagen")
+            h, w = frame.shape[:2]
+            text = json.dumps(self.daten(w, h, kuehe, objekte,
+                                         time.time() if zeit is None else zeit),
+                              separators=(",", ":"))
             self.datei.parent.mkdir(parents=True, exist_ok=True)
-            tmp.write_bytes(jpg.tobytes())
+            tmp.write_text(text, encoding="utf-8")
             os.chmod(tmp, 0o644)  # fern-proxy laeuft unter einem anderen Benutzer
             os.replace(tmp, self.datei)
             return True
@@ -2503,8 +2511,8 @@ def main() -> None:
     # laeuft und Silent-Mode-Bilder wie Hard Negatives denselben Weg nehmen.
     archiv = DatensatzArchiv(cfg)
     notifier.feedback.archiv = archiv
-    # Letztes analysiertes Bild mit Kaesten fuer die Kachel (nur Analyse-Modus)
-    ki_ansicht = KiAnsicht(cfg, notifier.kamera)
+    # Kaesten der letzten Analyse fuer das Livebild der Kachel (nur Analyse-Modus)
+    ki_ansicht = KiAnsicht(cfg, notifier.kamera, logik.override_konf)
     # „❌ Fehlalarm" auf eine Austreibung -> naechste Erkennung meldet sofort.
     notifier.feedback.bei_fehlalarm = logik.fehlalarm_gemeldet
 
@@ -2582,9 +2590,9 @@ def main() -> None:
             kuehe, objekte = engine.analysiere(frame)
             for alarm in logik.bewerte(kuehe, objekte):
                 notifier.melde(alarm, frame, verlauf=list(frame_puffer)[:-1])
-            # Erst nach den Alarmen: Kein Alarm wartet aufs Zeichnen.
+            # Erst nach den Alarmen: Kein Alarm wartet auf die KI-Ansicht.
             if ki_ansicht.aktiv:
-                ki_ansicht.schreibe(frame, kuehe, objekte)
+                ki_ansicht.schreibe(frame, kuehe, objekte, letztes_bild)
 
         except KeyboardInterrupt:
             log.info("Beendet.")

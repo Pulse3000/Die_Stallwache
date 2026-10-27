@@ -21,16 +21,17 @@ services:
     network_mode: host
     volumes:
       - ./daten/${KAMERA:-stallwache}:/daten
-      # KI-Ansicht im RAM des Stall-Rechners: ein Bild je Sekunde ohne
-      # Plattenverschleiss; fern-proxy.py liest es dort (Default-Pfad
-      # /dev/shm/stallwache-stallwache/ki-ansicht.jpg).
+      # KI-Ansicht (Kaesten fuers Livebild) im RAM des Stall-Rechners: eine
+      # kleine JSON-Datei je Sekunde ohne Plattenverschleiss; fern-proxy.py
+      # liest sie dort (Default /dev/shm/stallwache-stallwache/ki-kaesten.json).
       - /dev/shm/stallwache-${KAMERA:-stallwache}:/ki-ansicht
     environment:
       # Fehlersuche: OPENCV_FFMPEG_LOGLEVEL=16 docker compose up -d
       # (README „Ruhiges Log"). Ohne Wert gilt 8 = nur fatal.
       - OPENCV_FFMPEG_LOGLEVEL
-      # Gilt, wenn config.yaml ki_ansicht.datei leer laesst.
-      - KI_ANSICHT_DATEI=/ki-ansicht/ki-ansicht.jpg
+      # Gilt, wenn config.yaml ki_ansicht.datei leer laesst. Abschalten (z. B.
+      # Futterwache, die keine Kachel abruft): KI_ANSICHT_DATEI= docker compose …
+      - KI_ANSICHT_DATEI=${KI_ANSICHT_DATEI-/ki-ansicht/ki-kaesten.json}
     # Wie kuhwatch: flache CPU-Last statt thermischer Lastspitzen.
     cpus: 1
     mem_limit: 4g

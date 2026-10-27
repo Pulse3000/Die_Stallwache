@@ -117,6 +117,8 @@ def fahre_hauptschleife(frames, analyse: bool, cfg_zusatz=None):
             return [], []
 
     class Logik:
+        override_konf = 0.80  # wie LogicEngine (KiAnsicht liest die Alarmschwelle)
+
         def __init__(self, cfg):
             pass
 

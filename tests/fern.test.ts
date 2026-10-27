@@ -15,7 +15,6 @@ import { createServer as httpServer } from "node:http";
 import { createServer, type Server, type Socket } from "node:net";
 import { test } from "node:test";
 import {
-  bildZeitKopf,
   fernAbruf,
   fernFehlerUrsache,
   fernZiel,
@@ -240,27 +239,26 @@ test("fernAbruf nennt die Ursache: Zeitueberschreitung und Reset", async (t) => 
   }
 });
 
-// --- KI-Ansicht (docs/ki-ansicht-spezifikation.md, Kriterien 3 und 4) ---------
+// --- KI-Kaesten (docs/ki-ansicht-spezifikation.md, Kriterien 3 und 4) --------
 
-test("KI-Ansicht: genau ein Pfad, ohne Parameter", () => {
-  assert.equal(KI_ANSICHT_PFAD, "ki-ansicht");
-  assert.equal(fernZiel(BASIS, "ki-ansicht", q("t=123&src=x")), `${BASIS}/api/ki-ansicht`);
-  for (const p of ["ki-ansicht.jpg", "ki-ansicht/../config", "hls/ki-ansicht", "../ki-ansicht"]) {
+test("KI-Kaesten: genau ein Pfad, ohne Parameter", () => {
+  assert.equal(KI_ANSICHT_PFAD, "ki-kaesten");
+  assert.equal(fernZiel(BASIS, "ki-kaesten", q("t=123&src=x")), `${BASIS}/api/ki-kaesten`);
+  for (const p of [
+    "ki-kaesten.json",
+    "ki-kaesten/../config",
+    "hls/ki-kaesten",
+    "../ki-kaesten",
+    "ki-ansicht",
+  ]) {
     assert.equal(fernZiel(BASIS, p, q("")), null, `Pfad "${p}"`);
   }
 });
 
-test("KI-Ansicht: Bildzeit nur als Ganzzahl", () => {
-  assert.equal(bildZeitKopf("1761577200"), "1761577200");
-  for (const w of [null, "", "12a", "1.5", "-3", "<script>", "1".repeat(13)]) {
-    assert.equal(bildZeitKopf(w), null, `Wert ${JSON.stringify(w)}`);
-  }
-});
-
-test("fernAbruf meldet den Status des Stall-Rechners (404 = keine KI-Ansicht)", async () => {
+test("fernAbruf meldet den Status des Stall-Rechners (404 = keine KI-Kaesten)", async () => {
   const srv = httpServer((_req, res) => {
     res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("keine aktuelle KI-Ansicht");
+    res.end("keine aktuellen KI-Kaesten");
   });
   await new Promise<void>((fertig) => srv.listen(0, "127.0.0.1", fertig));
   try {

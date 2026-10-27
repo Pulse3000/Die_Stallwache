@@ -164,11 +164,14 @@ watchdog:
   frames_bis_alarm:
 
 ki_ansicht:
-  # Letztes analysiertes Bild mit Kaesten und „Kuh #ID" fuer die Kachel der
-  # Stallwache (Schalter „KI-Ansicht", docs/ki-ansicht-spezifikation.md).
-  # Nur im Analyse-Modus, etwa 1 Bild/s, atomar in den RAM. fern-proxy.py
-  # liefert es mit Token aus (Fernzugriff). Leer = aus; docker-compose.yml
-  # setzt dafuer KI_ANSICHT_DATEI=/ki-ansicht/ki-ansicht.jpg (/dev/shm).
+  # Kaesten und „Kuh #ID" der letzten Analyse als kleine JSON-Datei; die
+  # Webapp legt sie ueber das Livebild der Stallwache (Schalter „KI-Kästen",
+  # docs/ki-ansicht-spezifikation.md). Nur im Analyse-Modus, etwa 1/s,
+  # atomar in den RAM. fern-proxy.py liefert sie mit Token aus
+  # (Fernzugriff). Leer = aus; docker-compose.yml setzt dafuer
+  # KI_ANSICHT_DATEI=/ki-ansicht/ki-kaesten.json (/dev/shm).
+  # Betrieb per systemd (setup.sh) statt Docker: hier eintragen
+  #   datei: /dev/shm/stallwache-stallwache/ki-kaesten.json
   datei: ""
 
 silent_mode:

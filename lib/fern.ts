@@ -28,12 +28,12 @@ export function fernKonfiguriert(): boolean {
   );
 }
 
-/** Pfad der KI-Ansicht: letztes Analysebild des Edge-Agenten mit Kaesten
- *  (docs/ki-ansicht-spezifikation.md). fern-proxy.py liest es aus einer
- *  festen Datei, nicht von go2rtc. Bewusst OHNE Endung: Der Matcher in
- *  middleware.ts nimmt Pfade auf .jpg/.png usw. vom Login aus (statische
- *  Bilder) – ein Stallbild darunter waere ohne Anmeldung abrufbar. */
-export const KI_ANSICHT_PFAD = "ki-ansicht";
+/** Pfad der KI-Kaesten: Kaesten und Kuh-Nummern der letzten Analyse des
+ *  Edge-Agenten als JSON (docs/ki-ansicht-spezifikation.md). fern-proxy.py
+ *  liest sie aus einer festen Datei, nicht von go2rtc. Bewusst OHNE Endung:
+ *  Der Matcher in middleware.ts nimmt Pfade auf .jpg/.png usw. vom Login
+ *  aus (statische Bilder); die Route prueft die Sitzung ohnehin selbst. */
+export const KI_ANSICHT_PFAD = "ki-kaesten";
 
 /** Erlaubte Pfade (relativ zu /api/) und ihre Query-Parameter – Spiegel von
  *  ERLAUBT und KI_ANSICHT_PFAD in bridge/fern-proxy.py. */
@@ -45,15 +45,6 @@ const ERLAUBT: Record<string, readonly string[]> = {
   "hls/segment.m4s": ["id", "n"],
   [KI_ANSICHT_PFAD]: [],
 };
-
-/**
- * Wert des Kopfs X-Bild-Zeit (Unix-Sekunden der KI-Ansicht) – nur als
- * Ganzzahl weitergereicht, sonst null. Der Kopf kommt vom Stall-Rechner und
- * landet im Browser; mehr als Ziffern hat dort nichts zu suchen.
- */
-export function bildZeitKopf(wert: string | null): string | null {
-  return wert && /^\d{1,12}$/.test(wert) ? wert : null;
-}
 
 const PARAMETER_WERT = /^[A-Za-z0-9_-]{1,64}$/;
 

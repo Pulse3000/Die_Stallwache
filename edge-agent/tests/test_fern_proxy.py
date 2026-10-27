@@ -4,8 +4,8 @@
 Prueft die Pfad-Freigabe, den Tokenvergleich und – mit einem gefaelschten
 go2rtc auf Loopback – den ganzen Weg: ohne Token 403, go2rtc-API 404, nur das
 Stallwache-HLS kommt durch und die Quelle wird erzwungen. Dazu die
-KI-Ansicht (docs/ki-ansicht-spezifikation.md, Kriterium 2): nur mit Token,
-nur frisch (<= 10 s), hoechstens 2 MB, nie ueber go2rtc.
+KI-Kaesten (docs/ki-ansicht-spezifikation.md, Kriterium 2): nur mit Token,
+nur frisch (<= 10 s), hoechstens 64 KB, nie ueber go2rtc.
 
     python3 edge-agent/tests/test_fern_proxy.py
     pytest -q edge-agent/tests/test_fern_proxy.py
@@ -135,26 +135,26 @@ def test_go2rtc_down_ergibt_502():
 
 def test_ki_ansicht_lesen():
     with tempfile.TemporaryDirectory() as tmp:
-        datei = os.path.join(tmp, "ki-ansicht.jpg")
+        datei = os.path.join(tmp, "ki-kaesten.json")
         assert fp.lies_ki_ansicht(datei) is None                      # fehlt
         with open(datei, "wb") as f:
-            f.write(b"\xff\xd8bild")
+            f.write(b'{"v":1}')
         jetzt = os.stat(datei).st_mtime
-        assert fp.lies_ki_ansicht(datei, jetzt + 10) == (b"\xff\xd8bild", jetzt)
+        assert fp.lies_ki_ansicht(datei, jetzt + 10) == (b'{"v":1}', jetzt)
         assert fp.lies_ki_ansicht(datei, jetzt + 10.5) is None        # aelter als 10 s
         with open(datei, "wb") as f:
             f.write(b"x" * (fp.KI_ANSICHT_MAX_BYTES + 1))
         assert fp.lies_ki_ansicht(datei) is None                      # zu gross
         with open(datei, "wb") as f:
             f.write(b"x" * fp.KI_ANSICHT_MAX_BYTES)
-        assert fp.lies_ki_ansicht(datei) is not None                  # genau 2 MB geht
+        assert fp.lies_ki_ansicht(datei) is not None                  # genau 64 KB geht
         assert fp.lies_ki_ansicht(tmp) is None                        # Ordner statt Datei
 
 
 def test_ki_ansicht_ganzer_weg():
     go = starte(FalschesGo2rtc)
     with tempfile.TemporaryDirectory() as tmp:
-        datei = os.path.join(tmp, "ki-ansicht.jpg")
+        datei = os.path.join(tmp, "ki-kaesten.json")
         fp.Handler.token = TOKEN
         fp.Handler.go2rtc_port = go.server_address[1]
         fp.Handler.ki_ansicht_datei = datei
@@ -162,22 +162,21 @@ def test_ki_ansicht_ganzer_weg():
         p = proxy.server_address[1]
         try:
             FalschesGo2rtc.gesehen.clear()
-            assert anfrage(p, "/api/ki-ansicht")[0] == 404           # Agent schreibt nicht
+            assert anfrage(p, "/api/ki-kaesten")[0] == 404           # Agent schreibt nicht
             with open(datei, "wb") as f:
-                f.write(b"\xff\xd8bild")
-            assert anfrage(p, "/api/ki-ansicht", token=None)[0] == 403
-            assert anfrage(p, "/api/ki-ansicht", token="falsch")[0] == 403
-            assert anfrage(p, "/api/ki-ansicht", methode="POST")[0] == 405
-            status, koerper, kopf = anfrage(p, "/api/ki-ansicht?t=123", kopfzeilen=True)
-            assert status == 200 and koerper == b"\xff\xd8bild"
-            assert kopf["content-type"] == "image/jpeg" and kopf["cache-control"] == "no-store"
-            assert abs(int(kopf["x-bild-zeit"]) - time.time()) < 5
+                f.write(b'{"v":1}')
+            assert anfrage(p, "/api/ki-kaesten", token=None)[0] == 403
+            assert anfrage(p, "/api/ki-kaesten", token="falsch")[0] == 403
+            assert anfrage(p, "/api/ki-kaesten", methode="POST")[0] == 405
+            status, koerper, kopf = anfrage(p, "/api/ki-kaesten?t=123", kopfzeilen=True)
+            assert status == 200 and koerper == b'{"v":1}'
+            assert kopf["content-type"] == "application/json" and kopf["cache-control"] == "no-store"
             alt = time.time() - 30
             os.utime(datei, (alt, alt))
-            assert anfrage(p, "/api/ki-ansicht")[0] == 404           # nicht aktuell
+            assert anfrage(p, "/api/ki-kaesten")[0] == 404           # nicht aktuell
             # Kein Umweg zu anderen Dateien oder zu go2rtc
-            for pfad in ("/api/ki-ansicht/../config", "/api/ki-ansicht.jpg",
-                         "/api/../api/ki-ansicht", "/ki-ansicht"):
+            for pfad in ("/api/ki-kaesten/../config", "/api/ki-kaesten.json", "/api/ki-ansicht",
+                         "/api/../api/ki-kaesten", "/ki-kaesten"):
                 assert anfrage(p, pfad)[0] == 404, pfad
             assert FalschesGo2rtc.gesehen == [], "die KI-Ansicht beruehrt go2rtc nie"
         finally:

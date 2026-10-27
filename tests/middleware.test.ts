@@ -3,10 +3,10 @@
  *
  * Der Matcher nimmt statische Dateien vom Login aus, darunter alles, was auf
  * .jpg/.png/… endet. Ein Stallbild unter so einem Pfad waere ohne Anmeldung
- * abrufbar (gefunden beim Bau der KI-Ansicht, docs/ki-ansicht-spezifikation.md
- * §4). Dieser Test haelt fest, dass jeder Pfad des Fernzugriffs von der
- * Middleware erfasst wird. Die Fernzugriff-Route prueft die Sitzung
- * zusaetzlich selbst.
+ * abrufbar (gefunden beim Bau der KI-Ansicht als JPEG,
+ * docs/ki-ansicht-spezifikation.md §4). Dieser Test haelt fest, dass jeder
+ * Pfad des Fernzugriffs von der Middleware erfasst wird. Die
+ * Fernzugriff-Route prueft die Sitzung zusaetzlich selbst.
  *
  *     npm test        (node --test --experimental-strip-types)
  */
@@ -15,7 +15,7 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { FERN_PRAEFIX, KI_ANSICHT_PFAD } from "../lib/fern.ts";
-import { KI_ANSICHT_URL } from "../lib/ki-ansicht.ts";
+import { KI_KAESTEN_URL } from "../lib/ki-ansicht.ts";
 
 const quelle = readFileSync(new URL("../middleware.ts", import.meta.url), "utf8");
 const muster = JSON.parse(quelle.match(/matcher:\s*\[\s*("(?:[^"\\]|\\.)*")/)![1]) as string;
@@ -31,9 +31,9 @@ test("Matcher-Muster gelesen und plausibel", () => {
 });
 
 test("Jeder Fernzugriff-Pfad laeuft durch die Middleware (Login)", () => {
-  assert.equal(KI_ANSICHT_URL, `${FERN_PRAEFIX}/${KI_ANSICHT_PFAD}`);
+  assert.equal(KI_KAESTEN_URL, `${FERN_PRAEFIX}/${KI_ANSICHT_PFAD}`);
   for (const pfad of [
-    KI_ANSICHT_URL,
+    KI_KAESTEN_URL,
     `${FERN_PRAEFIX}/stream.m3u8`,
     `${FERN_PRAEFIX}/hls/playlist.m3u8`,
     `${FERN_PRAEFIX}/hls/segment.ts`,
