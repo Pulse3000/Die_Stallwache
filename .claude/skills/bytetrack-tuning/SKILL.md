@@ -130,24 +130,34 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
 3. Die Tabelle nennt je Einstellung:
    - geschätzte und angegebene Kühe, höchstens gleichzeitig erkannte Tiere,
    - IDs, ID-Wechsel und Kurz-IDs (< 10 s) je Kuh und 10 min,
+   - Zwischen-IDs: lange IDs, die mitten im Clip entstehen und vergehen
+     und keine 10 min leben,
    - die längste Strecke mit mehr langen IDs als Kühen (Geist),
    - den Anteil sichtbarer Kuh-Sekunden ohne lange ID und die längste
      Lücke, in der eine sichtbare Kuh keine lange ID hat,
-   - Dauer-Erkennungen ohne ID, Erkennungen ohne ID je Konfidenzband und
-     die Bildrate des Rechners.
+   - Stellen ohne ID, Erkennungen ohne ID je Konfidenzband und die
+     Bildrate des Rechners.
 
    Je Einstellung gibt es ein Urteil:
-   - **✗**, sobald ein ID-Kriterium verfehlt ist. Das sind ≥ 1 ID-Wechsel
-     oder ≥ 1 Kurz-ID je Kuh und 10 min, oder ein Geist, also mindestens
-     10 s am Stück mehr lange IDs als Kühe. Das gilt auch in einer
-     mehrdeutigen Szene.
-   - **„? Bilder ansehen“**, wenn eine Erkennung ohne ID sich 60 s oder
-     länger hält (in mindestens der Hälfte der Bilder) oder nie so viele
-     Tiere gleichzeitig erkannt werden wie angegeben. Aus Zählungen allein
-     lässt sich dann nicht unterscheiden, ob dort eine Kuh ohne ID steht
-     oder eine Fehlerkennung. Ein Geist mit ID kann eine blinde Kuh sogar
-     so verdecken, dass alle Zahlen stimmen. Das Werkzeug nennt Zeit,
-     Konfidenz und Box der Stelle:
+   - **✗**, sobald ein ID-Kriterium verfehlt ist. Das gilt auch in einer
+     mehrdeutigen Szene:
+     - ≥ 1 ID-Wechsel oder ≥ 1 Kurz-ID je Kuh und 10 min,
+     - eine Zwischen-ID (für eine Kuh zwei Wechsel in < 10 min; der
+       Mittelwert über alle Kühe zeigt das sonst nicht),
+     - ein Geist: mindestens 10 Bilder mehr lange IDs als Kühe, Aussetzer
+       bis 2 Bilder überbrückt. Ein Doppelrahmen beim Aufstehen (2–5
+       Bilder) ist keiner.
+   - **„? Bilder ansehen“**, wenn es eine **Stelle ohne ID** gibt oder nie
+     so viele Tiere gleichzeitig erkannt werden wie angegeben. Eine Stelle
+     ist ein Ort, an dem Erkennungen ohne ID sich sammeln. Erkennungen
+     gehören zur selben Stelle, wenn ihre Box die mittlere Box der Stelle
+     mit IoU ≥ 0.3 überlappt. Eine Stelle zählt ab 60 Bildern ohne ID dort,
+     zusammenhängend oder nicht, und wenn das mindestens die Hälfte der
+     Bilder mit einer Erkennung an diesem Ort sind. Aus Zählungen allein
+     lässt sich nicht unterscheiden, ob dort eine Kuh ohne ID liegt oder
+     eine Fehlerkennung. Ein Geist mit ID kann eine blinde Kuh sogar so
+     verdecken, dass alle anderen Zahlen stimmen. Das Werkzeug nennt je
+     Stelle Bildzahl, Zeitraum, Konfidenz und mittlere Box:
      - Ist es eine Kuh, ist sie blind, das gilt als ✗.
      - Ist es eine Fehlerkennung, als Hard Negative labeln (Skill
        `fehlalarm-triage`), nachtrainieren und neu messen.
@@ -171,11 +181,40 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
    - **Kurze Clips sind streng:** Bei einer Kuh in 10 min reicht eine
      einzige Kurz-ID für ✗, etwa ein Mensch oder ein Kalb, das kurz als Kuh
      erkannt wird. Längere Clips mitteln.
-   - **Grenzen:** Das Werkzeug zählt IDs, keine Tiere.
-     - Tauschen zwei Kühe ihre IDs, sieht es das nicht. Das Symptom „IDs
-       flackern zwischen zwei nahen Kühen“ also im Clip ansehen.
-     - Verschluckt eine Box zwei dicht stehende Kühe, gilt die zweite als
-       verdeckt, nicht als „ohne ID“.
+
+   **Was das Werkzeug zusagt** (je Zusage ein Test in
+   `edge-agent/tests/test_tracking_pruefung.py`):
+   - **Nie ✓ ohne `--kuehe`.**
+   - **Kein ✓ bei falschen IDs:** zu viele Wechsel, Kurz-IDs,
+     Zwischen-IDs oder ein Geist ab 10 Bildern ergeben ✗.
+   - **Kein ✓ bei Kuh ohne ID am Ort:** Eine Kuh, die an einem Ort
+     mindestens 60 Bilder lang ohne ID erkannt wird (ab conf 0.1, auch
+     dünn oder mit Pausen), ergibt höchstens „?“, auch neben einem Geist.
+   - **Kein ✓ bei fehlender Kuh:** Werden nie alle angegebenen Kühe
+     gleichzeitig erkannt, gibt es höchstens „?“.
+   - **Kein falsches ✗ in gesunden Szenen:**
+     - Verdeckung mit neuer ID (< 1 je Kuh und 10 min),
+     - Doppelrahmen beim Aufstehen,
+     - Einzelbild-Rauschen,
+     - verstreute Teilboxen in der Herde,
+     - eine Kuh, der der Tracker ab und zu kein Bild zuordnet.
+
+   **Was es nicht sieht** (Grenzen, im Clip ansehen):
+   - **Nie erkannte Kuh:** eine Kuh, die das Modell nie über conf 0.1
+     erkennt, wenn zugleich ein Geist ihren Platz in der Kuhzahl einnimmt.
+   - **Wandernde Kuh neben Geist:** eine Kuh ohne ID, die wandert und an
+     keinem Ort 60 Bilder verweilt, neben einem Geist.
+   - **ID-Tausch:** Tauschen zwei Kühe ihre IDs, sieht das Werkzeug es
+     nicht, denn es zählt IDs, keine Tiere. Das Symptom „IDs flackern
+     zwischen zwei nahen Kühen“ also im Clip ansehen.
+   - **Gemeinsame Box:** Verschluckt eine Box zwei dicht stehende Kühe,
+     gilt die zweite als verdeckt, nicht als „ohne ID“.
+   - **Offene Szenen:** Kommen und gehen Tiere, zählt jede Besucherin als
+     Wechsel.
+
+   **✓ heißt:** Zählungen und Stellen geben keinen Hinweis auf falsche oder
+   fehlende IDs. Den 24-h-Lauf wie Gate 3 vor einer Freigabe ersetzt das
+   nicht.
 4. Nach jeder Änderung an `tracker-kuh.yaml` neu messen, immer nur EINEN
    Wert drehen. Die Tabelle gehört in die Modellkarte.
 
@@ -189,8 +228,8 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
   Ansehen als Kuh herausstellt. Am wichtigsten ist die Lücke: eine
   sichtbare Kuh 30 min oder länger ohne lange ID, also ein ganzes
   Kalbeverdachts-Fenster.
-- **Geister erkennen:** immer mit `--kuehe` messen. Mehr Kühe mit ID als
-  angegeben ergibt einen Geist-Hinweis.
+- **Geister erkennen:** immer mit `--kuehe` messen. Sind mindestens
+  10 Bilder lang mehr Kühe mit ID als angegeben, kommt ein Geist-Hinweis.
 - **Reihenfolge:**
   1. Zuerst das Modell nachtrainieren (IR-Bilder, Hard Negatives).
   2. Dann `track_high_thresh` 0.4 → 0.25. Das hilft Kühen, die ihre Nummer
@@ -233,7 +272,9 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
   unterscheidet eine schwach erkannte Kuh nicht von einer Dauer-Fehlerkennung
   (Heuballen, Trennwand, halbe Box an einer liegenden Kuh): Für ihn sind
   beides ruhende Kästen mit niedriger Konfidenz. Eine neue Nummer gibt es
-  erst, wenn ein Bild 0.5 erreicht und das nächste mindestens 0.4.
+  erst, wenn ein Bild 0.5 erreicht und das nächste mindestens 0.4. Einmal
+  vergeben, hält `track_low_thresh` (0.05) die Nummer auch bei schwacher
+  Konfidenz: Für einen Dauer-Geist reicht eine einzige Spitze über 0.5.
   Hohe Schwelle: Geister bekommen keine Nummer – eine Kuh, die nachts im
   Liegen nie 0.5 erreicht, aber auch nicht. Sie wird dann nicht auf Kalbe-
   und Brunstzeichen ausgewertet, und niemand merkt es. Niedrige Schwelle:

@@ -89,11 +89,22 @@ loch = [[(0.8, 1), (0.7, None if t % 15 < 3 else 2)] for t in range(600)]
 k = tp.kennzahlen(loch, kuehe_echt=2)
 p.check("4: nur Anteil ohne ID (B 3 von 15 Bildern ohne ID = 10 %) -> ✗",
         nur(k, "ohne_id") and k["urteil"] == "✗")
-selten = [[(0.8, c) for c in range(1, 21)] + ([(0.5, None)] if t % 11 == 0 else [])
-          for t in range(2400)]
-k = tp.kennzahlen(selten, kuehe_echt=21)
-p.check("4: nur Luecke (Kuh 21 kaum erkannt, nie mit ID, 40 min) -> ✗",
+# Kuh 21 nie mit ID, wandert (60 Orte, keiner sammelt 60 Bilder), 40 min
+wandert = [[(0.8, c) for c in range(1, 21)]
+           + [(0.5, None, (9000.0 + 300.0 * (t % 60), 900.0, 200.0, 120.0))] for t in range(2400)]
+k = tp.kennzahlen(wandert, kuehe_echt=21)
+p.check("4: nur Luecke (Kuh 21 wandert ohne ID, Anteil 4.8 %) -> ✗",
         nur(k, "luecke") and k["urteil"] == "✗")
+mitte = ([[(0.8, 1), (0.7, 2)] for _ in range(100)] + [[(0.8, 1), (0.7, 3)] for _ in range(300)]
+         + [[(0.8, 1), (0.7, 4)] for _ in range(1400)])
+k = tp.kennzahlen(mitte, kuehe_echt=2)
+p.check("4: nur Zwischen-ID (B: ID 3 lebt 5 min, Mittel 0.67 je Kuh) -> ✗",
+        k["wechsel_je_kuh_10min"] < 1 and k["zwischen_ids"] == [(3, 100, 399)]
+        and nur(k, "wechsel") and k["urteil"] == "✗")
+lang_mitte = ([[(0.8, 1), (0.7, 2)] for _ in range(100)] + [[(0.8, 1), (0.7, 3)] for _ in range(600)]
+              + [[(0.8, 1), (0.7, 4)] for _ in range(1700)])
+p.check("4: Zwischen-ID mit genau 10 min zaehlt nicht",
+        tp.kennzahlen(lang_mitte, kuehe_echt=2)["zwischen_ids"] == [])
 
 # --- 5. Flackern unter 10 s zaehlt nicht als Kuh ---------------------------
 flackern = [[(0.8, 1)] + ([(0.3, 50 + t)] if t % 60 == 0 else []) for t in range(600)]
@@ -113,10 +124,11 @@ k = tp.kennzahlen(nacht, kuehe_echt=3)
 p.check("6: --kuehe 3: 2 von 3 sichtbaren ohne ID, aber Kuh oder Fehlerkennung? -> ?",
         abs(k["kuh_anteil_ohne_id"] - 2 / 3) < 1e-9 and not k["ohne_id_ok"]
         and k["mehrdeutig"] and k["urteil"] == "?")
-d = k["dauer_ohne_id"][0]
-p.check("6: Stelle mit Zeit, conf und mittlerer Box",
-        (d["start_s"], d["ende_s"]) == (0, 599) and (d["conf_min"], d["conf_max"]) == (0.3, 0.45)
-        and d["box"] == (550.0, 300.0, 200.0, 105.0))
+st = sorted(k["dauer_ohne_id"], key=lambda x: x["box"][0])
+p.check("6: zwei Stellen, je mit Zeit, conf und eigener Box",
+        len(st) == 2 and (st[0]["start_s"], st[0]["ende_s"], st[0]["bilder"]) == (0, 599, 600)
+        and st[0]["box"] == (400.0, 300.0, 210.0, 110.0) and st[0]["conf_min"] == 0.45
+        and st[1]["box"] == (700.0, 300.0, 190.0, 100.0) and st[1]["conf_max"] == 0.3)
 
 # --- 7. Leerer Clip ---------------------------------------------------------
 k = tp.kennzahlen([[] for _ in range(60)])
@@ -130,12 +142,14 @@ md = tp.tabelle({"tracker-kuh.yaml": tp.kennzahlen(wechsel, 2),
 p.check("8: Tabelle nennt beide Tracker", "tracker-kuh.yaml" in md and "bytetrack.yaml" in md)
 p.check("8: Warnung unter 1 FPS", "UNTER 1 FPS" in md)
 p.check("8: Ziel-Haken", "0.5 ✓" in md and "| **Gesamt** | ✓ | ✗ |" in md)
+p.check("8: Zwischen-IDs werden mit Zeit genannt", "**Achtung bytetrack.yaml:** ID 101 lebte nur" in md)
+md = tp.tabelle({"tracker-kuh.yaml": tp.kennzahlen(wechsel, 2)}, None)
 p.check("8: ohne Befund kein Achtung/Pruefen", "**Achtung" not in md and "**Prüfen" not in md)
 md = tp.tabelle({"tracker-kuh.yaml": tp.kennzahlen(nacht, 3)}, None)
 p.check("8: Nacht: Achtung mit Vorbehalt, Pruefen mit Zeit und Box, Gesamt ?",
         "67% der sichtbaren Kuh-Sekunden ohne lange ID (falls die Erkennungen ohne ID Kühe sind)" in md
-        and "**Prüfen tracker-kuh.yaml:** Erkennung ohne ID 00:00–09:59, conf 0.30–0.45, "
-            "Box um (550, 300)" in md
+        and "**Prüfen tracker-kuh.yaml:** 600 Bilder ohne ID zwischen 00:00 und 09:59, "
+            "conf 0.45–0.45, Box um (400, 300)" in md
         and "| **Gesamt** | ? Bilder ansehen |" in md)
 md = tp.tabelle({"tracker-kuh.yaml": tp.kennzahlen(nacht)}, None)
 p.check("8: ohne --kuehe: Gesamt '–'", "– (--kuehe fehlt)" in md)
@@ -248,6 +262,87 @@ try:
     p.check("11: --kuehe -1 abgewiesen", False)
 except ValueError:
     p.check("11: --kuehe -1 abgewiesen", True)
+
+# --- 11b. Stellen ohne ID: Grenzen der „?“-Regel ---------------------------
+def stelle(n_ohne: int, n_mit: int = 0, gesamt: int = 2400) -> list:
+    """Kuh A (ID 1) dauerhaft; an Ort B n_ohne Bilder ohne ID, n_mit mit
+    langer ID 2 (verstreut ueber den Clip)."""
+    out = []
+    for t in range(gesamt):
+        bild = [(0.8, 1)]
+        if t < n_ohne:
+            bild.append((0.3, None))
+        elif t < n_ohne + n_mit:
+            bild.append((0.7, 2))
+        out.append(bild)
+    return out
+
+
+p.check("11b: 59 Bilder ohne ID an einer Stelle -> keine Stelle",
+        tp.kennzahlen(stelle(59), kuehe_echt=1)["dauer_ohne_id"] == [])
+p.check("11b: 60 Bilder -> Stelle, ?", tp.kennzahlen(stelle(60), kuehe_echt=1)["urteil"] == "?")
+p.check("11b: 60 ohne + 60 mit ID (Anteil genau 50 %) -> Stelle",
+        len(tp.kennzahlen(stelle(60, 60), kuehe_echt=2)["dauer_ohne_id"]) == 1)
+p.check("11b: 60 ohne + 61 mit ID -> keine Stelle",
+        tp.kennzahlen(stelle(60, 61), kuehe_echt=2)["dauer_ohne_id"] == [])
+duenn = [[(0.8, 1, (100, 100, 200, 120)), (0.6, 7, (700, 100, 200, 120))]
+         + ([(0.15, None, (400, 300, 200, 120))] if t % 7 in (0, 3, 5) else []) for t in range(600)]
+k = tp.kennzahlen(duenn, kuehe_echt=1)
+p.check("11b: B1 – Geist mit ID + blinde Kuh nur in 43 % der Bilder -> ?, nicht ✓",
+        k["urteil"] in ("?", "✗") and len(k["dauer_ohne_id"]) == 1)
+luecken = [[(0.8, 1)] + ([(0.3, None)] if t % 61 < 50 else []) for t in range(2400)]
+p.check("11b: Kuh 50 s da, 11 s weg, nie ID -> eine Stelle (Pausen egal)",
+        len(tp.kennzahlen(luecken, kuehe_echt=2)["dauer_ohne_id"]) == 1)
+getrennt = [[(0.8, 1, (100, 100, 200, 120))]
+            + [(0.3, None, (400 + 600 * (t % 2), 300, 200, 120))] for t in range(80)]
+p.check("11b: zwei Orte ohne Ueberlappung, je 40 Bilder -> keine Stelle",
+        tp.kennzahlen(getrennt, kuehe_echt=2)["dauer_ohne_id"] == [])
+nah = [[(0.8, 1, (100, 100, 200, 120))]
+       + [(0.3, None, (400 + 20 * (t % 2), 300, 200, 120))] for t in range(80)]
+p.check("11b: derselbe Ort leicht versetzt (IoU > 0.3), 80 Bilder -> eine Stelle",
+        len(tp.kennzahlen(nah, kuehe_echt=2)["dauer_ohne_id"]) == 1)
+herde_teil = [[(0.8, c, (300.0 * c, 100.0, 200.0, 120.0)) for c in range(1, 21)]
+              + [(0.15, None, (300.0 * c, 300.0, 80.0, 60.0)) for c in range(1, 21) if (t + c) % 20 == 0]
+              for t in range(600)]
+k = tp.kennzahlen(herde_teil, kuehe_echt=20)
+p.check("11b: Herde, Kopf-Teilboxen je Kuh in 5 % der Bilder -> keine Stelle, ✓",
+        k["dauer_ohne_id"] == [] and k["urteil"] == "✓")
+viel = [[(0.8, 1, (100, 100, 200, 120))]
+        + [(0.3, None, (1000 + 1000 * o, 300, 200, 120)) for o in range(7)] for _ in range(60)]
+md = tp.tabelle({"x": tp.kennzahlen(viel, kuehe_echt=8)}, None)
+p.check("11b: mehr als 5 Stellen -> 5 genannt, Rest gezaehlt",
+        md.count("**Prüfen x:** 60 Bilder") == 5 and "… und 2 weitere Stellen" in md)
+
+# --- 11c. Grenzen der ID-Kriterien -----------------------------------------
+def geist_bilder(an: int, aussetzer_alle: int = 0, gesamt: int = 600) -> list:
+    out = []
+    for t in range(gesamt):
+        bild = [(0.9, 1), (0.8, 2)]
+        if t < an and not (aussetzer_alle and t % aussetzer_alle == 0):
+            bild.append((0.45, 3))
+        out.append(bild)
+    return out
+
+
+p.check("11c: Geist 10 Bilder -> Geist", tp.kennzahlen(geist_bilder(10), kuehe_echt=2)["geister"])
+p.check("11c: Geist 9 Bilder -> keiner", not tp.kennzahlen(geist_bilder(9), kuehe_echt=2)["geister"])
+p.check("11c: M2 – Geist flackert (jedes 10. Bild fehlt) -> Geist",
+        tp.kennzahlen(geist_bilder(1200, 10, 1200), kuehe_echt=2)["geister"])
+zwei_luecke = [[(0.9, 1), (0.8, 2)] + ([(0.45, 3)] if t in range(5) or t in range(7, 12) else [])
+               for t in range(600)]
+p.check("11c: Aussetzer 2 Bilder ueberbrueckt (5+2+5 = 12 >= 10)",
+        tp.kennzahlen(zwei_luecke, kuehe_echt=2)["geist_s"] == 12)
+drei_luecke = [[(0.9, 1), (0.8, 2)] + ([(0.45, 3)] if t in range(5) or t in range(8, 13) else [])
+               for t in range(600)]
+p.check("11c: Aussetzer 3 Bilder trennt", tp.kennzahlen(drei_luecke, kuehe_echt=2)["geist_s"] == 5)
+zehn = [[(0.8, 1)] + ([(0.6, 5)] if 100 <= t < 110 else []) for t in range(600)]
+neun = [[(0.8, 1)] + ([(0.6, 5)] if 100 <= t < 109 else []) for t in range(600)]
+p.check("11c: ID mit genau 10 Bildern ist lang", tp.kennzahlen(zehn)["ids_lang"] == 2)
+p.check("11c: ID mit 9 Bildern ist kurz", tp.kennzahlen(neun)["kurz_ids"] == 1)
+schwach_kurz = [[(0.8, 1)] + ([(0.2, 5)] if 100 <= t < 105 else []) for t in range(600)]
+p.check("11c: Kurz-ID nur mit conf < 0.25 zaehlt nicht", tp.kennzahlen(schwach_kurz)["kurz_ids"] == 0)
+grenz_kurz = [[(0.8, 1)] + ([(0.25, 5)] if 100 <= t < 105 else []) for t in range(600)]
+p.check("11c: Kurz-ID mit conf genau 0.25 zaehlt", tp.kennzahlen(grenz_kurz)["kurz_ids"] == 1)
 
 # --- 12. Bildwahl ohne bekannte Bildzahl, Klassen wie im Agenten -----------
 nimm = tp.sekundenwahl(25)

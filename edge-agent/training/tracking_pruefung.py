@@ -44,8 +44,10 @@ MIN_LEBENSDAUER_S = 10       # kuerzere IDs zaehlen nicht als Kuh (Flackern)
 GRENZE_OHNE_ID = 0.05        # Anteil sichtbarer Kuh-Sekunden ohne lange ID
 MAX_LUECKE_S = 30 * 60       # ein Kalbeverdachts-Fenster
 LUECKE_CLIPANTEIL = 0.8      # kuerzere Clips: so viel des Clips am Stueck
-DAUER_OHNE_ID_S = 60         # Erkennung ohne ID so lange -> Kuh oder Fehlerkennung?
-DAUER_DICHTE = 0.5           # … in mindestens diesem Anteil der Bilder der Strecke
+DAUER_OHNE_ID_S = 60         # so viele Bilder ohne ID an einer Stelle -> „?“
+DAUER_DICHTE = 0.5           # … und mindestens dieser Anteil der Bilder dort ohne ID
+STELLE_IOU = 0.3             # gleiche Stelle: IoU zur mittleren Box der Stelle
+GEIST_BRUECKE = 2            # Geist darf so viele Bilder aussetzen (Flackern)
 BAENDER = ((0.1, 0.25), (0.25, 0.4), (0.4, 0.5), (0.5, 1.01))
 # Wie im Agenten (main.py OBJEKT_KLASSEN): Fruchtblase und Kaelberfuesse
 # laufen durch denselben Tracker wie die Kuehe und lassen verlorene Spuren
@@ -99,12 +101,64 @@ def _strecken(flags: list[bool], bruecke: int) -> list[tuple[int, int]]:
     return out
 
 
-def _laengste_folge(flags: list[bool]) -> int:
-    laengste = lauf = 0
-    for f in flags:
-        lauf = lauf + 1 if f else 0
-        laengste = max(laengste, lauf)
-    return laengste
+def _iou(a: tuple, b: tuple) -> float:
+    """IoU zweier Boxen (cx, cy, w, h)."""
+    ax0, ay0, ax1, ay1 = a[0] - a[2] / 2, a[1] - a[3] / 2, a[0] + a[2] / 2, a[1] + a[3] / 2
+    bx0, by0, bx1, by1 = b[0] - b[2] / 2, b[1] - b[3] / 2, b[0] + b[2] / 2, b[1] + b[3] / 2
+    schnitt = max(0.0, min(ax1, bx1) - max(ax0, bx0)) * max(0.0, min(ay1, by1) - max(ay0, by0))
+    vereint = a[2] * a[3] + b[2] * b[3] - schnitt
+    return schnitt / vereint if vereint > 0 else 0.0
+
+
+def _box(d: tuple, j: int) -> tuple:
+    """Box der Erkennung; ohne Box (nur Tests) steht der Listenplatz fuer den Ort."""
+    return tuple(d[2]) if len(d) > 2 and d[2] is not None else (100.0 + 300.0 * j, 100.0, 200.0, 120.0)
+
+
+def stellen_ohne_id(bilder: list[list[tuple]]) -> list[dict]:
+    """Orte, an denen sich Erkennungen ohne ID sammeln (Kuh oder Fehlerkennung?).
+
+    Alle Tier-Erkennungen werden gierig nach Ort gebuendelt (IoU zur
+    mittleren Box >= STELLE_IOU). Eine Stelle zaehlt, wenn dort in mindestens
+    DAUER_OHNE_ID_S Bildern eine Erkennung ohne ID lag – zusammenhaengend
+    oder nicht – und das mindestens DAUER_DICHTE der Bilder mit einer
+    Erkennung dort sind. Eine liegende Kuh sammelt sich so an einem Ort,
+    auch wenn sie nur jedes zweite Bild erkannt wird; verstreutes Rauschen
+    verteilt sich; eine Kuh mit stabiler ID, der der Tracker ab und zu kein
+    Bild zuordnet, bleibt unter der Dichte.
+    """
+    orte: list[dict] = []
+    for i, bild in enumerate(bilder):
+        for j, d in enumerate(bild):
+            box = _box(d, j)
+            ziel, beste = None, STELLE_IOU
+            for o in orte:
+                mittel = tuple(v / o["n"] for v in o["summe"])
+                wert = _iou(mittel, box)
+                if wert >= beste:
+                    ziel, beste = o, wert
+            if ziel is None:
+                ziel = {"summe": [0.0] * 4, "n": 0, "bilder": set(), "ohne": set(),
+                        "ohne_summe": [0.0] * 4, "ohne_n": 0, "confs": []}
+                orte.append(ziel)
+            ziel["summe"] = [a + b for a, b in zip(ziel["summe"], box)]
+            ziel["n"] += 1
+            ziel["bilder"].add(i)
+            if d[1] is None:
+                ziel["ohne"].add(i)
+                ziel["ohne_summe"] = [a + b for a, b in zip(ziel["ohne_summe"], box)]
+                ziel["ohne_n"] += 1
+                ziel["confs"].append(d[0])
+    stellen = []
+    for o in orte:
+        if len(o["ohne"]) < DAUER_OHNE_ID_S or len(o["ohne"]) < DAUER_DICHTE * len(o["bilder"]):
+            continue
+        stellen.append({
+            "bilder": len(o["ohne"]), "start_s": min(o["ohne"]), "ende_s": max(o["ohne"]),
+            "conf_min": min(o["confs"]), "conf_max": max(o["confs"]),
+            "box": tuple(v / o["ohne_n"] for v in o["ohne_summe"]),
+        })
+    return sorted(stellen, key=lambda st: -st["bilder"])
 
 
 def kennzahlen(bilder: list[list[tuple]], kuehe_echt: int | None = None) -> dict:
@@ -118,10 +172,15 @@ def kennzahlen(bilder: list[list[tuple]], kuehe_echt: int | None = None) -> dict
     Rein aus IDs (eindeutig, ✗ hat Vorrang):
     - ID-Wechsel: IDs mit >= MIN_LEBENSDAUER_S Bildern minus Kuehe, je Kuh
       und 10 min.
+    - Zwischen-ID: eine lange ID, die nach den ersten MIN_LEBENSDAUER_S
+      Bildern entsteht, vor den letzten endet und keine 10 min lebt. Fuer
+      eine Kuh sind das zwei Wechsel in weniger als 10 min – das zeigt der
+      Mittelwert ueber alle Kuehe sonst nicht.
     - Kurz-IDs: IDs darunter (ab conf 0.25), je Kuh und 10 min. Schnelles
       Wechseln und kurze Geister landen hier.
-    - Geist: mindestens MIN_LEBENSDAUER_S Bilder am Stueck mehr lange IDs als
-      Kuehe (ein kurzer Doppelrahmen beim Aufstehen zaehlt nicht).
+    - Geist: mindestens MIN_LEBENSDAUER_S Bilder lang mehr lange IDs als
+      Kuehe, Aussetzer bis GEIST_BRUECKE Bilder ueberbrueckt (ein kurzer
+      Doppelrahmen beim Aufstehen zaehlt nicht).
     Mit Erkennungen ohne ID (nur in eindeutiger Szene ein Urteil):
     - Ohne ID: je Bild sichtbare Kuehe (Tier-Erkennungen, hoechstens die
       Kuhzahl) minus lange IDs. Laengste Luecke = laengste Strecke mit einer
@@ -129,17 +188,19 @@ def kennzahlen(bilder: list[list[tuple]], kuehe_echt: int | None = None) -> dict
       erkannt wird, werden bis MIN_LEBENSDAUER_S ueberbrueckt; ein Bild mit
       allen Kuehen samt langer ID beendet die Strecke. Grenze: MAX_LUECKE_S,
       in kuerzeren Clips LUECKE_CLIPANTEIL der Clipdauer.
-    - Mehrdeutig („?“): Eine Erkennung ohne ID haelt sich DAUER_OHNE_ID_S
-      oder laenger (dicht), oder nie sind so viele Kuehe gleichzeitig erkannt
-      wie angegeben. Ob dort eine Kuh ohne ID steht oder eine Fehlerkennung
-      und ob eine lange ID ein Geist ist, zeigt nur das Bild.
+    - Mehrdeutig („?“): eine Stelle ohne ID (stellen_ohne_id), oder nie
+      sind so viele Kuehe gleichzeitig erkannt wie angegeben. Ob dort eine
+      Kuh ohne ID liegt oder eine Fehlerkennung und ob eine lange ID ein
+      Geist ist, zeigt nur das Bild.
     """
     if kuehe_echt is not None and kuehe_echt < 0:
         raise ValueError("kuehe_echt muss >= 0 sein")
     leben: dict[int, int] = {}
+    erstes: dict[int, int] = {}
+    letztes: dict[int, int] = {}
     je_bild: list[tuple[set[int], int]] = []  # (IDs, Zahl der Tier-Erkennungen)
     pro_band = {b: [0, 0] for b in BAENDER}  # [Erkennungen, davon ohne ID]
-    for bild in bilder:
+    for i_bild, bild in enumerate(bilder):
         ids_im_bild = set()
         for d in bild:
             conf, tid = d[0], d[1]
@@ -152,6 +213,8 @@ def kennzahlen(bilder: list[list[tuple]], kuehe_echt: int | None = None) -> dict
                 ids_im_bild.add(tid)
         for tid in ids_im_bild:
             leben[tid] = leben.get(tid, 0) + 1
+            erstes.setdefault(tid, i_bild)
+            letztes[tid] = i_bild
         je_bild.append((ids_im_bild, len(bild)))
     lange = {t for t, n in leben.items() if n >= MIN_LEBENSDAUER_S}
     lang_je_bild = [len(ids & lange) for ids, _ in je_bild]
@@ -165,8 +228,13 @@ def kennzahlen(bilder: list[list[tuple]], kuehe_echt: int | None = None) -> dict
     kurz = {d[1] for bild in bilder for d in bild
             if d[1] is not None and d[0] >= 0.25 and leben[d[1]] < MIN_LEBENSDAUER_S}
     kurz_10 = (len(kurz) / max(kuehe, 1) / zehner) if zehner else 0.0
-    geist_s = (_laengste_folge([n > kuehe for n in lang_je_bild])
+    geist_s = (max((b - a + 1 for a, b in _strecken([n > kuehe for n in lang_je_bild],
+                                                    GEIST_BRUECKE)), default=0)
                if kuehe_echt is not None else 0)
+    rand = MIN_LEBENSDAUER_S
+    zwischen = sorted(t for t in lange
+                      if erstes[t] >= rand and letztes[t] < len(bilder) - rand
+                      and letztes[t] - erstes[t] + 1 < 600)
 
     sichtbar = defizit = 0
     start = letzt = None
@@ -184,21 +252,7 @@ def kennzahlen(bilder: list[list[tuple]], kuehe_echt: int | None = None) -> dict
         elif kuehe and s_bild == kuehe:  # alle Kuehe sichtbar, alle mit langer ID
             letzt = None
 
-    # Dauer-Erkennungen ohne ID: Kuh oder Fehlerkennung? Nur das Bild weiss es.
-    ohne = [any(d[1] is None for d in bild) for bild in bilder]
-    dauer = []
-    for a, b in _strecken(ohne, MIN_LEBENSDAUER_S):
-        laenge = b - a + 1
-        if laenge < DAUER_OHNE_ID_S or sum(ohne[a:b + 1]) < DAUER_DICHTE * laenge:
-            continue
-        treffer = [d for bild in bilder[a:b + 1] for d in bild if d[1] is None]
-        boxen = [d[2] for d in treffer if len(d) > 2]
-        dauer.append({
-            "start_s": a, "ende_s": b,
-            "conf_min": min(d[0] for d in treffer), "conf_max": max(d[0] for d in treffer),
-            "box": (tuple(sum(v[k] for v in boxen) / len(boxen) for k in range(4))
-                    if boxen else None),
-        })
+    dauer = stellen_ohne_id(bilder)
 
     e = {
         "dauer_min": round(len(bilder) / 60, 1),
@@ -211,6 +265,7 @@ def kennzahlen(bilder: list[list[tuple]], kuehe_echt: int | None = None) -> dict
         "beurteilt": kuehe_echt is not None,
         "wechsel": wechsel,
         "wechsel_je_kuh_10min": round(je_kuh_10, 2),
+        "zwischen_ids": [(t, erstes[t], letztes[t]) for t in zwischen],
         "kurz_ids": len(kurz),
         "kurz_je_kuh_10min": round(kurz_10, 2),
         "geist_s": geist_s,
@@ -222,7 +277,8 @@ def kennzahlen(bilder: list[list[tuple]], kuehe_echt: int | None = None) -> dict
     }
     # Bei 0 Kuehen ist das Ziel: keine lange ID (sonst ein Geist). Schnelles
     # Wechseln ohne jede lange ID faengt die Kurz-ID-Grenze.
-    e["wechsel_ok"] = (not lange) if kuehe == 0 else je_kuh_10 < ZIEL_WECHSEL_PRO_KUH_10MIN
+    e["wechsel_ok"] = (not lange) if kuehe == 0 else (
+        je_kuh_10 < ZIEL_WECHSEL_PRO_KUH_10MIN and not zwischen)
     e["kurz_ok"] = kurz_10 < ZIEL_WECHSEL_PRO_KUH_10MIN
     e["geister"] = geist_s >= MIN_LEBENSDAUER_S
     e["ohne_id_ok"] = e["kuh_anteil_ohne_id"] <= GRENZE_OHNE_ID
@@ -281,7 +337,9 @@ def tabelle(ergebnisse: dict[str, dict], fps_geraet: float | None) -> str:
     zeile(f"IDs (≥ {MIN_LEBENSDAUER_S} s)", lambda e: f"{e['ids_lang']} (alle: {e['ids']})")
     zeile("ID-Wechsel je Kuh / 10 min",
           lambda e: (f"{e['wechsel_je_kuh_10min']}" if e["kuehe"]
-                     else f"{e['ids_lang']} lange ID(s) bei 0 Kühen") + haken(e["wechsel_ok"]))
+                     else f"{e['ids_lang']} lange ID(s) bei 0 Kühen")
+          + (f", {len(e['zwischen_ids'])} Zwischen-ID(s) < 10 min" if e["zwischen_ids"] else "")
+          + haken(e["wechsel_ok"]))
     zeile(f"Kurz-IDs (< {MIN_LEBENSDAUER_S} s) je Kuh / 10 min",
           lambda e: f"{e['kurz_je_kuh_10min']}" + haken(e["kurz_ok"]))
     zeile("Geist (mehr lange IDs als Kühe, längste Strecke)",
@@ -290,7 +348,7 @@ def tabelle(ergebnisse: dict[str, dict], fps_geraet: float | None) -> str:
           lambda e: f"{e['kuh_anteil_ohne_id']:.0%}" + haken(e["ohne_id_ok"]))
     zeile("Längste Lücke (Kuh sichtbar, ohne lange ID)",
           lambda e: _minuten(e["laengste_luecke_s"]) + haken(e["luecke_ok"]))
-    zeile(f"Dauer-Erkennungen ohne ID (≥ {DAUER_OHNE_ID_S} s)",
+    zeile(f"Stellen ohne ID (≥ {DAUER_OHNE_ID_S} Bilder)",
           lambda e: str(len(e["dauer_ohne_id"])) + (" ?" if e["dauer_ohne_id"] else ""))
     for band in next(iter(ergebnisse.values()))["ohne_id"]:
         zeile(f"Erkennungen conf {band} ohne ID",
@@ -301,6 +359,9 @@ def tabelle(ergebnisse: dict[str, dict], fps_geraet: float | None) -> str:
         e = ergebnisse[n]
         unsicher = " (falls die Erkennungen ohne ID Kühe sind)" if e["mehrdeutig"] else ""
         hinweise = []
+        for t, von, bis in e["zwischen_ids"][:5]:
+            hinweise.append(f"**Achtung {n}:** ID {t} lebte nur {_zeit(von)}–{_zeit(bis)} – "
+                            "eine Kuh hat darin zweimal die ID gewechselt (< 10 min).")
         if not e["kurz_ok"]:
             hinweise.append(f"**Achtung {n}:** {e['kurz_ids']} IDs hielten keine "
                             f"{MIN_LEBENSDAUER_S} s – schneller ID-Wechsel oder kurze Geister, "
@@ -325,10 +386,10 @@ def tabelle(ergebnisse: dict[str, dict], fps_geraet: float | None) -> str:
         for d in e["dauer_ohne_id"][:5]:
             wo = (f", Box um ({d['box'][0]:.0f}, {d['box'][1]:.0f}), "
                   f"{d['box'][2]:.0f}×{d['box'][3]:.0f} px" if d["box"] else "")
-            hinweise.append(f"**Prüfen {n}:** Erkennung ohne ID {_zeit(d['start_s'])}–"
-                            f"{_zeit(d['ende_s'])}, conf {d['conf_min']:.2f}–{d['conf_max']:.2f}{wo}. "
-                            "Kuh: blinde Kuh, gilt als ✗. Fehlerkennung: als Hard Negative "
-                            "labeln (Skill fehlalarm-triage).")
+            hinweise.append(f"**Prüfen {n}:** {d['bilder']} Bilder ohne ID zwischen "
+                            f"{_zeit(d['start_s'])} und {_zeit(d['ende_s'])}, conf "
+                            f"{d['conf_min']:.2f}–{d['conf_max']:.2f}{wo}. Kuh: blinde Kuh, gilt "
+                            "als ✗. Fehlerkennung: als Hard Negative labeln (Skill fehlalarm-triage).")
         if len(e["dauer_ohne_id"]) > 5:
             hinweise.append(f"**Prüfen {n}:** … und {len(e['dauer_ohne_id']) - 5} weitere Stellen.")
         for h in hinweise:
@@ -339,8 +400,8 @@ def tabelle(ergebnisse: dict[str, dict], fps_geraet: float | None) -> str:
              f"{ZIEL_WECHSEL_PRO_KUH_10MIN:g} Kurz-ID je Kuh in 10 min, kein Geist, höchstens "
              f"{GRENZE_OHNE_ID:.0%} der sichtbaren Kuh-Sekunden ohne lange ID, keine Lücke ab dem "
              f"Kleineren aus {MAX_LUECKE_S // 60} min und {LUECKE_CLIPANTEIL:.0%} der Clipdauer. "
-             "„?“: Dauer-Erkennung ohne ID oder nie alle Kühe erkannt – die genannten Stellen "
-             "im Clip ansehen. Abwägung im Skill bytetrack-tuning.")
+             "„?“: Stelle ohne ID oder nie alle Kühe erkannt – die genannten Stellen im Clip "
+             "ansehen. Zusagen und Grenzen im Skill bytetrack-tuning.")
     if not all(e["beurteilt"] for e in ergebnisse.values()):
         z.append("Ohne --kuehe kein Urteil: Die Kuhzahl ist dann geschätzt, ein Geist "
                  "mit eigener ID zählt als Kuh und eine Kuh, die nie eine ID bekommt, fehlt.")
