@@ -119,102 +119,88 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
    Das Werkzeug ist für Szenen gemacht, in denen dieselben Kühe den ganzen
    Clip über im Bild bleiben (Abkalbebox, Liegebereich). `--kuehe` ist ihre
    Zahl und Pflicht für ein Urteil. Ohne die Angabe schätzt das Werkzeug
-   sie: Ein Geist mit eigener ID zählt dann als Kuh, eine Kuh, die nie eine
-   ID bekommt, fehlt. Kommen und gehen Tiere (Futtertisch), zählt jede
-   Besucherin als ID-Wechsel. Eine Kuh, die länger als `track_buffer`
-   (90 s) aus dem Bild geht, kommt mit neuer ID zurück. Das zählt zu Recht:
-   Auch der Agent beginnt ihr Fenster dann neu.
+   sie, und ein Geist mit eigener ID zählt dann als Kuh. Kommen und gehen
+   Tiere (Futtertisch), zählt jede Besucherin als ID-Wechsel. Eine Kuh, die
+   länger als `track_buffer` (90 s) aus dem Bild geht, kommt mit neuer ID
+   zurück. Das zählt zu Recht: Auch der Agent beginnt ihr Fenster dann neu.
    `--tier-klassen` entspricht `modell.tier_klassen` (Default `kuh`).
    Fruchtblase und Kälberfüße laufen wie im Agenten durch denselben Tracker,
    gemessen werden nur die Tiere.
 3. Die Tabelle nennt je Einstellung:
-   - geschätzte und angegebene Kühe, höchstens gleichzeitig erkannte Tiere,
+   - geschätzte und angegebene Kühe, in wie vielen Bildern alle zugleich
+     erkannt sind,
    - IDs, ID-Wechsel und Kurz-IDs (< 10 s) je Kuh und 10 min,
-   - Zwischen-IDs: lange IDs, die mitten im Clip entstehen und vergehen
-     und keine 10 min leben,
    - die längste Strecke mit mehr langen IDs als Kühen (Geist),
-   - den Anteil sichtbarer Kuh-Sekunden ohne lange ID und die längste
-     Lücke, in der eine sichtbare Kuh keine lange ID hat,
    - Stellen ohne ID, Erkennungen ohne ID je Konfidenzband und die
      Bildrate des Rechners.
 
-   Je Einstellung gibt es ein Urteil:
-   - **✗**, sobald ein ID-Kriterium verfehlt ist. Das gilt auch in einer
-     mehrdeutigen Szene:
+   **Urteil: ✗ oder „keine Beanstandung – Stellen ansehen“, nie ✓.** Ob
+   jede Kuh eine ID hat, lässt sich aus Zählungen nicht beweisen. Fünf
+   QA-Runden haben zu jeder Zählregel ein Gegenbeispiel gefunden: Ein Geist
+   mit ID verdeckt eine blinde Kuh, Rauschen täuscht eine fehlende Kuh vor,
+   eine Verdeckung am Clip-Rand sieht aus wie ein Wechsel. Deshalb urteilt
+   das Werkzeug nur, wo ein Fehler bewiesen ist, und zeigt sonst, wo man
+   hinsehen soll (Entscheidung des Betreibers, 27.10.2026).
+   - **✗**, sobald ein ID-Kriterium verfehlt ist:
      - ≥ 1 ID-Wechsel oder ≥ 1 Kurz-ID je Kuh und 10 min,
-     - eine Zwischen-ID (für eine Kuh zwei Wechsel in < 10 min; der
-       Mittelwert über alle Kühe zeigt das sonst nicht),
      - ein Geist: mindestens 10 Bilder mehr lange IDs als Kühe, Aussetzer
        bis 2 Bilder überbrückt. Ein Doppelrahmen beim Aufstehen (2–5
        Bilder) ist keiner.
-   - **„? Bilder ansehen“**, wenn es eine **Stelle ohne ID** gibt oder nie
-     so viele Tiere gleichzeitig erkannt werden wie angegeben. Eine Stelle
-     ist ein Ort, an dem Erkennungen ohne ID sich sammeln. Erkennungen
-     gehören zur selben Stelle, wenn ihre Box die mittlere Box der Stelle
-     mit IoU ≥ 0.3 überlappt. Eine Stelle zählt ab 60 Bildern ohne ID dort,
-     zusammenhängend oder nicht, und wenn das mindestens die Hälfte der
-     Bilder mit einer Erkennung an diesem Ort sind. Aus Zählungen allein
-     lässt sich nicht unterscheiden, ob dort eine Kuh ohne ID liegt oder
-     eine Fehlerkennung. Ein Geist mit ID kann eine blinde Kuh sogar so
-     verdecken, dass alle anderen Zahlen stimmen. Das Werkzeug nennt je
-     Stelle Bildzahl, Zeitraum, Konfidenz und mittlere Box:
-     - Ist es eine Kuh, ist sie blind, das gilt als ✗.
-     - Ist es eine Fehlerkennung, als Hard Negative labeln (Skill
+   - **„keine Beanstandung – Stellen ansehen“** sonst, mit diesen
+     Hinweisen:
+     - **Stellen ohne ID:** Orte, an denen sich Erkennungen ohne ID sammeln.
+       Erkennungen gehören zum selben Ort, wenn ihre Box die mittlere Box
+       des Orts mit IoU ≥ 0.3 überlappt. Genannt wird ein Ort ab 60 Bildern
+       ohne ID, zusammenhängend oder nicht, wenn die Erkennung ohne ID dort
+       in mindestens 60 Bildern neben einer Box mit ID lag (etwa eine blinde
+       Kuh unter einem Geist) oder mindestens die Hälfte der Bilder an
+       diesem Ort ausmacht. Je Stelle stehen Bildzahl, Zeitraum, Konfidenz
+       und mittlere Box da. Ist es eine Kuh, ist sie blind, das gilt als ✗.
+       Ist es eine Fehlerkennung, als Hard Negative labeln (Skill
        `fehlalarm-triage`), nachtrainieren und neu messen.
-   - **✗** in eindeutiger Szene außerdem, wenn mehr als 5 % der sichtbaren
-     Kuh-Sekunden ohne lange ID bleiben oder die Lücke das Kleinere aus
-     30 min und 80 % der Clipdauer erreicht.
-   - **✓** nur, wenn nichts davon zutrifft.
+     - **Nie alle erkannt:** In weniger als 60 Bildern sind alle
+       angegebenen Kühe zugleich erkannt. Eine Kuh wird kaum erkannt, oder
+       `--kuehe` stimmt nicht.
 
-   Exit 0 = alle ✓, 1 = mindestens ein ✗, 3 = sonst mindestens ein „?“,
-   2 = ohne `--kuehe` oder Eingabefehler. Jede Verfehlung steht als ✗ in
-   ihrer Zeile; alle außer den ID-Wechseln bringen zusätzlich einen
-   **Achtung**-Hinweis, jede Stelle zum Ansehen einen **Prüfen**-Hinweis.
+   Exit 0 = keine Beanstandung, 1 = mindestens ein ✗, 2 = ohne `--kuehe`
+   oder Eingabefehler. **Kurze Clips sind streng:** Bei einer Kuh in 10 min
+   reicht eine einzige Kurz-ID für ✗, etwa ein Mensch oder ein Kalb, das
+   kurz als Kuh erkannt wird. Längere Clips mitteln.
 
-   Wie gezählt wird:
-   - **Sichtbar** heißt: Je Bild zählen die Tier-Erkennungen, höchstens so
-     viele, wie Kühe angegeben sind. Eine ganz verdeckte Kuh zählt also
-     nicht, eine nur schwach erkannte (auch unter 0.25) schon.
-   - **Lücke:** Bilder, in denen eine Kuh gar nicht erkannt wird, werden bis
-     10 s überbrückt. Ein Bild, in dem alle Kühe eine lange ID haben,
-     beendet die Lücke. Welche Kuh es ist, weiß das Werkzeug nicht.
-   - **Kurze Clips sind streng:** Bei einer Kuh in 10 min reicht eine
-     einzige Kurz-ID für ✗, etwa ein Mensch oder ein Kalb, das kurz als Kuh
-     erkannt wird. Längere Clips mitteln.
-
-   **Was das Werkzeug zusagt** (je Zusage ein Test in
+   **Was das Werkzeug zusagt** (je Zusage Tests in
    `edge-agent/tests/test_tracking_pruefung.py`):
-   - **Nie ✓ ohne `--kuehe`.**
-   - **Kein ✓ bei falschen IDs:** zu viele Wechsel, Kurz-IDs,
-     Zwischen-IDs oder ein Geist ab 10 Bildern ergeben ✗.
-   - **Kein ✓ bei Kuh ohne ID am Ort:** Eine Kuh, die an einem Ort
-     mindestens 60 Bilder lang ohne ID erkannt wird (ab conf 0.1, auch
-     dünn oder mit Pausen), ergibt höchstens „?“, auch neben einem Geist.
-   - **Kein ✓ bei fehlender Kuh:** Werden nie alle angegebenen Kühe
-     gleichzeitig erkannt, gibt es höchstens „?“.
-   - **Kein falsches ✗ in gesunden Szenen:**
-     - Verdeckung mit neuer ID (< 1 je Kuh und 10 min),
+   - **Nie ✓**, und ohne `--kuehe` gar kein Urteil.
+   - **✗ bei bewiesenem Fehler:** ≥ 1 Wechsel oder Kurz-ID je Kuh und
+     10 min, oder ein Geist ab 10 Bildern. Jedes Kriterium allein reicht.
+   - **Kein ✗ in gesunden Szenen:**
+     - Verdeckung mit neuer ID (< 1 je Kuh und 10 min), auch am Clip-Rand,
      - Doppelrahmen beim Aufstehen,
      - Einzelbild-Rauschen,
-     - verstreute Teilboxen in der Herde,
-     - eine Kuh, der der Tracker ab und zu kein Bild zuordnet.
+     - Teilboxen in der Herde.
+   - **Jede Kuh, die an einem Ort ≥ 60 Bilder ohne ID erkannt wird** (ab
+     conf 0.1, auch dünn, mit Pausen oder unter einem Geist), steht als
+     Stelle in der Liste. Eine Kuh mit stabiler ID, der der Tracker ab und
+     zu kein Bild zuordnet, steht nicht darin.
+   - **Hinweis „nie alle erkannt“** auch dann, wenn Einzelbild-Rauschen die
+     Zahl der Erkennungen kurz anhebt.
 
-   **Was es nicht sieht** (Grenzen, im Clip ansehen):
-   - **Nie erkannte Kuh:** eine Kuh, die das Modell nie über conf 0.1
-     erkennt, wenn zugleich ein Geist ihren Platz in der Kuhzahl einnimmt.
-   - **Wandernde Kuh neben Geist:** eine Kuh ohne ID, die wandert und an
-     keinem Ort 60 Bilder verweilt, neben einem Geist.
+   **Was es nicht sieht** (im Clip ansehen):
+   - **Wandernde Kuh ohne ID:** eine Kuh, die an keinem Ort 60 Bilder
+     verweilt.
+   - **Unerkannte Kuh:** eine Kuh, die das Modell nie über conf 0.1 erkennt
+     – nur der Hinweis „nie alle erkannt“ deutet darauf.
    - **ID-Tausch:** Tauschen zwei Kühe ihre IDs, sieht das Werkzeug es
      nicht, denn es zählt IDs, keine Tiere. Das Symptom „IDs flackern
      zwischen zwei nahen Kühen“ also im Clip ansehen.
    - **Gemeinsame Box:** Verschluckt eine Box zwei dicht stehende Kühe,
-     gilt die zweite als verdeckt, nicht als „ohne ID“.
+     fällt die zweite nicht auf.
+   - **Eine Kuh mit vielen Wechseln unter vielen stabilen:** Der Mittelwert
+     je Kuh kann unter 1 bleiben.
    - **Offene Szenen:** Kommen und gehen Tiere, zählt jede Besucherin als
      Wechsel.
 
-   **✓ heißt:** Zählungen und Stellen geben keinen Hinweis auf falsche oder
-   fehlende IDs. Den 24-h-Lauf wie Gate 3 vor einer Freigabe ersetzt das
-   nicht.
+   „Keine Beanstandung“ ersetzt weder den Blick auf die Stellen noch den
+   24-h-Lauf wie Gate 3 vor einer Freigabe.
 4. Nach jeder Änderung an `tracker-kuh.yaml` neu messen, immer nur EINEN
    Wert drehen. Die Tabelle gehört in die Modellkarte.
 
@@ -224,10 +210,9 @@ Lichtverhältnis (Tag UND IR-Nacht), **und** keine Kuh dauerhaft ohne ID.
   Kuh. `tracking_pruefung.py` gegen `tracker-kuh.yaml`, eine Variante mit
   `track_high_thresh` 0.25 und eine mit `track_high_thresh` und
   `new_track_thresh` 0.3 laufen lassen.
-- **Handeln**, wenn eine Einstellung ✗ zeigt oder ein „?“ sich beim
-  Ansehen als Kuh herausstellt. Am wichtigsten ist die Lücke: eine
-  sichtbare Kuh 30 min oder länger ohne lange ID, also ein ganzes
-  Kalbeverdachts-Fenster.
+- **Handeln**, wenn eine Einstellung ✗ zeigt oder eine Stelle sich beim
+  Ansehen als Kuh ohne ID herausstellt. Am wichtigsten: eine Kuh 30 min
+  oder länger ohne ID, also ein ganzes Kalbeverdachts-Fenster.
 - **Geister erkennen:** immer mit `--kuehe` messen. Sind mindestens
   10 Bilder lang mehr Kühe mit ID als angegeben, kommt ein Geist-Hinweis.
 - **Reihenfolge:**
