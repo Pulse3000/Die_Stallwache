@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import CameraStream from "@/components/CameraStream";
-import KiAnsicht from "@/components/KiAnsicht";
+import KiKaesten from "@/components/KiKaesten";
 import LetzteAlarme from "@/components/LetzteAlarme";
 import { useEinstellungen } from "@/lib/einstellungen";
 import { type Anzeige, type KopfTon, belegterWechsel, kopfStatus } from "@/lib/kamera-status";
@@ -72,9 +72,10 @@ export default function StallblickApp() {
   // View-State: hauptkamera = Stallwache (Default) | Futterwache
   const [hauptkamera, setHauptkamera] = useState<CameraId>("stallwache");
   const [vollbild, setVollbild] = useState(false);
-  // KI-Ansicht der Stallwache (docs/ki-ansicht-spezifikation.md): nur mit
-  // Fernzugriff, nur wenn die Stallwache das Hauptbild ist.
+  // KI-Kaesten auf dem Livebild der Stallwache (docs/ki-ansicht-spezifikation.md):
+  // nur mit Fernzugriff, nur wenn die Stallwache das Hauptbild ist.
   const [kiAn, setKiAn] = useState(false);
+  const [kiVideo, setKiVideo] = useState<HTMLVideoElement | null>(null);
 
   /**
    * Ab Werk laufen alle Kameras beim Oeffnen sofort live (WebRTC/HLS).
@@ -260,7 +261,8 @@ export default function StallblickApp() {
           const live = einstellungen.datensparen ? istHaupt && liveAn : true;
           const rolle = live ? "haupt" : "vorschau";
           const kiMoeglich = istHaupt && cam.id === "stallwache" && STALLWACHE_FERN;
-          const kiSichtbar = kiMoeglich && kiAn;
+          const pausiertJetzt = pausiert[cam.id] && !(vollbild && istHaupt);
+          const kiSichtbar = kiMoeglich && kiAn && !pausiertJetzt;
 
           return (
             <article
@@ -299,14 +301,15 @@ export default function StallblickApp() {
                 <CameraStream
                   camera={cam}
                   role={rolle}
-                  pausiert={pausiert[cam.id] && !(vollbild && istHaupt)}
+                  pausiert={pausiertJetzt}
                   onState={onCamState}
+                  onVideo={cam.id === "stallwache" ? setKiVideo : undefined}
                 />
-                {kiSichtbar && <KiAnsicht datensparen={einstellungen.datensparen} />}
+                {kiSichtbar && <KiKaesten video={kiVideo} />}
 
                 {/* Statuszeile ueber dem Bild */}
                 <div className="pointer-events-none absolute left-2.5 top-2.5 flex items-center gap-2">
-                  {live && zustand === "online" && !kiSichtbar && (
+                  {live && zustand === "online" && (
                     <span className="rounded bg-red-600 px-2 py-0.5 text-[11px] font-bold tracking-wide text-white">
                       LIVE
                     </span>
@@ -322,24 +325,31 @@ export default function StallblickApp() {
                   )}
                 </div>
 
-                {/* KI-Ansicht ein/aus – oben rechts, oeffnet nicht das Vollbild */}
+                {/* KI-Kaesten ein/aus – oben rechts, oeffnet nicht das Vollbild.
+                    Kaesten brauchen das Livebild: Einschalten startet es auch
+                    bei Datensparen. */}
                 {kiMoeglich && (
                   <button
                     type="button"
                     aria-pressed={kiAn}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (!kiAn) setLiveGestartet(true);
                       setKiAn((an) => !an);
                     }}
-                    className="absolute right-2.5 top-2.5 rounded bg-black/70 px-2 py-0.5 text-[11px] font-semibold text-white ring-1 ring-white/20"
+                    className={`absolute right-2.5 top-2.5 rounded px-2 py-0.5 text-[11px] font-semibold ring-1 ${
+                      kiAn
+                        ? "bg-stall-accent text-black ring-stall-accent"
+                        : "bg-black/70 text-white ring-white/20"
+                    }`}
                   >
-                    {kiAn ? "Video" : "KI-Ansicht"}
+                    KI-Kästen
                   </button>
                 )}
 
                 {/* Datensparen: Video erst auf ausdrueckliches Tippen. Ohne
                     erreichbare Kamera waere der Knopf ein leeres Versprechen. */}
-                {istHaupt && !liveAn && state !== "offline" && !kiSichtbar && (
+                {istHaupt && !liveAn && state !== "offline" && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation(); // nicht zugleich das Vollbild oeffnen

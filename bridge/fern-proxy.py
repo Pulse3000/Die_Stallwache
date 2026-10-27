@@ -7,9 +7,9 @@ aendern und Befehle auf dem Stall-Rechner ausfuehren. Dieser kleine Proxy
 oeffentlich wird. Er laesst ausschliesslich zu:
 
   * GET auf die HLS-Pfade der Stallwache (siehe ERLAUBT),
-  * GET /api/ki-ansicht: das letzte Analysebild des Edge-Agenten mit
-    Kaesten und Kuh-Nummern, direkt aus einer festen Datei (kein go2rtc,
-    keine Pfadangabe des Aufrufers; docs/ki-ansicht-spezifikation.md),
+  * GET /api/ki-kaesten: Kaesten und Kuh-Nummern der letzten Analyse des
+    Edge-Agenten (kleine JSON-Datei), direkt aus einer festen Datei (kein
+    go2rtc, keine Pfadangabe des Aufrufers; docs/ki-ansicht-spezifikation.md),
   * mit dem geheimen Header  x-stallwache-token,
   * die Quelle wird erzwungen (stallwache_sd) – der Aufrufer waehlt sie nie.
 
@@ -18,7 +18,7 @@ Alles andere: 403 (Token falsch/fehlt) bzw. 404 (Pfad nicht erlaubt).
 Start (siehe fern-einrichten.sh):
     FERN_TOKEN=<geheim, >= 24 Zeichen> python3 fern-proxy.py
 Env: FERN_PORT (8089), GO2RTC_PORT (1984), FERN_QUELLE (stallwache_sd),
-     KI_ANSICHT_DATEI (/dev/shm/stallwache-stallwache/ki-ansicht.jpg).
+     KI_ANSICHT_DATEI (/dev/shm/stallwache-stallwache/ki-kaesten.json).
 Lauscht nur auf 127.0.0.1.
 """
 from __future__ import annotations
@@ -44,15 +44,15 @@ ERLAUBT: dict[str, tuple[str, ...]] = {
 WERT = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 MAX_GLEICHZEITIG = 12
 UPSTREAM_TIMEOUT_S = 20
-KI_ANSICHT_PFAD = "/api/ki-ansicht"
-KI_ANSICHT_FRISCH_S = 10          # aelter -> 404, nie ein altes Bild als aktuell
-KI_ANSICHT_MAX_BYTES = 2 * 1024 * 1024
+KI_ANSICHT_PFAD = "/api/ki-kaesten"
+KI_ANSICHT_FRISCH_S = 10          # aelter -> 404, nie alte Kaesten als aktuell
+KI_ANSICHT_MAX_BYTES = 64 * 1024
 
 
 def lies_ki_ansicht(datei: str, jetzt: float | None = None) -> tuple[bytes, float] | None:
-    """Inhalt und Dateizeit der KI-Ansicht – oder None, wenn sie fehlt, zu
-    alt oder zu gross ist. Der Agent ersetzt die Datei atomar (os.replace),
-    ein Leser sieht also nie eine halbe."""
+    """Inhalt und Dateizeit der Kaesten-Datei – oder None, wenn sie fehlt,
+    zu alt oder zu gross ist. Der Agent ersetzt die Datei atomar
+    (os.replace), ein Leser sieht also nie eine halbe."""
     try:
         with open(datei, "rb") as f:
             st = os.fstat(f.fileno())
@@ -99,7 +99,7 @@ class Handler(BaseHTTPRequestHandler):
     token = ""
     go2rtc_port = 1984
     quelle = "stallwache_sd"
-    ki_ansicht_datei = "/dev/shm/stallwache-stallwache/ki-ansicht.jpg"
+    ki_ansicht_datei = "/dev/shm/stallwache-stallwache/ki-kaesten.json"
     schranke = threading.BoundedSemaphore(MAX_GLEICHZEITIG)
 
     def _antwort(self, status: int, text: str = "") -> None:
@@ -113,13 +113,12 @@ class Handler(BaseHTTPRequestHandler):
     def _ki_ansicht(self) -> None:
         erg = lies_ki_ansicht(self.ki_ansicht_datei)
         if erg is None:
-            return self._antwort(404, "keine aktuelle KI-Ansicht")
-        inhalt, zeit = erg
+            return self._antwort(404, "keine aktuellen KI-Kaesten")
+        inhalt, _ = erg
         self.send_response(200)
-        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(inhalt)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Bild-Zeit", str(int(zeit)))
         self.end_headers()
         self.wfile.write(inhalt)
 

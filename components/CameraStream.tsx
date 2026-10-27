@@ -35,6 +35,8 @@ interface Props {
   pausiert?: boolean;
   /** Meldet Statuswechsel nach oben (Header, Statusblock, Ereignisse). */
   onState: (id: CameraConfig["id"], state: CameraState) => void;
+  /** Reicht das Video-Element heraus (KI-Kaesten: Videozeit und -groesse). */
+  onVideo?: (video: HTMLVideoElement | null) => void;
 }
 
 /** Vorschau: Einzelbilder statt Live-Stream – reduzierte Stream-Prioritaet. */
@@ -78,7 +80,13 @@ const pingStand = (id: CameraConfig["id"]): PingStand =>
  * Der Rollenwechsel bindet nur die Medienquelle im selben Container um;
  * die Komponente bleibt gemountet, es gibt keinen Seiten-Neuaufbau.
  */
-export default function CameraStream({ camera, role, pausiert = false, onState }: Props) {
+export default function CameraStream({
+  camera,
+  role,
+  pausiert = false,
+  onState,
+  onVideo,
+}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const whepResourceUrlRef = useRef<string | null>(null);
@@ -105,6 +113,12 @@ export default function CameraStream({ camera, role, pausiert = false, onState }
     onStateRef.current = onState;
   });
   const stateRef = useRef<CameraState | null>(null);
+
+  useEffect(() => {
+    if (!onVideo) return;
+    onVideo(videoRef.current);
+    return () => onVideo(null);
+  }, [onVideo]);
 
   useEffect(() => {
     // Ende-Flag JE EFFEKTLAUF: Asynchrone Fortsetzungen eines frueheren Laufs
