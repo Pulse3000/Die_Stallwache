@@ -162,22 +162,22 @@ def test_ki_ansicht_ganzer_weg():
         p = proxy.server_address[1]
         try:
             FalschesGo2rtc.gesehen.clear()
-            assert anfrage(p, "/api/ki-ansicht.jpg")[0] == 404           # Agent schreibt nicht
+            assert anfrage(p, "/api/ki-ansicht")[0] == 404           # Agent schreibt nicht
             with open(datei, "wb") as f:
                 f.write(b"\xff\xd8bild")
-            assert anfrage(p, "/api/ki-ansicht.jpg", token=None)[0] == 403
-            assert anfrage(p, "/api/ki-ansicht.jpg", token="falsch")[0] == 403
-            assert anfrage(p, "/api/ki-ansicht.jpg", methode="POST")[0] == 405
-            status, koerper, kopf = anfrage(p, "/api/ki-ansicht.jpg?t=123", kopfzeilen=True)
+            assert anfrage(p, "/api/ki-ansicht", token=None)[0] == 403
+            assert anfrage(p, "/api/ki-ansicht", token="falsch")[0] == 403
+            assert anfrage(p, "/api/ki-ansicht", methode="POST")[0] == 405
+            status, koerper, kopf = anfrage(p, "/api/ki-ansicht?t=123", kopfzeilen=True)
             assert status == 200 and koerper == b"\xff\xd8bild"
             assert kopf["content-type"] == "image/jpeg" and kopf["cache-control"] == "no-store"
             assert abs(int(kopf["x-bild-zeit"]) - time.time()) < 5
             alt = time.time() - 30
             os.utime(datei, (alt, alt))
-            assert anfrage(p, "/api/ki-ansicht.jpg")[0] == 404           # nicht aktuell
+            assert anfrage(p, "/api/ki-ansicht")[0] == 404           # nicht aktuell
             # Kein Umweg zu anderen Dateien oder zu go2rtc
-            for pfad in ("/api/ki-ansicht.jpg/../config", "/api/ki-ansicht.jpeg",
-                         "/api/../api/ki-ansicht.jpg", "/ki-ansicht.jpg"):
+            for pfad in ("/api/ki-ansicht/../config", "/api/ki-ansicht.jpg",
+                         "/api/../api/ki-ansicht", "/ki-ansicht"):
                 assert anfrage(p, pfad)[0] == 404, pfad
             assert FalschesGo2rtc.gesehen == [], "die KI-Ansicht beruehrt go2rtc nie"
         finally:

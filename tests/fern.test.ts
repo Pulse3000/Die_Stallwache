@@ -243,9 +243,9 @@ test("fernAbruf nennt die Ursache: Zeitueberschreitung und Reset", async (t) => 
 // --- KI-Ansicht (docs/ki-ansicht-spezifikation.md, Kriterien 3 und 4) ---------
 
 test("KI-Ansicht: genau ein Pfad, ohne Parameter", () => {
-  assert.equal(KI_ANSICHT_PFAD, "ki-ansicht.jpg");
-  assert.equal(fernZiel(BASIS, "ki-ansicht.jpg", q("t=123&src=x")), `${BASIS}/api/ki-ansicht.jpg`);
-  for (const p of ["ki-ansicht.jpeg", "ki-ansicht.jpg/../config", "hls/ki-ansicht.jpg", "../ki-ansicht.jpg"]) {
+  assert.equal(KI_ANSICHT_PFAD, "ki-ansicht");
+  assert.equal(fernZiel(BASIS, "ki-ansicht", q("t=123&src=x")), `${BASIS}/api/ki-ansicht`);
+  for (const p of ["ki-ansicht.jpg", "ki-ansicht/../config", "hls/ki-ansicht", "../ki-ansicht"]) {
     assert.equal(fernZiel(BASIS, p, q("")), null, `Pfad "${p}"`);
   }
 });

@@ -4,7 +4,7 @@
  * Fernzugriff, Bild je Sekunde (bei Datensparen alle 5 s), im verborgenen Tab
  * keine Abrufe, Texte fuer „aus", „nicht aktuell", „gestoert".
  *
- * Der Endpunkt /api/stallwache/fern/ki-ansicht.jpg wird nachgebildet (JPEG
+ * Der Endpunkt /api/stallwache/fern/ki-ansicht wird nachgebildet (JPEG
  * mit X-Bild-Zeit, 404, 502); der Rest der App laeuft echt.
  *
  *   NEXT_PUBLIC_STALLWACHE_FERN=1 NEXT_PUBLIC_BRIDGE_URL= npm run build
@@ -45,7 +45,7 @@ async function oeffne(datensparen) {
   }, datensparen);
   const page = await ctx.newPage();
   const zustand = { modus: "404", bildZeit: Math.floor(Date.now() / 1000), anfragen: 0 };
-  await page.route(/\/api\/stallwache\/fern\/ki-ansicht\.jpg/, (route) => {
+  await page.route(/\/api\/stallwache\/fern\/ki-ansicht(\?|$)/, (route) => {
     zustand.anfragen++;
     if (zustand.modus === "bild" || zustand.modus === "fest") {
       if (zustand.modus === "bild") zustand.bildZeit++;

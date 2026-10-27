@@ -25,7 +25,7 @@ import {
 const uhr = (s: number) => `U${s}`;
 
 test("Pfad und Takt", () => {
-  assert.equal(KI_ANSICHT_URL, "/api/stallwache/fern/ki-ansicht.jpg");
+  assert.equal(KI_ANSICHT_URL, "/api/stallwache/fern/ki-ansicht");
   assert.equal(kiTaktMs(false), 1_000);
   assert.equal(kiTaktMs(true), 5_000);
 });

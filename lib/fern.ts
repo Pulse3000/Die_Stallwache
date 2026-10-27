@@ -29,9 +29,11 @@ export function fernKonfiguriert(): boolean {
 }
 
 /** Pfad der KI-Ansicht: letztes Analysebild des Edge-Agenten mit Kaesten
- *  (docs/ki-ansicht-spezifikation.md). fern-proxy.py liest ihn aus einer
- *  festen Datei, nicht von go2rtc. */
-export const KI_ANSICHT_PFAD = "ki-ansicht.jpg";
+ *  (docs/ki-ansicht-spezifikation.md). fern-proxy.py liest es aus einer
+ *  festen Datei, nicht von go2rtc. Bewusst OHNE Endung: Der Matcher in
+ *  middleware.ts nimmt Pfade auf .jpg/.png usw. vom Login aus (statische
+ *  Bilder) – ein Stallbild darunter waere ohne Anmeldung abrufbar. */
+export const KI_ANSICHT_PFAD = "ki-ansicht";
 
 /** Erlaubte Pfade (relativ zu /api/) und ihre Query-Parameter – Spiegel von
  *  ERLAUBT und KI_ANSICHT_PFAD in bridge/fern-proxy.py. */

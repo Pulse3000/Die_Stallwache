@@ -14,7 +14,7 @@
  */
 
 /** Pfad in dieser App (lib/fern.ts: FERN_PRAEFIX + KI_ANSICHT_PFAD). */
-export const KI_ANSICHT_URL = "/api/stallwache/fern/ki-ansicht.jpg";
+export const KI_ANSICHT_URL = "/api/stallwache/fern/ki-ansicht";
 
 /** Bildzeit steht laenger still -> „nicht aktuell". */
 export const KI_FRISCH_MS = 10_000;

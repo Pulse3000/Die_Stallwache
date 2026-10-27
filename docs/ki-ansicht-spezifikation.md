@@ -92,10 +92,12 @@ Kriterien 7–10 am Gerät offen.
   Wer den Agenten per Compose betreibt, muss also nichts eintragen.
 - **fern-proxy.py:** `KI_ANSICHT_DATEI`, Default
   `/dev/shm/stallwache-stallwache/ki-ansicht.jpg`. Der neue Pfad heißt
-  `GET /api/ki-ansicht.jpg` (Token wie bei allen Pfaden).
+  `GET /api/ki-ansicht` (Token wie bei allen Pfaden), bewusst ohne
+  Endung: Der Matcher in `middleware.ts` nimmt `*.jpg` vom Login aus.
+  Zusätzlich prüft die Fernzugriff-Route die Sitzung selbst.
 - **Webapp:** kein neues Env. Der Schalter erscheint, wenn
   `NEXT_PUBLIC_STALLWACHE_FERN=1` gesetzt ist und die Stallwache das
-  Hauptbild ist. `lib/fern.ts` bekommt `ki-ansicht.jpg` in die Allowlist
+  Hauptbild ist. `lib/fern.ts` bekommt `ki-ansicht` in die Allowlist
   (Spiegel von `fern-proxy.py`).
 
 ## 5. UI-Texte
@@ -124,8 +126,10 @@ Automatisch (vor dem Merge):
 2. fern-proxy-Test: ohne Token 403, falscher Pfad 404. Datei fehlt → 404,
    älter als 10 s → 404, größer als 2 MB → 404. Frisch → 200 mit
    `image/jpeg`, `Cache-Control: no-store` und `X-Bild-Zeit`.
-3. `tests/fern.test.ts`: `ki-ansicht.jpg` ist erlaubt, ohne Parameter;
-   andere Pfade bleiben gesperrt.
+3. `tests/fern.test.ts`: `ki-ansicht` ist erlaubt, ohne Parameter;
+   andere Pfade bleiben gesperrt. `tests/middleware.test.ts`: Die
+   Middleware erfasst alle Fernzugriff-Pfade (keiner fällt unter die
+   Ausnahme für statische Bilder).
 4. Route: reicht `X-Bild-Zeit` nur als Ganzzahl durch.
 5. E2E im Browser mit nachgebildeter Route:
    - Schalter nur bei der Stallwache und nur mit Fernzugriff.

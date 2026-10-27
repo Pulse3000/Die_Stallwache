@@ -7,7 +7,7 @@ aendern und Befehle auf dem Stall-Rechner ausfuehren. Dieser kleine Proxy
 oeffentlich wird. Er laesst ausschliesslich zu:
 
   * GET auf die HLS-Pfade der Stallwache (siehe ERLAUBT),
-  * GET /api/ki-ansicht.jpg: das letzte Analysebild des Edge-Agenten mit
+  * GET /api/ki-ansicht: das letzte Analysebild des Edge-Agenten mit
     Kaesten und Kuh-Nummern, direkt aus einer festen Datei (kein go2rtc,
     keine Pfadangabe des Aufrufers; docs/ki-ansicht-spezifikation.md),
   * mit dem geheimen Header  x-stallwache-token,
@@ -44,7 +44,7 @@ ERLAUBT: dict[str, tuple[str, ...]] = {
 WERT = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 MAX_GLEICHZEITIG = 12
 UPSTREAM_TIMEOUT_S = 20
-KI_ANSICHT_PFAD = "/api/ki-ansicht.jpg"
+KI_ANSICHT_PFAD = "/api/ki-ansicht"
 KI_ANSICHT_FRISCH_S = 10          # aelter -> 404, nie ein altes Bild als aktuell
 KI_ANSICHT_MAX_BYTES = 2 * 1024 * 1024
 

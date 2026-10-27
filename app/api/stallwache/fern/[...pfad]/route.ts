@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authAktiv } from "@/lib/auth";
+import { authAktiv, pruefeToken, SESSION_COOKIE } from "@/lib/auth";
 import { bildZeitKopf, fernAbruf, KI_ANSICHT_PFAD, schreibeManifestUm } from "@/lib/fern";
 
 export const dynamic = "force-dynamic";
@@ -9,9 +9,10 @@ export const runtime = "nodejs";
  * Reicht das Stallwache-HLS vom Stall-Rechner durch (siehe lib/fern.ts).
  *
  * Liegt hinter dem App-Login (middleware.ts). Zusaetzlich verweigert die
- * Route selbst den Dienst, solange der Login nicht aktiv ist (fail-closed):
- * Das Stallbild darf nie ohne Anmeldung erreichbar sein, auch nicht durch
- * eine vergessene Umgebungsvariable. Erlaubt sind nur die HLS-Pfade der
+ * Route selbst den Dienst, solange der Login nicht aktiv ist (fail-closed),
+ * und prueft die Sitzung selbst: Das Stallbild darf nie ohne Anmeldung
+ * erreichbar sein, auch nicht durch eine vergessene Umgebungsvariable oder
+ * einen Pfad, den der Matcher der Middleware auslaesst (statische Bilder). Erlaubt sind nur die HLS-Pfade der
  * Stallwache und die KI-Ansicht, alles andere ist 404.
  *
  * KI-Ansicht: 404 vom Stall-Rechner heisst „der Agent analysiert gerade
@@ -27,6 +28,9 @@ export async function GET(
       { fehler: "Fernzugriff gesperrt – App-Login (STALLBLICK_PASSWORT) ist nicht aktiv." },
       { status: 503 },
     );
+  }
+  if (!(await pruefeToken(req.cookies.get(SESSION_COOKIE)?.value))) {
+    return NextResponse.json({ fehler: "Nicht angemeldet" }, { status: 401 });
   }
   const { pfad } = await params;
   const teil = pfad.join("/");
