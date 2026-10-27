@@ -163,6 +163,14 @@ watchdog:
   #   Analyse-Modus 300 (jeder Frame bei ~1 FPS, also ~5 min)
   frames_bis_alarm:
 
+ki_ansicht:
+  # Letztes analysiertes Bild mit Kaesten und „Kuh #ID" fuer die Kachel der
+  # Stallwache (Schalter „KI-Ansicht", docs/ki-ansicht-spezifikation.md).
+  # Nur im Analyse-Modus, etwa 1 Bild/s, atomar in den RAM. fern-proxy.py
+  # liefert es mit Token aus (Fernzugriff). Leer = aus; docker-compose.yml
+  # setzt dafuer KI_ANSICHT_DATEI=/ki-ansicht/ki-ansicht.jpg (/dev/shm).
+  datei: ""
+
 silent_mode:
   # Ohne Modell werden regelmaessig Bilder fuer das spaetere Training gesammelt.
   ordner: ./aufnahmen

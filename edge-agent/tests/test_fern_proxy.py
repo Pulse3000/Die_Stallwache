@@ -3,7 +3,9 @@
 
 Prueft die Pfad-Freigabe, den Tokenvergleich und – mit einem gefaelschten
 go2rtc auf Loopback – den ganzen Weg: ohne Token 403, go2rtc-API 404, nur das
-Stallwache-HLS kommt durch und die Quelle wird erzwungen.
+Stallwache-HLS kommt durch und die Quelle wird erzwungen. Dazu die
+KI-Ansicht (docs/ki-ansicht-spezifikation.md, Kriterium 2): nur mit Token,
+nur frisch (<= 10 s), hoechstens 2 MB, nie ueber go2rtc.
 
     python3 edge-agent/tests/test_fern_proxy.py
     pytest -q edge-agent/tests/test_fern_proxy.py
@@ -11,8 +13,11 @@ Stallwache-HLS kommt durch und die Quelle wird erzwungen.
 
 import http.client
 import importlib.util
+import os
 import sys
+import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -82,11 +87,13 @@ def starte(handler_klasse, port=0):
     return srv
 
 
-def anfrage(port, pfad, token=TOKEN, methode="GET"):
+def anfrage(port, pfad, token=TOKEN, methode="GET", kopfzeilen=False):
     c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
     kopf = {"x-stallwache-token": token} if token is not None else {}
     c.request(methode, pfad, headers=kopf)
     r = c.getresponse()
+    if kopfzeilen:
+        return r.status, r.read(), {k.lower(): v for k, v in r.getheaders()}
     return r.status, r.read()
 
 
@@ -122,6 +129,60 @@ def test_go2rtc_down_ergibt_502():
         assert anfrage(proxy.server_address[1], "/api/stream.m3u8")[0] == 502
     finally:
         proxy.shutdown()
+
+
+# --- KI-Ansicht ---------------------------------------------------------------
+
+def test_ki_ansicht_lesen():
+    with tempfile.TemporaryDirectory() as tmp:
+        datei = os.path.join(tmp, "ki-ansicht.jpg")
+        assert fp.lies_ki_ansicht(datei) is None                      # fehlt
+        with open(datei, "wb") as f:
+            f.write(b"\xff\xd8bild")
+        jetzt = os.stat(datei).st_mtime
+        assert fp.lies_ki_ansicht(datei, jetzt + 10) == (b"\xff\xd8bild", jetzt)
+        assert fp.lies_ki_ansicht(datei, jetzt + 10.5) is None        # aelter als 10 s
+        with open(datei, "wb") as f:
+            f.write(b"x" * (fp.KI_ANSICHT_MAX_BYTES + 1))
+        assert fp.lies_ki_ansicht(datei) is None                      # zu gross
+        with open(datei, "wb") as f:
+            f.write(b"x" * fp.KI_ANSICHT_MAX_BYTES)
+        assert fp.lies_ki_ansicht(datei) is not None                  # genau 2 MB geht
+        assert fp.lies_ki_ansicht(tmp) is None                        # Ordner statt Datei
+
+
+def test_ki_ansicht_ganzer_weg():
+    go = starte(FalschesGo2rtc)
+    with tempfile.TemporaryDirectory() as tmp:
+        datei = os.path.join(tmp, "ki-ansicht.jpg")
+        fp.Handler.token = TOKEN
+        fp.Handler.go2rtc_port = go.server_address[1]
+        fp.Handler.ki_ansicht_datei = datei
+        proxy = starte(fp.Handler)
+        p = proxy.server_address[1]
+        try:
+            FalschesGo2rtc.gesehen.clear()
+            assert anfrage(p, "/api/ki-ansicht.jpg")[0] == 404           # Agent schreibt nicht
+            with open(datei, "wb") as f:
+                f.write(b"\xff\xd8bild")
+            assert anfrage(p, "/api/ki-ansicht.jpg", token=None)[0] == 403
+            assert anfrage(p, "/api/ki-ansicht.jpg", token="falsch")[0] == 403
+            assert anfrage(p, "/api/ki-ansicht.jpg", methode="POST")[0] == 405
+            status, koerper, kopf = anfrage(p, "/api/ki-ansicht.jpg?t=123", kopfzeilen=True)
+            assert status == 200 and koerper == b"\xff\xd8bild"
+            assert kopf["content-type"] == "image/jpeg" and kopf["cache-control"] == "no-store"
+            assert abs(int(kopf["x-bild-zeit"]) - time.time()) < 5
+            alt = time.time() - 30
+            os.utime(datei, (alt, alt))
+            assert anfrage(p, "/api/ki-ansicht.jpg")[0] == 404           # nicht aktuell
+            # Kein Umweg zu anderen Dateien oder zu go2rtc
+            for pfad in ("/api/ki-ansicht.jpg/../config", "/api/ki-ansicht.jpeg",
+                         "/api/../api/ki-ansicht.jpg", "/ki-ansicht.jpg"):
+                assert anfrage(p, pfad)[0] == 404, pfad
+            assert FalschesGo2rtc.gesehen == [], "die KI-Ansicht beruehrt go2rtc nie"
+        finally:
+            proxy.shutdown()
+            go.shutdown()
 
 
 if __name__ == "__main__":

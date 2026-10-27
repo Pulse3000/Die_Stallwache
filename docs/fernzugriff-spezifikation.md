@@ -16,6 +16,7 @@ berührt.
 
    - `bridge/fern-proxy.py` ist das Einzige, was öffentlich erreichbar ist.
    - Er lässt nur das HLS der Stallwache durch (SD-Stream) und verlangt den Header `x-stallwache-token`. Alles andere beantwortet er mit 403 oder 404.
+   - Einzige Ausnahme von „nur HLS“: `GET /api/ki-ansicht.jpg`, das letzte Analysebild des Edge-Agenten mit Kästen und Kuh-Nummern. Der Proxy liest es aus einer festen Datei im RAM (nicht über go2rtc), nur mit Token, nur frisch und höchstens 2 MB groß ([`ki-ansicht-spezifikation.md`](./ki-ansicht-spezifikation.md)).
    - Die Webapp reicht das Bild nur hinter dem App-Login weiter (`lib/fern.ts`).
 2. **go2rtc ist nie öffentlich und hat einen Login.** Seine API kann Befehle auf dem Stall-Rechner ausführen. Sie bleibt im LAN bzw. Tailnet und bekommt keine CORS-Freigabe (`api.origin`).
    - Fehlendes CORS verhindert nur, dass eine fremde Webseite Antworten **liest**. „Einfache“ POST-Anfragen sendet der Browser trotzdem. Ohne Login könnte also jede Webseite, die ein Gerät im Stall-WLAN oder Tailnet öffnet, go2rtc beenden (`POST /api/exit`) oder das Kamerabild an einen fremden Server weiterleiten (`POST /api/streams?src=…&dst=…`). Belegt im go2rtc-Quelltext, `internal/api/api.go` bzw. `internal/streams/api.go`, und verletzt „Video verlässt den Hof nie“.

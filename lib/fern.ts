@@ -28,14 +28,30 @@ export function fernKonfiguriert(): boolean {
   );
 }
 
-/** Erlaubte go2rtc-HLS-Pfade (relativ zu /api/) und ihre Query-Parameter. */
+/** Pfad der KI-Ansicht: letztes Analysebild des Edge-Agenten mit Kaesten
+ *  (docs/ki-ansicht-spezifikation.md). fern-proxy.py liest ihn aus einer
+ *  festen Datei, nicht von go2rtc. */
+export const KI_ANSICHT_PFAD = "ki-ansicht.jpg";
+
+/** Erlaubte Pfade (relativ zu /api/) und ihre Query-Parameter – Spiegel von
+ *  ERLAUBT und KI_ANSICHT_PFAD in bridge/fern-proxy.py. */
 const ERLAUBT: Record<string, readonly string[]> = {
   "stream.m3u8": [],
   "hls/playlist.m3u8": ["id"],
   "hls/segment.ts": ["id", "n"],
   "hls/init.mp4": ["id"],
   "hls/segment.m4s": ["id", "n"],
+  [KI_ANSICHT_PFAD]: [],
 };
+
+/**
+ * Wert des Kopfs X-Bild-Zeit (Unix-Sekunden der KI-Ansicht) – nur als
+ * Ganzzahl weitergereicht, sonst null. Der Kopf kommt vom Stall-Rechner und
+ * landet im Browser; mehr als Ziffern hat dort nichts zu suchen.
+ */
+export function bildZeitKopf(wert: string | null): string | null {
+  return wert && /^\d{1,12}$/.test(wert) ? wert : null;
+}
 
 const PARAMETER_WERT = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -148,10 +164,11 @@ export function fernFehlerUrsache(fehler: unknown): string {
   return `${art} (${code})`;
 }
 
-/** Ergebnis eines Abrufs am Stall-Rechner. */
+/** Ergebnis eines Abrufs am Stall-Rechner. `upstream` ist der Status, mit
+ *  dem der Stall-Rechner selbst geantwortet hat (fehlt bei Netzfehlern). */
 export type FernAntwort =
   | { ok: true; antwort: Response }
-  | { ok: false; status: number; fehler: string };
+  | { ok: false; status: number; fehler: string; upstream?: number };
 
 /** Holt einen erlaubten Pfad vom Stall-Rechner (mit Token, kurzem Timeout). */
 export async function fernAbruf(
@@ -175,7 +192,12 @@ export async function fernAbruf(
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!antwort.ok) {
-      return { ok: false, status: 502, fehler: `Stall-Rechner antwortet mit ${antwort.status}` };
+      return {
+        ok: false,
+        status: 502,
+        fehler: `Stall-Rechner antwortet mit ${antwort.status}`,
+        upstream: antwort.status,
+      };
     }
     return { ok: true, antwort };
   } catch (e) {

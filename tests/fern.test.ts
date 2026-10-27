@@ -11,9 +11,17 @@
  */
 
 import { strict as assert } from "node:assert";
+import { createServer as httpServer } from "node:http";
 import { createServer, type Server, type Socket } from "node:net";
 import { test } from "node:test";
-import { fernAbruf, fernFehlerUrsache, fernZiel, schreibeManifestUm } from "../lib/fern.ts";
+import {
+  bildZeitKopf,
+  fernAbruf,
+  fernFehlerUrsache,
+  fernZiel,
+  KI_ANSICHT_PFAD,
+  schreibeManifestUm,
+} from "../lib/fern.ts";
 
 const BASIS = "https://stall.example.ts.net:8443";
 const q = (s: string) => new URLSearchParams(s);
@@ -229,5 +237,44 @@ test("fernAbruf nennt die Ursache: Zeitueberschreitung und Reset", async (t) => 
   } finally {
     stumm.close();
     reset.close();
+  }
+});
+
+// --- KI-Ansicht (docs/ki-ansicht-spezifikation.md, Kriterien 3 und 4) ---------
+
+test("KI-Ansicht: genau ein Pfad, ohne Parameter", () => {
+  assert.equal(KI_ANSICHT_PFAD, "ki-ansicht.jpg");
+  assert.equal(fernZiel(BASIS, "ki-ansicht.jpg", q("t=123&src=x")), `${BASIS}/api/ki-ansicht.jpg`);
+  for (const p of ["ki-ansicht.jpeg", "ki-ansicht.jpg/../config", "hls/ki-ansicht.jpg", "../ki-ansicht.jpg"]) {
+    assert.equal(fernZiel(BASIS, p, q("")), null, `Pfad "${p}"`);
+  }
+});
+
+test("KI-Ansicht: Bildzeit nur als Ganzzahl", () => {
+  assert.equal(bildZeitKopf("1761577200"), "1761577200");
+  for (const w of [null, "", "12a", "1.5", "-3", "<script>", "1".repeat(13)]) {
+    assert.equal(bildZeitKopf(w), null, `Wert ${JSON.stringify(w)}`);
+  }
+});
+
+test("fernAbruf meldet den Status des Stall-Rechners (404 = keine KI-Ansicht)", async () => {
+  const srv = httpServer((_req, res) => {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("keine aktuelle KI-Ansicht");
+  });
+  await new Promise<void>((fertig) => srv.listen(0, "127.0.0.1", fertig));
+  try {
+    const port = (srv.address() as { port: number }).port;
+    await mitFernzugriff(`http://127.0.0.1:${port}`, async () => {
+      const r = await fernAbruf(KI_ANSICHT_PFAD, new URLSearchParams());
+      assert.deepEqual(r, {
+        ok: false,
+        status: 502,
+        fehler: "Stall-Rechner antwortet mit 404",
+        upstream: 404,
+      });
+    });
+  } finally {
+    srv.close();
   }
 });

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import CameraStream from "@/components/CameraStream";
+import KiAnsicht from "@/components/KiAnsicht";
 import LetzteAlarme from "@/components/LetzteAlarme";
 import { useEinstellungen } from "@/lib/einstellungen";
 import { type Anzeige, type KopfTon, belegterWechsel, kopfStatus } from "@/lib/kamera-status";
@@ -14,6 +15,7 @@ import {
   isConfigured,
   snapshotSupported,
   snapshotUrl,
+  STALLWACHE_FERN,
 } from "@/lib/config";
 
 const STATE_LABEL: Record<CameraState, string> = {
@@ -70,6 +72,9 @@ export default function StallblickApp() {
   // View-State: hauptkamera = Stallwache (Default) | Futterwache
   const [hauptkamera, setHauptkamera] = useState<CameraId>("stallwache");
   const [vollbild, setVollbild] = useState(false);
+  // KI-Ansicht der Stallwache (docs/ki-ansicht-spezifikation.md): nur mit
+  // Fernzugriff, nur wenn die Stallwache das Hauptbild ist.
+  const [kiAn, setKiAn] = useState(false);
 
   /**
    * Ab Werk laufen alle Kameras beim Oeffnen sofort live (WebRTC/HLS).
@@ -254,6 +259,8 @@ export default function StallblickApp() {
           // Ohne Datensparen sind alle Kacheln live, sonst nur das Hauptbild.
           const live = einstellungen.datensparen ? istHaupt && liveAn : true;
           const rolle = live ? "haupt" : "vorschau";
+          const kiMoeglich = istHaupt && cam.id === "stallwache" && STALLWACHE_FERN;
+          const kiSichtbar = kiMoeglich && kiAn;
 
           return (
             <article
@@ -295,10 +302,11 @@ export default function StallblickApp() {
                   pausiert={pausiert[cam.id] && !(vollbild && istHaupt)}
                   onState={onCamState}
                 />
+                {kiSichtbar && <KiAnsicht datensparen={einstellungen.datensparen} />}
 
                 {/* Statuszeile ueber dem Bild */}
                 <div className="pointer-events-none absolute left-2.5 top-2.5 flex items-center gap-2">
-                  {live && zustand === "online" && (
+                  {live && zustand === "online" && !kiSichtbar && (
                     <span className="rounded bg-red-600 px-2 py-0.5 text-[11px] font-bold tracking-wide text-white">
                       LIVE
                     </span>
@@ -314,9 +322,24 @@ export default function StallblickApp() {
                   )}
                 </div>
 
+                {/* KI-Ansicht ein/aus – oben rechts, oeffnet nicht das Vollbild */}
+                {kiMoeglich && (
+                  <button
+                    type="button"
+                    aria-pressed={kiAn}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setKiAn((an) => !an);
+                    }}
+                    className="absolute right-2.5 top-2.5 rounded bg-black/70 px-2 py-0.5 text-[11px] font-semibold text-white ring-1 ring-white/20"
+                  >
+                    {kiAn ? "Video" : "KI-Ansicht"}
+                  </button>
+                )}
+
                 {/* Datensparen: Video erst auf ausdrueckliches Tippen. Ohne
                     erreichbare Kamera waere der Knopf ein leeres Versprechen. */}
-                {istHaupt && !liveAn && state !== "offline" && (
+                {istHaupt && !liveAn && state !== "offline" && !kiSichtbar && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation(); // nicht zugleich das Vollbild oeffnen
