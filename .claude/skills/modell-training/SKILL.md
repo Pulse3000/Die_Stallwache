@@ -53,7 +53,9 @@ Ab dem 2. Trainingsdurchgang zusätzlich labeln:
   („Kalb steht seit 04:32", `docs/kalbe-akte-spezifikation.md`); Material in
   `aufnahmen/kalbungen/`. **Nicht** in `modell.tier_klassen` eintragen: Ein
   Kalb ist keine Kuh für Brunst, Kalbeverdacht und Festliegen
-  (`docs/brunst-plausibilitaet-spezifikation.md` §1).
+  (`docs/brunst-plausibilitaet-spezifikation.md` §1). Für die Kalbe-Akte
+  brauchen sie eine eigene Liste im Tracker-Filter, sonst filtert `classes=`
+  sie weg.
 - Keypoint `spine_mid` (Widerrist/Rückenmitte, Index 3 **anhängen**, Indizes
   0–2 nicht umsortieren) — Grundlage für die Lahmheits-Frühwarnung
   (`docs/lahmheit-spezifikation.md`); Bestand nachlabeln.

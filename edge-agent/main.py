@@ -1020,9 +1020,11 @@ class LogicEngine:
         self.brunst_dauer = float(lg["brunst_min_dauer_s"])
         # Aufsprung-Geometrie je Bild (docs/brunst-plausibilitaet-spezifikation.md).
         # Fehlt ein Schluessel (aeltere config.yaml), gilt der Default.
-        self.brunst_min_iou = self._wert(lg, "brunst_min_iou", 0.15)
-        self.brunst_min_versatz = self._wert(lg, "brunst_min_hoehenversatz", 0.20)
-        self.brunst_min_flaeche = self._wert(lg, "brunst_min_flaechenverhaeltnis", 0.45)
+        self.brunst_min_iou = self._wert(lg, "brunst_min_iou", 0.15, lambda v: 0 < v <= 1)
+        self.brunst_min_versatz = self._wert(lg, "brunst_min_hoehenversatz", 0.20, lambda v: v >= 0)
+        self.brunst_min_flaeche = self._wert(
+            lg, "brunst_min_flaechenverhaeltnis", 0.45, lambda v: 0 <= v <= 1
+        )
         self.eskalation_s = float(lg.get("eskalation_minuten", 60)) * 60
         # Erinnerungstakt der Austreibung; leer = bisheriger Cooldown, damit
         # sich fuer bestehende Konfigurationen nichts aendert.
@@ -1045,10 +1047,25 @@ class LogicEngine:
             log.info("Wach-Modus aktiv: gesenkte Alarm-Schwellen.")
 
     @staticmethod
-    def _wert(lg: dict, schluessel: str, default: float) -> float:
-        """Zahl aus dem logik-Block; fehlt oder leer -> Default (0 bleibt 0)."""
+    def _wert(lg: dict, schluessel: str, default: float, gueltig) -> float:
+        """Zahl aus dem logik-Block; fehlt oder leer -> Default (0 bleibt 0).
+
+        Unlesbar ("0,4x") oder ausserhalb des Bereichs -> Warnung und
+        Default. LogicEngine entsteht vor der Analyseschleife: Ein Tippfehler
+        in einem Brunst-Wert darf den Agenten und damit die Austreibung nie
+        am Start hindern. Dezimalkomma wird angenommen.
+        """
         wert = lg.get(schluessel)
-        return float(default if wert is None else wert)
+        if wert is None or (isinstance(wert, str) and not wert.strip()):
+            return float(default)
+        try:
+            zahl = float(str(wert).replace(",", "."))
+        except ValueError:
+            zahl = math.nan
+        if not math.isfinite(zahl) or not gueltig(zahl):
+            log.warning("logik.%s=%r ist ungueltig – nutze %s", schluessel, wert, default)
+            return float(default)
+        return zahl
 
     def bewerte(
         self, kuehe: list[KuhBeobachtung], objekte: list[ObjektErkennung]

@@ -60,7 +60,9 @@ modell:
   # Boxen (z. B. Mensch bei einem allgemeinen Modell) werden ignoriert.
   # Kommt eine Tier-Klasse im 2. Training dazu (kuh_seitenlage), hier ergaenzen.
   # kalb_liegend/kalb_stehend (2. Training) NICHT eintragen: Ein Kalb ist
-  # keine Kuh fuer Brunst, Kalbeverdacht und Festliegen.
+  # keine Kuh fuer Brunst, Kalbeverdacht und Festliegen. Fuer die Kalbe-Akte
+  # brauchen sie eine eigene Liste, die in den Tracker-Filter geht (sonst
+  # filtert classes= sie weg).
   tier_klassen: [kuh]
   # Alte CPU ohne AVX (z. B. AMD A6-3650): oneDNN aus, NumPy-NMS statt des
   # kompilierten Operators (SIGILL). auto = aus /proc/cpuinfo erkennen;
@@ -80,13 +82,15 @@ logik:
   override_konfidenz: 0.80     # Fruchtblase/Fuesse ab dieser Konfidenz -> Sofort-Alarm
   brunst_min_dauer_s: 4        # Aufsprung muss so lange anhalten (filtert Spielverhalten)
   # Aufsprung-Geometrie je Bild (docs/brunst-plausibilitaet-spezifikation.md).
-  # Fehlt ein Wert, gilt der hier gezeigte Default.
+  # Fehlt ein Wert, gilt der hier gezeigte Default. Unlesbare Werte -> Warnung
+  # im Log und Default; Dezimalkomma geht auch.
   brunst_min_iou: 0.15         # so stark muessen sich die Boxen ueberlappen (> 0)
   brunst_min_hoehenversatz: 0.20  # obere Box setzt um diesen Anteil der unteren Boxhoehe hoeher an
   # Kleinere Box mindestens dieser Anteil der groesseren Flaeche: Ein Kalb
   # unter oder neben der Mutter (vom Modell als kuh erkannt) ist kein
-  # Aufsprung. 0 = Pruefung aus. Kalb-Faelle liegen bis etwa 0.37; nur in
-  # Buchten ohne Kaelber (Jungvieh) senken, wenn Aufspruenge Faerse/Kuh fehlen.
+  # Aufsprung. 0 = Pruefung aus. Kalb-Faelle liegen meist unter 0.35. Nur in
+  # Buchten ohne Kaelber (Jungvieh) senken, wenn Aufspruenge Faerse/Kuh
+  # fehlen. Nie anheben gegen liegende Kuehe (kostet echte Aufspruenge).
   brunst_min_flaechenverhaeltnis: 0.45
   eskalation_minuten: 60       # Austreibung ohne Fortschritt nach dieser Zeit -> Kontroll-Alarm
   # Erinnerungstakt waehrend einer laufenden Austreibung ("laeuft weiter seit

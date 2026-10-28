@@ -105,6 +105,19 @@ alarme = brunst(lauf(lg, [kuh(3, AUFSPRINGER), kuh(4, BESPRUNGEN), kuh(5, KAELBE
 p.check("A2: Aufsprung mit Kalb daneben -> nur das Kuh-Paar meldet",
         [a.kuh_id for a in alarme] == ["Kuh #4"])
 
+# Paar-Sperre 1 h unveraendert: Eine Dauerlage meldet einmal je Stunde
+# (Spezifikation §9 Risiko 5 - genau das macht die liegende Kuh teuer).
+lg = logik()
+p.check("A2: Paar-Sperre: Dauerlage 3604 s -> eine Meldung", len(brunst(lauf(lg, paar, 3604))) == 1)
+p.check("A2: Paar-Sperre: nach 1 h + 4 s die zweite", len(brunst(lauf(lg, paar, 5))) == 1)
+
+# Ein Bild ohne Aufsprung-Lage setzt die 4-s-Uhr zurueck (unveraendert,
+# Risiko 4): 3 Bilder Lage, 1 Bild Kalb-Groesse, 3 Bilder Lage -> still.
+lg = logik()
+klein = kuh(4, (300.0, 300.0, 500.0, 450.0))
+alarme = lauf(lg, paar, 3) + lauf(lg, [paar[0], klein], 1) + lauf(lg, paar, 3)
+p.check("A2: Flackern unter die Schwelle startet die Mindestdauer neu", brunst(alarme) == [])
+
 # --- A3: Grenzwerte des Flaechenverhaeltnisses -----------------------------
 
 lg = logik()
@@ -135,9 +148,12 @@ p.check("A4: Werte als Text (YAML-Zitat) werden Zahlen",
 
 # Bisher fest verdrahtet, jetzt Config: Defaults verhalten sich wie vorher
 lg = logik()
-oben = kuh(1, (0.0, 0.0, 100.0, 100.0))
-p.check("A4: IoU genau 0.15 reicht (wie bisher >= 0.15)",
-        abs(m.LogicEngine._iou(oben.box, (0.0, 0.0, 100.0, 15.0)) - 0.15) < 1e-12)
+a, b = kuh(1, (0, 0, 100, 120)), kuh(2, (0, 30, 100, 130))  # IoU 0.69, Flaeche 0.83
+g = m.LogicEngine._iou(a.box, b.box)
+p.check("A4: IoU genau an der Schwelle reicht (>=, wie bisher)",
+        logik(brunst_min_iou=g)._aufsprung_lage(a, b) is not None)
+p.check("A4: IoU knapp unter der Schwelle -> keine Lage",
+        logik(brunst_min_iou=math.nextafter(g, 1))._aufsprung_lage(a, b) is None)
 p.check("A4: Versatz genau 20 % der unteren Boxhoehe reicht (wie bisher)",
         lg._aufsprung_lage(kuh(1, (0, 0, 100, 120)), kuh(2, (0, 20, 100, 120))) is not None)
 p.check("A4: Versatz knapp unter 20 % -> kein Aufsprung (wie bisher)",
@@ -146,6 +162,28 @@ p.check("A4: brunst_min_iou aus der Config wirkt (0.5 > IoU 0.2)",
         logik(brunst_min_iou=0.5)._aufsprung_lage(*paar) is None)
 p.check("A4: brunst_min_hoehenversatz aus der Config wirkt (0.5 > 100/300)",
         logik(brunst_min_hoehenversatz=0.5)._aufsprung_lage(*paar) is None)
+
+# Haertung: LogicEngine entsteht vor der Analyseschleife. Ein Tippfehler darf
+# den Agenten nicht am Start hindern (sonst auch keine Austreibung).
+warnungen = []
+m.log.addHandler(types.SimpleNamespace(
+    level=0, handle=lambda r: warnungen.append(r.getMessage()) if r.levelname == "WARNING" else None))
+p.check("A4: Dezimalkomma '0,35' -> 0.35", logik(brunst_min_flaechenverhaeltnis="0,35").brunst_min_flaeche == 0.35)
+p.check("A4: Leertext -> Default ohne Warnung",
+        logik(brunst_min_flaechenverhaeltnis="  ").brunst_min_flaeche == 0.45 and warnungen == [])
+for wert, schluessel, attr, default in (
+    ("0,4x", "brunst_min_flaechenverhaeltnis", "brunst_min_flaeche", 0.45),
+    (1.5, "brunst_min_flaechenverhaeltnis", "brunst_min_flaeche", 0.45),
+    (-0.1, "brunst_min_flaechenverhaeltnis", "brunst_min_flaeche", 0.45),
+    (0, "brunst_min_iou", "brunst_min_iou", 0.15),
+    (True, "brunst_min_iou", "brunst_min_iou", 0.15),
+    ("nan", "brunst_min_hoehenversatz", "brunst_min_versatz", 0.20),
+    (-1, "brunst_min_hoehenversatz", "brunst_min_versatz", 0.20),
+):
+    warnungen.clear()
+    lg = logik(**{schluessel: wert})
+    p.check(f"A4: {schluessel}={wert!r} -> Default {default}, Warnung, Agent startet",
+            getattr(lg, attr) == default and len(warnungen) == 1 and schluessel in warnungen[0])
 
 # --- A5: Austreibung unberuehrt (Recall 100 %) -----------------------------
 
@@ -255,15 +293,26 @@ def aufspruenge(s_oben, s_unten, kameras=KAMERAS):
                 yield box(bild, springer), box(bild, besprungen)
 
 
-def kalb_bei_mutter(kameras=KAMERAS):
-    """Kalb liegt/steht unter, neben oder bis 2 m vor der Mutter (Richtung Kamera)."""
+def kalb_bei_mutter(kameras=KAMERAS, s=1.0):
+    """Kalb liegt/steht unter, neben oder bis 2 m vor der Mutter (Richtung Kamera);
+    s > 1: aelteres Kalb."""
     for bild in kameras:
         for az in WINKEL:
             mutter = box(bild, platziere(KUH, az=az))
             for vor in (0.0, 0.5, 1.0, 1.5, 2.0):
                 for seit in (-1.0, -0.5, 0.0, 0.5, 1.0):
                     for kalb in (KALB_LIEGT, KALB_STEHT):
-                        yield mutter, box(bild, platziere(kalb, az=az, welt=(seit, -vor)))
+                        yield mutter, box(bild, platziere(kalb, s=s, az=az, welt=(seit, -vor)))
+
+
+def zwillinge():
+    """Ein Kalb steht, das andere liegt daneben: gleich gross."""
+    for bild in KAMERAS:
+        for az in WINKEL:
+            steht = box(bild, platziere(KALB_STEHT, az=az))
+            for vor in (0.0, 0.3, 0.6):
+                for seit in (-0.4, 0.0, 0.4):
+                    yield steht, box(bild, platziere(KALB_LIEGT, az=az, welt=(seit, -vor)))
 
 
 def liegende_neben_stehender():
@@ -298,10 +347,12 @@ ergebnis = {
     "Jungrind (0.75) auf Kuh": zaehle(aufspruenge(0.75, 1.0)),
     "Kuh auf Jungrind (0.75)": zaehle(aufspruenge(1.0, 0.75)),
     "liegende Kuh neben stehender": zaehle(liegende_neben_stehender()),
+    "Kalb 15 % groesser (~6-8 Wochen)": zaehle(kalb_bei_mutter(s=1.15)),
+    "Zwillinge (liegt neben stehendem)": zaehle(zwillinge()),
 }
 print("A7 Simulation (Aufsprung-Lage je Bild):  alte Regel -> mit Flaechenverhaeltnis >= 0.45")
 for name, (alt, neu) in ergebnis.items():
-    print(f"     {name:30} {alt:5} -> {neu:5}  ({100 * neu / alt:5.1f} % bleiben)")
+    print(f"     {name:34} {alt:5} -> {neu:5}  ({100 * neu / alt:5.1f} % bleiben)")
 
 
 def anteil(name):
@@ -317,11 +368,20 @@ p.check("A7: Faerse/Kuh -> >= 75 % bleiben (Preis, Spezifikation Risiko 1)",
         min(anteil("Faerse (0.85) auf Kuh"), anteil("Kuh auf Faerse (0.85)")) >= 0.75)
 fern_alt, fern_neu = zaehle(aufspruenge(1.0, 1.0, KAMERAS_AB_5M))
 kalb_alt, kalb_neu = zaehle(kalb_bei_mutter(KAMERAS_AB_5M))
-print(f"     ab 5 m Abstand: Kuh auf Kuh {fern_alt} -> {fern_neu}, Kalb {kalb_alt} -> {kalb_neu}")
-p.check("A7: Kamera ab 5 m -> kein Aufsprung verloren, kein Kalb-Rest (Verluste nur nah)",
+print(f"     ab 5 m Abstand: Kuh auf Kuh {fern_alt} -> {fern_neu}, Kalb {kalb_alt} -> {kalb_neu}", end="")
+for name, so, su in (("Faerse auf Kuh", 0.85, 1.0), ("Kuh auf Faerse", 1.0, 0.85), ("Kuh auf Jungrind", 1.0, 0.75)):
+    print(f", {name} %d -> %d" % zaehle(aufspruenge(so, su, KAMERAS_AB_5M)), end="")
+print()
+p.check("A7: gleich grosse Tiere, Kamera ab 5 m -> kein Aufsprung verloren, kein Kalb-Rest",
         fern_neu == fern_alt > 0 and kalb_neu == 0 < kalb_alt)
+# Dokumentierte Luecken (Spezifikation §9): faellt einer dieser Checks, ist
+# die Luecke kleiner geworden - dann Spezifikation nachfuehren.
 p.check("A7: liegende Kuh neben stehender bleibt offen (Stufe 2, nicht durch Stufe 1 geloest)",
         anteil("liegende Kuh neben stehender") >= 0.5)
+p.check("A7: aelteres Kalb rutscht teilweise durch (Risiko 7, Weg b)",
+        anteil("Kalb 15 % groesser (~6-8 Wochen)") >= 0.02)
+p.check("A7: Zwillinge gleich gross -> Flaechenpruefung wirkungslos (Risiko 8, Stufe 2)",
+        anteil("Zwillinge (liegt neben stehendem)") == 1.0)
 
 # --- A7b: verworfene Pruefungen (Spezifikation §1, Widerspruch) ------------
 # Seitenverhaeltnis B/H der unteren Box (liegend = flach) und Obergrenze des

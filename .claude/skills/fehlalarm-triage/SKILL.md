@@ -38,6 +38,14 @@ abstimmbar).
 - NIEMALS als Abkürzung die Referenz-Schwellenwerte lockern
   (45°/30 min/20 %, 0.80, IoU 0.15/Fläche 0.45/≥4 s) — Wächter ist der Agent
   `ki-wache`; Schwellen-Drehen maskiert Modellschwächen statt sie zu beheben.
+  Einzige Ausnahme (`docs/brunst-plausibilitaet-spezifikation.md` §5):
+  `brunst_min_flaechenverhaeltnis` darf in einer Bucht **ohne Kälber**
+  gesenkt werden. Nie anheben, um Fehlalarme durch liegende Kühe zu drücken:
+  Bei 0,60 bleiben 76 % dieser Lagen, und 28 % der echten Kuh-auf-Kuh-Lagen
+  gehen verloren.
+- Kalbeverdacht oder Brunstverdacht auf einer Nummer, die ein **Kalb** ist,
+  getrennt zählen: Bis zur Klasse Kalb (2. Training) erkennt das Modell
+  Kälber als `kuh`.
 - Brunst-Fehlalarm durch eine liegende Kuh neben einer stehenden ist eine
   bekannte Lücke (Stufe 2, `docs/brunst-plausibilitaet-spezifikation.md` §8):
   zählen und echte Aufsprünge als 1-FPS-Clip sichern — das ist das Material
