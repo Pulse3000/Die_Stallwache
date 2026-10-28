@@ -95,7 +95,10 @@ telegram:
   # Handy sofort erkennbar). 1 = nur Einzelbild.
   bildserie_frames: 4
   # Taeglicher Statusbericht (1 Nachricht: Ereigniszaehler, Uptime, Modus).
-  # Leer lassen zum Deaktivieren.
+  # Ortszeit "HH:MM" in Anfuehrungszeichen; massgeblich ist TZ des Agenten
+  # (docker-compose.yml und die systemd-Unit aus setup.sh setzen
+  # Europe/Berlin, Termux nimmt die Zeitzone des Handys). Das Startlog nennt
+  # die Ortszeit. Leer lassen zum Deaktivieren.
   digest_uhrzeit: "20:00"
   # Ein-Tipp-Feedback: Inline-Buttons "Treffer/Fehlalarm" unter jedem Alarm.
   # Ein Tipp auf Fehlalarm legt die unannotierte Bildserie als Hard Negatives
@@ -176,5 +179,7 @@ ki_ansicht:
 
 silent_mode:
   # Ohne Modell werden regelmaessig Bilder fuer das spaetere Training gesammelt.
+  # Name <kamera>_JJJJMMTT-HHMMSS.jpg, Zeit immer UTC (keine Luecke und kein
+  # Doppel bei der Zeitumstellung; der Split nach Stalltagen liest sie).
   ordner: ./aufnahmen
   intervall_sekunden: 120

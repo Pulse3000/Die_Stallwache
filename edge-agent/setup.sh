@@ -134,6 +134,10 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=$HIER
+# Ortszeit fuer Tagesbericht und Meldungen, unabhaengig von der Zeitzone
+# des Rechners (viele Images stehen ab Werk auf UTC oder Europe/London).
+# Trainingsbild-Namen sind immer UTC.
+Environment=TZ=Europe/Berlin
 ExecStart=$HIER/venv/bin/python3 -u $HIER/main.py
 Restart=always
 RestartSec=10

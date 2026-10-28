@@ -37,6 +37,7 @@ class FalscherNotifier:
         self.status_meldungen: list[str] = []
         self.wirft = wirft
         self.feedback = types.SimpleNamespace(tick=lambda: None, archiv=None)
+        self.digest_uhrzeit = ""  # main() nennt sie im Startlog
 
     def wichtig(self, nachricht: str) -> None:
         self.meldungen.append(nachricht)

@@ -109,6 +109,7 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=/home/pi/Die_Stallwache/edge-agent
+Environment=TZ=Europe/Berlin
 ExecStart=/home/pi/Die_Stallwache/edge-agent/venv/bin/python3 -u main.py
 Restart=always
 RestartSec=10
@@ -120,6 +121,33 @@ WantedBy=multi-user.target
 ```bash
 sudo systemctl enable --now stallblick-agent
 ```
+
+### Zeitzone
+
+Der Agent rechnet in **Ortszeit**, wo Menschen lesen, und in **UTC**, wo
+Maschinen oder Dateinamen die Zeit brauchen (`docs/roadmap.md`, „Zeitzone“):
+
+| Ortszeit (`TZ`) | UTC (immer) |
+| --- | --- |
+| Tagesbericht (`telegram.digest_uhrzeit`), Uhrzeiten in Telegram-Meldungen, Log, Tagesordner der Fehlalarm-Bilder | Namen der Trainingsbilder, Bildbestand im Lebenszeichen, Zeitstempel an Dashboard und MQTT |
+
+* **Container:** `docker-compose.yml` setzt `TZ=Europe/Berlin`, andere Zone
+  mit `TZ=Europe/Vienna docker compose up -d`. Ohne `TZ` galt UTC: Der
+  Tagesbericht für 20:00 kam um 21:00, im Sommer um 22:00.
+* **systemd:** `setup.sh` schreibt `Environment=TZ=Europe/Berlin` in die
+  Unit, unabhängig von der Zeitzone des Rechners. Ältere Units ergänzen:
+  `sudo systemctl edit stallblick-agent`, dort `[Service]` und
+  `Environment=TZ=Europe/Berlin` eintragen, dann
+  `sudo systemctl restart stallblick-agent`.
+* **Termux:** Es gilt die Zeitzone des Handys.
+* **Prüfen:** Beim Start steht im Log z. B. `Ortszeit CET (UTC+0100),
+  Tagesbericht 20:00; Trainingsbild-Namen in UTC`. Greift `TZ` nicht
+  (Tippfehler, Zonendatei fehlt), warnt der Agent `Zeitzone TZ=… greift nicht`.
+* **Trainingsbilder** heißen weiter `<kamera>_JJJJMMTT-HHMMSS.jpg`, die Zeit
+  ist UTC und liegt im Winter eine, im Sommer zwei Stunden hinter der Uhr.
+  So gibt es bei der Zeitumstellung weder eine doppelte Stunde
+  (überschriebene Bilder) noch eine Lücke. Im Container waren die Namen
+  schon bisher UTC; unter systemd/Termux trugen ältere Bilder Ortszeit.
 
 ---
 
@@ -137,9 +165,9 @@ Zyklus: **Sammeln → Sichten → Labeln → Split → Trainieren → Abnehmen �
 Scharfschalten → Beobachten → wieder Sammeln.** Werkzeuge in `training/`.
 
 1. **Silent Mode laufen lassen** (1–2 Wochen): sammelt alle 120 s ein Bild
-   als `<kamera>_<JJJJMMTT-HHMMSS>.jpg`. Kamera und Zeit im Namen braucht
-   der Split nach Tagen. Mindestens **ein Drittel IR-Nacht** (Beschluss B9,
-   die Kalbung kommt nachts):
+   als `<kamera>_<JJJJMMTT-HHMMSS>.jpg` (Zeit in UTC). Kamera und Zeit im
+   Namen braucht der Split nach Tagen. Mindestens **ein Drittel IR-Nacht**
+   (Beschluss B9, die Kalbung kommt nachts):
 
    ```bash
    python3 training/datensatz.py bilanz ./aufnahmen    # Exit 1 = zu wenig IR-Nacht
@@ -248,7 +276,8 @@ Watchdog (`stream.kamera`; die Futterwache als eigene Agent-Instanz mit eigener
 ## Logiktests
 
 Die zeitkritischen Bausteine (Totmann-Meldung, Feedback-Schleife,
-Tracker-Konfiguration, Referenz-Schwellenwerte, Freeze-Watchdog) haben eine
+Tracker-Konfiguration, Referenz-Schwellenwerte, Freeze-Watchdog, Zeitzone
+von Tagesbericht und Trainingsbild-Namen) haben eine
 Offline-Testsuite (cv2/requests werden gestubbt; die Watchdog-Tests brauchen
 echtes `numpy` aus `requirements.txt`):
 

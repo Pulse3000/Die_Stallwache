@@ -9,6 +9,7 @@ dass das Modell einen erhobenen Schwanz gesehen hat. Dazu der Dateiname der
 Silent-Mode-Bilder (Kamera + Zeit, Grundlage fuer den Split nach Tagen).
 """
 
+import calendar
 import sys
 import time as echte_zeit
 import types
@@ -296,7 +297,8 @@ p.check("alle Keypoints verdeckt + Kaelberfuesse 0.85 -> Austreibung",
 
 # --- Dateiname der Silent-Mode-Bilder --------------------------------------
 
-zeit = echte_zeit.mktime((2026, 10, 16, 3, 15, 0, 0, 0, -1))
+# UTC-Epoche: der Name traegt UTC, unabhaengig von der TZ des Testrechners
+zeit = calendar.timegm((2026, 10, 16, 3, 15, 0, 0, 0, 0))
 p.check(
     "Kamera + Zeit im Namen",
     m.trainingsbild_name("stallwache", zeit) == "stallwache_20261016-031500.jpg",

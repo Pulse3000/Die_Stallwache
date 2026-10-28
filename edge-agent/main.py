@@ -28,6 +28,7 @@ Start:  cp config.example.yaml config.yaml && python3 main.py
 from __future__ import annotations
 
 import base64
+import calendar
 import datetime as dt
 import json
 import logging
@@ -42,6 +43,7 @@ import urllib.parse
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 # FFmpeg-Meldungen erst ab „fatal" ausgeben: Manche Kameras haengen
 # Zusatzdaten an jedes Bild („SEI type 764 size 272 truncated at 256"), der
@@ -125,6 +127,70 @@ def lade_konfig(pfad: str = "config.yaml") -> dict:
         )
     with p.open(encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+# --------------------------------------------------------------------------
+# Zeit: Ortszeit fuer Menschen, UTC fuer Dateinamen und Maschinen
+# --------------------------------------------------------------------------
+# Ortszeit (TZ; docker-compose.yml und die systemd-Unit setzen Europe/Berlin):
+# Tagesbericht, Uhrzeiten in Telegram-Meldungen, Log, Tagesordner der
+# Fehlalarm-Bilder. UTC: Trainingsbild-Namen (keine Luecke und kein Doppel
+# bei der Zeitumstellung, Split nach Stalltagen) sowie die Zeitstempel an
+# Dashboard und MQTT. Entscheidung: docs/roadmap.md („Zeitzone").
+
+def utc_iso() -> str:
+    """Jetzt als ISO-Zeit in UTC mit „Z" (2026-10-28T19:00:00Z)."""
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def lies_uhrzeit(wert, schluessel: str) -> str:
+    """Uhrzeit aus der Config als "HH:MM" (Ortszeit), "" = aus.
+
+    Der Vergleich im Tagesbericht ist ein Textvergleich und braucht zwei
+    Stellen: "8:00" wird "08:00". Ein unquotiertes 20:00 liest YAML 1.1 als
+    Zahl zur Basis 60 (1200) – auch das wird 20:00 statt eines Absturzes
+    beim Start. Leer oder 0 bleibt wie bisher aus (kein Bericht um
+    Mitternacht), Ungueltiges schaltet mit Warnung ab."""
+    if not wert or (isinstance(wert, str) and not wert.strip()):
+        return ""
+    if isinstance(wert, int) and not isinstance(wert, bool):
+        stunde, minute = divmod(wert, 60)
+    else:
+        try:
+            stunde, minute = (int(teil) for teil in str(wert).split(":"))
+        except ValueError:
+            stunde = minute = -1
+    if 0 <= stunde < 24 and 0 <= minute < 60:
+        return f"{stunde:02d}:{minute:02d}"
+    log.warning("%s=%r ist keine Uhrzeit (HH:MM) – abgeschaltet", schluessel, wert)
+    return ""
+
+
+def zeitzone_warnung(jetzt: float | None = None) -> str | None:
+    """Warnung, wenn TZ eine Zone nennt, nach der die Ortszeit nicht geht.
+
+    Fehlt die Zonendatei (Image ohne tzdata, Tippfehler wie Europe/Berln),
+    rechnet die C-Bibliothek still in UTC – der Tagesbericht kaeme wieder
+    ein bis zwei Stunden zu spaet. None = in Ordnung, oder TZ ist nicht
+    gesetzt (dann gilt die Zeitzone des Rechners, /etc/localtime)."""
+    tz = os.environ.get("TZ", "").strip()
+    if not tz or tz.startswith((":", "/")):  # Datei statt Zonenname
+        return None
+    t = time.time() if jetzt is None else jetzt
+    ist = time.localtime(t).tm_gmtoff
+    try:
+        soll = dt.datetime.fromtimestamp(t, ZoneInfo(tz)).utcoffset()
+    except Exception:  # noqa: BLE001 – Diagnose darf den Start nie stoppen
+        # Keine Zonendatei. Eine POSIX-Regel wie CET-1CEST,M3.5.0,M10.5.0/3
+        # rechnet die C-Bibliothek selbst; UTC-Namen sind ohnehin 0.
+        if ist != 0 or tz.upper() in ("UTC", "UTC0", "GMT", "GMT0"):
+            return None
+        soll = None
+    if soll is not None and int(soll.total_seconds()) == ist:
+        return None
+    return (f"Zeitzone TZ={tz} greift nicht (Zonendatei fehlt? Paket tzdata) – "
+            f"Ortszeit ist UTC{ist / 3600:+g} h: Tagesbericht und Uhrzeiten in "
+            "Meldungen weichen ab")
 
 
 # --------------------------------------------------------------------------
@@ -689,13 +755,13 @@ class Lebenszeichen:
 
     def bildbestand(self, jetzt: float | None = None) -> dict | None:
         """Silent-Mode-Bilder DIESER Kamera (``<kamera>_JJJJMMTT-HHMMSS.jpg``,
-        nicht rekursiv). Die Zeiten stammen aus dem Dateinamen, ohne stat.
+        nicht rekursiv). Die Zeiten stammen aus dem Dateinamen (UTC), ohne stat.
         None, wenn der Ordner fehlt oder nicht lesbar ist. Wirft nie."""
         if self.ordner is None:
             return None
         t = time.time() if jetzt is None else jetzt
         praefix = trainingsbild_praefix(self.kamera) + "_"
-        grenze_24h = time.strftime("%Y%m%d-%H%M%S", time.localtime(t - 86400))
+        grenze_24h = time.strftime("%Y%m%d-%H%M%S", time.gmtime(t - 86400))
         anzahl = juenger = 0
         zuletzt = ""
         try:
@@ -708,7 +774,7 @@ class Lebenszeichen:
                     if not _TRAININGSBILD_ZEIT.fullmatch(stempel) or not e.is_file():
                         continue
                     anzahl += 1
-                    # Festes Format -> Textvergleich = Zeitvergleich (Ortszeit)
+                    # Festes Format -> Textvergleich = Zeitvergleich (UTC)
                     if stempel >= grenze_24h:
                         juenger += 1
                     zuletzt = max(zuletzt, stempel)
@@ -717,7 +783,7 @@ class Lebenszeichen:
         bestand: dict = {"trainingsbilder": anzahl, "trainingsbilder_24h": juenger}
         if zuletzt:
             try:
-                epoche = time.mktime(time.strptime(zuletzt, "%Y%m%d-%H%M%S"))
+                epoche = calendar.timegm(time.strptime(zuletzt, "%Y%m%d-%H%M%S"))
                 bestand["trainingsbild_zuletzt"] = (
                     dt.datetime.fromtimestamp(epoche, dt.timezone.utc)
                     .isoformat()
@@ -1744,7 +1810,7 @@ class Notifier:
         self.tg_chat = str(tg.get("chat_id") or "").strip()
         self.cooldown_s = float(tg.get("cooldown_minuten", 15)) * 60
         self.bildserie = max(1, int(tg.get("bildserie_frames", 4)))
-        self.digest_uhrzeit = (tg.get("digest_uhrzeit") or "").strip()
+        self.digest_uhrzeit = lies_uhrzeit(tg.get("digest_uhrzeit"), "telegram.digest_uhrzeit")
         self._digest_tag: str | None = None
         self._start_ts = time.time()
         self._zaehler: dict[str, int] = defaultdict(int)
@@ -1880,15 +1946,21 @@ class Notifier:
         self._dashboard(meldung)
         self._mqtt(meldung)
 
-    def digest_tick(self, analyse_aktiv: bool) -> None:
-        """Sendet einmal taeglich (digest_uhrzeit) einen kompakten Tagesbericht."""
+    def digest_tick(self, analyse_aktiv: bool, jetzt: float | None = None) -> None:
+        """Sendet einmal taeglich (digest_uhrzeit) einen kompakten Tagesbericht.
+
+        digest_uhrzeit ist Ortszeit (TZ des Prozesses, docker-compose.yml
+        setzt Europe/Berlin): 20:00 bleibt 20:00, auch ueber die
+        Zeitumstellung."""
         if not (self.digest_uhrzeit and self.tg_token and self.tg_chat):
             return
-        heute = time.strftime("%Y-%m-%d")
-        if self._digest_tag == heute or time.strftime("%H:%M") < self.digest_uhrzeit:
+        t = time.time() if jetzt is None else jetzt
+        ortszeit = time.localtime(t)
+        heute = time.strftime("%Y-%m-%d", ortszeit)
+        if self._digest_tag == heute or time.strftime("%H:%M", ortszeit) < self.digest_uhrzeit:
             return
         self._digest_tag = heute
-        stunden = (time.time() - self._start_ts) / 3600
+        stunden = (t - self._start_ts) / 3600
         z = self._zaehler
         text = (
             "📋 Stallblick-Tagesbericht\n"
@@ -2036,7 +2108,9 @@ class Notifier:
                         "kamera": self.kamera,
                         "nachricht": alarm.nachricht,
                         "konfidenz": alarm.konfidenz,
-                        "zeit": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        # UTC mit „Z" wie im Dashboard-Ereignis: eindeutig,
+                        # unabhaengig von TZ und Zeitumstellung.
+                        "zeit": utc_iso(),
                     },
                     ensure_ascii=False,
                 ),
@@ -2123,9 +2197,7 @@ class Notifier:
             "konfidenz": alarm.konfidenz,
             # Eigener Zeitstempel: bei Nachlieferung waere die Eingangszeit
             # des Servers falsch — die Kalbung war um 03:12, nicht um 07:40.
-            "zeit": dt.datetime.now(dt.timezone.utc)
-            .isoformat(timespec="seconds")
-            .replace("+00:00", "Z"),
+            "zeit": utc_iso(),
         }
         if bilder and self.db_bilder:
             # Von hinten schneiden: das letzte Bild ist das annotierte
@@ -2386,9 +2458,13 @@ def trainingsbild_name(kamera: str, zeit: float | None = None) -> str:
 
     Die Kamera steht im Namen, weil Bilder mehrerer Agent-Instanzen im selben
     Datensatz landen. Die Zeit steht im Namen, weil der Split nach Tagen
-    (training/datensatz.py) sie daraus liest.
+    (training/datensatz.py) sie daraus liest. Sie ist immer UTC, unabhaengig
+    von TZ: Ortszeit haette bei der Zeitumstellung eine Stunde doppelt (Namen
+    ueberschrieben, Reihenfolge falsch) und eine Luecke. Im Container ohne TZ
+    waren die Namen schon bisher UTC und bleiben gleich; unter systemd/Termux
+    waren sie Ortszeit (einmaliger Versatz, docs/roadmap.md „Zeitzone").
     """
-    return f"{trainingsbild_praefix(kamera)}_{time.strftime('%Y%m%d-%H%M%S', time.localtime(zeit))}.jpg"
+    return f"{trainingsbild_praefix(kamera)}_{time.strftime('%Y%m%d-%H%M%S', time.gmtime(zeit))}.jpg"
 
 
 # --------------------------------------------------------------------------
@@ -2501,6 +2577,12 @@ def main() -> None:
     engine = InferenceEngine(cfg)
     logik = LogicEngine(cfg)
     notifier = Notifier(cfg)
+    warnung = zeitzone_warnung()
+    if warnung:
+        log.warning(warnung)
+    else:
+        log.info("Ortszeit %s (UTC%s), Tagesbericht %s; Trainingsbild-Namen in UTC",
+                 time.strftime("%Z"), time.strftime("%z"), notifier.digest_uhrzeit or "aus")
     totmann = TotmannWaechter(cfg)
     lebenszeichen = Lebenszeichen(cfg)
     # „Bild da" fuer das Lebenszeichen: letzter Frame juenger als 2 min und

@@ -221,7 +221,7 @@ Fachliche Prüfung: `ki-wache` (25.10., Befund B1 blockierend, übernommen).
 | --- | --- |
 | Sichtbar sind nur Meldungen, die der Agent an die App schickt. Tempguard (eigenes Skript, `deploy/tempguard/`) meldet nur lokal | Drosselungen durch Tempguard erscheinen nicht. Der Report sagt dazu „Tempguard: aus der Ferne nicht einsehbar“ |
 | Gezählt werden nur Dateien der eigenen Kamera nach dem Muster `<kamera>_JJJJMMTT-HHMMSS.jpg` (wie `trainingsbild_name`), nicht rekursiv | Fremde Dateien, Exporte, Screenshots und Bilder einer zweiten Instanz im selben Ordner zählen nicht mit. Bilder mit anderem Namensschema (z. B. aus dem früheren kuhwatch) ebenfalls nicht |
-| Zeiten stammen aus dem Dateinamen (Ortszeit des Stallrechners), nicht aus `stat` | Eine falsch gestellte Uhr am Stallrechner verschiebt „24 h“ und „jüngstes Bild“ |
+| Zeiten stammen aus dem Dateinamen (UTC, unabhängig von der Zeitzone des Stallrechners), nicht aus `stat` | Eine falsch gestellte Uhr am Stallrechner verschiebt „24 h“ und „jüngstes Bild“. Bilder, die unter systemd/Termux vor der Umstellung auf UTC-Namen (28.10.2026) entstanden, tragen Ortszeit und wirken 1–2 h jünger |
 | Gezählt werden gesammelte Bilder, keine gelabelten. Die Abdeckung von Tag, Dämmerung und IR-Nacht steht nicht darin | Die Zahl nie mit der Faustzahl für *gelabelte* Bilder (README) vergleichen. Maßgeblich für den Datensatz bleibt `training/datensatz.py bilanz` |
 | Wird der Ordner nach dem CVAT-Export geleert, fällt die Zahl | korrekt, kein Fehler |
 
