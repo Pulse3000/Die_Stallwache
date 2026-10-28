@@ -18,7 +18,9 @@ split       Teilt einen CVAT-Export (Format "Ultralytics YOLO Pose") nach
             Stalltagen in train/val, nie zufaellig nach Frames: Nachbarframes
             sind fast identisch und wuerden die Val-Werte schoenen.
             Ein Stalltag laeuft 12:00 bis 12:00, damit jede Nacht ganz in
-            einer Haelfte liegt. Val fuellt sich mit --val-tag, dann je
+            einer Haelfte liegt. Die Zeit im Namen ist UTC (main.py
+            trainingsbild_name), der Wechsel also 13:00 MEZ / 14:00 MESZ.
+            Val fuellt sich mit --val-tag, dann je
             Austreibungsklasse (Fruchtblase, Kaelberfuesse) mit deren
             juengstem Tag, dann mit den juengsten Tagen bis zum Val-Anteil.
             Bilder ohne Zeitstempel im Namen (offene Datensaetze,
@@ -45,7 +47,8 @@ IR_MIN_ANTEIL = 1 / 3
 FARBIGKEIT_IR_MAX = 4.0
 # Mittlere Helligkeit (0-255), unter der ein Farbbild als Daemmerung zaehlt.
 HELLIGKEIT_DAEMMERUNG_MAX = 70.0
-# Stalltag-Wechsel um 12:00: die Nacht 18:00-06:00 bleibt ungeteilt.
+# Stalltag-Wechsel um 12:00 Namenszeit (UTC, also 13:00 MEZ / 14:00 MESZ):
+# die Nacht 18:00-06:00 Ortszeit bleibt ungeteilt.
 STALLTAG_WECHSEL_STUNDE = 12
 # Klassen-Indizes aus stall.yaml, die eine Geburt belegen.
 AUSTREIBUNG_KLASSEN = {1: "amniotic_sac", 2: "calf_legs"}
@@ -59,7 +62,10 @@ _ZEIT = re.compile(r"(\d{8})-(\d{6})")
 # --------------------------------------------------------------------------
 
 def zeit_aus_name(name: str) -> dt.datetime | None:
-    """Aufnahmezeit aus dem Dateinamen (..._JJJJMMTT-HHMMSS...), sonst None."""
+    """Aufnahmezeit aus dem Dateinamen (..._JJJJMMTT-HHMMSS...), sonst None.
+
+    Naiv, wie sie im Namen steht: UTC bei Bildern des Edge-Agenten (bis
+    10/2026 unter systemd/Termux Ortszeit)."""
     treffer = _ZEIT.search(Path(name).stem)
     if not treffer:
         return None

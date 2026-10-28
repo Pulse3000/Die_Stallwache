@@ -31,6 +31,14 @@ RUN if [ "$ANALYSE" = "1" ]; then \
     fi \
     && rm -rf /tmp/wheels
 
+# Zonendateien fuer TZ=Europe/Berlin (docker-compose.yml). Ohne sie rechnet
+# die C-Bibliothek still in UTC. Das slim-Image bringt tzdata heute mit; die
+# Pruefung steht nach den Paket-Schichten, damit sie keinen Neubau von
+# torch/ultralytics ausloest.
+RUN test -f /usr/share/zoneinfo/Europe/Berlin || (apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*)
+
 COPY main.py freeze_watchdog.py alte_cpu.py tracker-kuh.yaml config.example.yaml ./
 
 # Ultralytics installiert fehlende Pakete sonst zur Laufzeit per pip nach –

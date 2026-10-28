@@ -26,6 +26,13 @@ services:
       # liest sie dort (Default /dev/shm/stallwache-stallwache/ki-kaesten.json).
       - /dev/shm/stallwache-${KAMERA:-stallwache}:/ki-ansicht
     environment:
+      # Ortszeit fuer Tagesbericht (telegram.digest_uhrzeit), Uhrzeiten in
+      # Telegram-Meldungen und Log; ohne TZ galt UTC (Bericht 21:00 statt
+      # 20:00, im Sommer 22:00). Trainingsbild-Namen bleiben UTC, egal was
+      # hier steht (main.py trainingsbild_name). Bewusst TZ statt Bind der
+      # Host-Zeitzone: gilt unabhaengig von der Einstellung des Stall-Rechners.
+      # Andere Zone: TZ=Europe/Vienna docker compose up -d
+      - TZ=${TZ:-Europe/Berlin}
       # Fehlersuche: OPENCV_FFMPEG_LOGLEVEL=16 docker compose up -d
       # (README „Ruhiges Log"). Ohne Wert gilt 8 = nur fatal.
       - OPENCV_FFMPEG_LOGLEVEL
