@@ -77,7 +77,7 @@ blinzelt — ohne 45.000 € auszugeben und ohne einen Sensor im Pansen.*
 | **Austreibung** | `amniotic_sac` oder `calf_legs` mit Konfidenz **> 0.80** | **Sofort-Alarm**, Zeitfilter wird übersprungen |
 | **Eskalation** | Austreibung läuft, aber nach **60 min** ist weiterhin Fruchtblase/Füße sichtbar (kein Geburtsfortschritt) | **dringender Kontroll-Alarm** (Komplikationsverdacht); feuert nur einmal pro Episode; Episode setzt sich nach 30 min ohne Erkennung zurück; umgeht bewusst den Cooldown |
 | **Austreibungs-Takt** | je Episode statt Cooldown: Sofort-Meldung bei Beginn, Erinnerung „läuft weiter seit N min" alle 15 min (`logik.austreibung_erinnerung_minuten`, leer = Cooldown-Wert), solange sichtbar; nach „❌ Fehlalarm" meldet die nächste Erkennung nach ≥ 60 s Pause sofort neu | Erinnerung und Eskalation werden durch ein Fehlalarm-Votum nie verschoben (`docs/austreibung-episoden-spezifikation.md`) |
-| **Brunstverdacht** | Aufsprung: zwei Kuh-Boxen überlappen (IoU > 0.15), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert kurzes Spielverhalten) | Alarm (Telegram + Dashboard) |
+| **Brunstverdacht** | Aufsprung: zwei ähnlich große Kuh-Boxen überlappen (IoU ≥ 0.15, kleinere ≥ 45 % der Fläche der größeren – ein Kalb bei der Mutter ist kein Aufsprung), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert kurzes Spielverhalten) | Alarm (Telegram + Dashboard) |
 
 **Warum der Zeitfilter?** Kühe heben den Schwanz auch beim Koten oder zur
 Fliegenabwehr (< 1 min). Erst die statistische Häufung über 30 min unterscheidet

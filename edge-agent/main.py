@@ -19,8 +19,10 @@ Erkennungslogik (siehe config.yaml):
      Takt je Episode statt Cooldown: Erinnerung alle 15 min, solange
      sichtbar; Eskalation nach 60 min (docs/austreibung-episoden-
      spezifikation.md).
-  3. Brunstverdacht: Aufsprungverhalten (zwei Kuh-Boxen ueberlappen, eine
-     deutlich oberhalb) ueber mehrere Sekunden.
+  3. Brunstverdacht: Aufsprungverhalten (zwei aehnlich grosse Kuh-Boxen
+     ueberlappen, eine deutlich oberhalb) ueber mehrere Sekunden. Ein Kalb
+     bei der Mutter ist kein Aufsprung (docs/brunst-plausibilitaet-
+     spezifikation.md).
 
 Start:  cp config.example.yaml config.yaml && python3 main.py
 """
@@ -1016,6 +1018,13 @@ class LogicEngine:
         self.anteil_schwelle = float(lg["anteil_schwelle"])
         self.override_konf = float(lg["override_konfidenz"])
         self.brunst_dauer = float(lg["brunst_min_dauer_s"])
+        # Aufsprung-Geometrie je Bild (docs/brunst-plausibilitaet-spezifikation.md).
+        # Fehlt ein Schluessel (aeltere config.yaml), gilt der Default.
+        self.brunst_min_iou = self._wert(lg, "brunst_min_iou", 0.15, lambda v: 0 < v <= 1)
+        self.brunst_min_versatz = self._wert(lg, "brunst_min_hoehenversatz", 0.20, lambda v: v >= 0)
+        self.brunst_min_flaeche = self._wert(
+            lg, "brunst_min_flaechenverhaeltnis", 0.45, lambda v: 0 <= v <= 1
+        )
         self.eskalation_s = float(lg.get("eskalation_minuten", 60)) * 60
         # Erinnerungstakt der Austreibung; leer = bisheriger Cooldown, damit
         # sich fuer bestehende Konfigurationen nichts aendert.
@@ -1036,6 +1045,27 @@ class LogicEngine:
             self.brunst_dauer = max(2.0, self.brunst_dauer * 0.5)
             self.min_stichprobe = 10
             log.info("Wach-Modus aktiv: gesenkte Alarm-Schwellen.")
+
+    @staticmethod
+    def _wert(lg: dict, schluessel: str, default: float, gueltig) -> float:
+        """Zahl aus dem logik-Block; fehlt oder leer -> Default (0 bleibt 0).
+
+        Unlesbar ("0,4x") oder ausserhalb des Bereichs -> Warnung und
+        Default. LogicEngine entsteht vor der Analyseschleife: Ein Tippfehler
+        in einem Brunst-Wert darf den Agenten und damit die Austreibung nie
+        am Start hindern. Dezimalkomma wird angenommen.
+        """
+        wert = lg.get(schluessel)
+        if wert is None or (isinstance(wert, str) and not wert.strip()):
+            return float(default)
+        try:
+            zahl = float(str(wert).replace(",", "."))
+        except ValueError:
+            zahl = math.nan
+        if not math.isfinite(zahl) or not gueltig(zahl):
+            log.warning("logik.%s=%r ist ungueltig – nutze %s", schluessel, wert, default)
+            return float(default)
+        return zahl
 
     def bewerte(
         self, kuehe: list[KuhBeobachtung], objekte: list[ObjektErkennung]
@@ -1237,12 +1267,10 @@ class LogicEngine:
             for b in kuehe:
                 if a.track_id >= b.track_id or a.track_id < 0 or b.track_id < 0:
                     continue
-                oben, unten = (a, b) if a.box[1] < b.box[1] else (b, a)
-                if self._iou(a.box, b.box) < 0.15:
+                lage = self._aufsprung_lage(a, b)
+                if lage is None:
                     continue
-                # "Oben" muss deutlich hoeher ansetzen -> Aufsprung statt Nebeneinander
-                if unten.box[1] - oben.box[1] < 0.2 * (unten.box[3] - unten.box[1]):
-                    continue
+                oben, unten = lage
                 paar = (oben.track_id, unten.track_id)
                 aktive.add(paar)
                 start = self.brunst_paare.setdefault(paar, jetzt)
@@ -1264,6 +1292,33 @@ class LogicEngine:
             if paar not in aktive and self.brunst_paare[paar] <= jetzt:
                 del self.brunst_paare[paar]
         return alarme
+
+    def _aufsprung_lage(
+        self, a: KuhBeobachtung, b: KuhBeobachtung
+    ) -> tuple[KuhBeobachtung, KuhBeobachtung] | None:
+        """(oben, unten), wenn die beiden Boxen in diesem Bild wie ein
+        Aufsprung liegen, sonst None."""
+        if self._iou(a.box, b.box) < self.brunst_min_iou:
+            return None
+        # Ein Kalb unter oder neben der Mutter erkennt das Modell als `kuh`;
+        # es ueberlappt wie ein Aufsprung (IoU 0,21-0,37), ist aber deutlich
+        # kleiner. Aufspringen tun zwei erwachsene Tiere (Befund ki-wache
+        # 27.10.2026, docs/brunst-plausibilitaet-spezifikation.md).
+        if self._flaechenverhaeltnis(a.box, b.box) < self.brunst_min_flaeche:
+            return None
+        oben, unten = (a, b) if a.box[1] < b.box[1] else (b, a)
+        # "Oben" muss deutlich hoeher ansetzen -> Aufsprung statt Nebeneinander
+        if unten.box[1] - oben.box[1] < self.brunst_min_versatz * (unten.box[3] - unten.box[1]):
+            return None
+        return oben, unten
+
+    @staticmethod
+    def _flaechenverhaeltnis(a: tuple, b: tuple) -> float:
+        """Kleinere durch groessere Boxflaeche (1 = gleich gross)."""
+        fl_a = max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
+        fl_b = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+        groesser = max(fl_a, fl_b)
+        return min(fl_a, fl_b) / groesser if groesser > 0 else 0.0
 
     @staticmethod
     def _iou(a: tuple, b: tuple) -> float:

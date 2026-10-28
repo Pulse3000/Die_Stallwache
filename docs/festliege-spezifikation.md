@@ -146,3 +146,10 @@ Dazu in `modell.klassen` (nach dem Training): `kuh_seitenlage: 3`.
 3. **Unkalibrierte Seitenlage-Klasse** (zunächst Fremdmaterial) →
    konservative 0.85/10-min-Regel, Default aus, Kalibrierung über die
    Ein-Tipp-Feedback-Schleife.
+4. **Kalb als `kuh`** (Befund `ki-wache` 28.10.2026,
+   [`brunst-plausibilitaet-spezifikation.md`](./brunst-plausibilitaet-spezifikation.md)):
+   Solange Kälber als `kuh` erkannt werden, kann der Wächter ein liegendes
+   Kalb melden, besonders im Milchfieber-Fenster (120 min, 72 h nach der
+   Austreibung), in dem genau das neugeborene Kalb in der Bucht liegt. In
+   einer Bucht mit Kalb erst mit der Klasse Kalb (2. Training) oder einer
+   eigenen Kalb-Sperre scharfschalten.

@@ -51,7 +51,11 @@ Ab dem 2. Trainingsdurchgang zusätzlich labeln:
   `aufnahmen/seitenlage-kandidaten/`. Brustlage bleibt Klasse `kuh`.
 - `kalb_liegend` und `kalb_stehend` — Grundlage für die Voll-Kalbe-Akte
   („Kalb steht seit 04:32", `docs/kalbe-akte-spezifikation.md`); Material in
-  `aufnahmen/kalbungen/`.
+  `aufnahmen/kalbungen/`. **Nicht** in `modell.tier_klassen` eintragen: Ein
+  Kalb ist keine Kuh für Brunst, Kalbeverdacht und Festliegen
+  (`docs/brunst-plausibilitaet-spezifikation.md` §1). Für die Kalbe-Akte
+  brauchen sie eine eigene Liste im Tracker-Filter, sonst filtert `classes=`
+  sie weg.
 - Keypoint `spine_mid` (Widerrist/Rückenmitte, Index 3 **anhängen**, Indizes
   0–2 nicht umsortieren) — Grundlage für die Lahmheits-Frühwarnung
   (`docs/lahmheit-spezifikation.md`); Bestand nachlabeln.
@@ -103,7 +107,7 @@ Zellen in `edge-agent/training/colab_training.py` (Split, Training mit
 Falsch erkannte Bilder (aus den Telegram-Alben) zurück in CVAT als
 Negativ-Beispiele („Background") labeln, Datensatz erweitern, erneut
 trainieren, `best.pt` austauschen. Kein Schwellenwert-Drehen als Ersatz für
-Nachtraining — die Referenzwerte (45°/30 min/20 %, 0.80, IoU 0.15/4 s) sind
+Nachtraining — die Referenzwerte (45°/30 min/20 %, 0.80, IoU 0.15/Fläche 0.45/4 s) sind
 fachlich begründet und bleiben stehen (Wächter: Agent `ki-wache`).
 
 ## Rollenverteilung

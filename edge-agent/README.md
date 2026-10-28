@@ -214,7 +214,7 @@ Scharfschalten → Beobachten → wieder Sammeln.** Werkzeuge in `training/`.
 | **Kalbeverdacht** | Schwanzwinkel > 45° (Vektoren `Spine_End→Tail_Base` und `Tail_Base→Tail_Tip`, `atan2`) in **> 20 %** der Frames eines rollierenden **30-Min-Fensters** (`collections.deque`). Nur Frames mit allen drei Keypoints sichtbar (Konfidenz ≥ 0.5, Sichtbarkeitsgrenze von Ultralytics) zählen – ein verdeckter Schwanz erzeugt keinen Winkel | Telegram + Dashboard |
 | **Austreibung** | `amniotic_sac` oder `calf_legs` mit **≥ 0,80** Konfidenz (Vertrag: > 0,80; `≥` ist minimal empfindlicher, Richtung Recall) – gelesen **vor** dem Tracker, jede Einzelerkennung zählt | **Sofort-Alarm**, Zeitfilter übersprungen |
 | **Eskalation** | Austreibung läuft, aber nach **60 min** (konfigurierbar) sind weiterhin Fruchtblase/Füße sichtbar → kein Geburtsfortschritt | **dringender Kontroll-Alarm** (Komplikationsverdacht, Lely-Zeta-Prinzip) |
-| **Brunstverdacht** | Aufsprung: zwei Kuh-Boxen überlappen (IoU > 0.15), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert Spielverhalten) | Telegram + Dashboard |
+| **Brunstverdacht** | Aufsprung: zwei ähnlich große Kuh-Boxen überlappen (IoU ≥ 0.15, kleinere ≥ 45 % der Fläche der größeren – ein Kalb bei der Mutter ist kein Aufsprung), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert Spielverhalten). Schwellen `logik.brunst_min_*` (`docs/brunst-plausibilitaet-spezifikation.md`) | Telegram + Dashboard |
 | Anti-Spam | **15 Min Cooldown** pro Kuh-ID und Alarmtyp — nur Kalbe-/Brunstverdacht | – |
 | Austreibungs-Takt | je **Episode** statt Cooldown: Sofort-Meldung bei Beginn, Erinnerung „läuft weiter seit N min" alle 15 min, solange sichtbar; nach „❌ Fehlalarm" meldet die nächste Erkennung nach ≥ 60 s Pause sofort neu (`docs/austreibung-episoden-spezifikation.md`) | eine laufende Geburt meldet sich, bis sie vorbei ist — nie verzögert durch einen pauschalen Cooldown |
 | Bildserie | Jeder Alarm sendet die **letzten 4 Frames als Telegram-Album** (`bildserie_frames`) | Fehlalarm-Triage direkt am Handy |
@@ -242,7 +242,7 @@ Watchdog (`stream.kamera`; die Futterwache als eigene Agent-Instanz mit eigener
   bzw. **Analyse-Modus 300** (jeder Frame bei ~1 FPS ≈ 5 min).
   `watchdog.aktiv: false` schaltet ihn ab.
 * **Fail-open:** Ein Fehler im Watchdog oder beim Senden setzt die Analyse nie
-  aus. Erkennungsschwellen (45°/20 %/30 min/0.80/IoU 0.15/4 s) und Cooldown
+  aus. Erkennungsschwellen (45°/20 %/30 min/0.80/IoU 0.15/Fläche 0.45/4 s) und Cooldown
   bleiben unberührt.
 
 ## Logiktests
