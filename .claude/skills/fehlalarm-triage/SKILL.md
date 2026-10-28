@@ -36,8 +36,12 @@ abstimmbar).
 - Muster erkennen: Häufen sich Fehlalarme zu einer Uhrzeit (IR-Umschaltung?),
   bei einer Kamera, bei einem Typ? Muster → gezielte Negativ-Sammlung.
 - NIEMALS als Abkürzung die Referenz-Schwellenwerte lockern
-  (45°/30 min/20 %, 0.80, IoU 0.15/≥4 s) — Wächter ist der Agent `ki-wache`;
-  Schwellen-Drehen maskiert Modellschwächen statt sie zu beheben.
+  (45°/30 min/20 %, 0.80, IoU 0.15/Fläche 0.45/≥4 s) — Wächter ist der Agent
+  `ki-wache`; Schwellen-Drehen maskiert Modellschwächen statt sie zu beheben.
+- Brunst-Fehlalarm durch eine liegende Kuh neben einer stehenden ist eine
+  bekannte Lücke (Stufe 2, `docs/brunst-plausibilitaet-spezifikation.md` §8):
+  zählen und echte Aufsprünge als 1-FPS-Clip sichern — das ist das Material
+  für die Höchstdauer.
 
 ## 3. Retraining-Entscheidung
 

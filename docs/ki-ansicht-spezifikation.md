@@ -88,7 +88,9 @@ Kriterien 7–11 am Gerät offen.
   Neustart des Agenten bekommt dieselbe Kuh eine neue Nummer (Skill
   `bytetrack-tuning`, Grenzen). Die Statuszeile sagt das.
 - **Ein Kalb kann als „Kuh“ erscheinen.** Das Modell kennt keine Klasse
-  „Kalb“; was es als `kuh` erkennt, bekommt einen grünen Kasten.
+  „Kalb“; was es als `kuh` erkennt, bekommt einen grünen Kasten. Für die
+  Brunst-Regel ist das abgefangen: Ein Kalb bei der Mutter ist kein Aufsprung
+  ([`brunst-plausibilitaet-spezifikation.md`](./brunst-plausibilitaet-spezifikation.md)).
 - **Fruchtblase und Kälberfüße tragen keine Kuh-Nummer.** Die Austreibung
   wird bewusst ohne Tracker erkannt (Recall vor ID, Skill
   `bytetrack-tuning`). Der Kasten zeigt, wo, die Nummer der Kuh daneben

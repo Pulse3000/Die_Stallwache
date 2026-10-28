@@ -91,7 +91,7 @@ Maßgebliche Implementierung: `edge-agent/main.py`; exakte Defaults:
 | **Kalbeverdacht** | Schwanzwinkel > **45°** (Vektor `spine_end→tail_base` gegen `tail_base→tail_tip`, via `atan2`) in **> 20 %** der Frames eines rollierenden **30-Minuten-Fensters** (`collections.deque`) | Alarm (Telegram + Dashboard) |
 | **Austreibung** | `amniotic_sac` oder `calf_legs` mit Konfidenz **> 0.80** | **Sofort-Alarm**, Zeitfilter wird übersprungen |
 | **Eskalation** | Austreibung läuft, aber nach **60 min** ist weiterhin Fruchtblase/Füße sichtbar (kein Geburtsfortschritt) | **dringender Kontroll-Alarm** (Komplikationsverdacht); feuert nur einmal pro Episode; Episode setzt sich nach 30 min ohne Erkennung zurück; umgeht bewusst den Cooldown |
-| **Brunstverdacht** | Aufsprung: zwei Kuh-Boxen überlappen (IoU > 0.15), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert kurzes Spielverhalten) | Alarm (Telegram + Dashboard) |
+| **Brunstverdacht** | Aufsprung: zwei ähnlich große Kuh-Boxen überlappen (IoU ≥ 0.15, kleinere ≥ **45 %** der Fläche der größeren – ein Kalb bei der Mutter ist kein Aufsprung, `docs/brunst-plausibilitaet-spezifikation.md`), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert kurzes Spielverhalten) | Alarm (Telegram + Dashboard) |
 
 **Warum der Zeitfilter?** Kühe heben den Schwanz auch beim Koten oder zur
 Fliegenabwehr (< 1 min). Erst die statistische Häufung über 30 min
