@@ -39,7 +39,15 @@ export interface KiKuh {
   id: number;
   box: [number, number, number, number];
   winkel: number | null;
+  /** Vom Landwirt per Telegram /kuh bestaetigter Name (nur wenn gueltig),
+   *  docs/kuh-namen-spezifikation.md. */
+  name?: string;
 }
+
+/** Erlaubte Namen – dieselbe Regel wie KuhNamen.NAME_MUSTER im Edge-Agenten:
+ *  1–20 Zeichen, Buchstaben inkl. Umlaute/ß, Ziffern, Leerzeichen, Punkt,
+ *  Bindestrich. Kein HTML, keine Steuerzeichen. */
+export const KI_NAME_MUSTER = /^[A-Za-zÄÖÜäöüß0-9][A-Za-zÄÖÜäöüß0-9 .-]{0,19}$/;
 
 export interface KiObjekt {
   klasse: string;
@@ -70,7 +78,9 @@ function leseBox(x: unknown): [number, number, number, number] | null {
 /**
  * Prueft die Antwort des Stall-Rechners streng; null bei allem, was nicht
  * passt. Die Daten kommen aus dem Stall-LAN und landen im DOM – Text wird
- * nie aus ihnen uebernommen, nur Zahlen und bekannte Klassen.
+ * nur in einem Fall uebernommen: der Kuh-Name, und nur, wenn er
+ * KI_NAME_MUSTER erfuellt (React setzt ihn ohnehin als Text, nie als HTML).
+ * Ein ungueltiger Name kostet nur den Namen, nicht die Kuh.
  */
 export function leseKiBild(json: unknown): KiBild | null {
   if (!json || typeof json !== "object") return null;
@@ -85,7 +95,9 @@ export function leseKiBild(json: unknown): KiBild | null {
     const box = leseBox(kk?.box);
     if (!box || !Number.isInteger(kk.id) || (kk.id as number) < 0) return null;
     if (kk.winkel !== null && !istZahl(kk.winkel)) return null;
-    kuehe.push({ id: kk.id as number, box, winkel: kk.winkel as number | null });
+    const kuh: KiKuh = { id: kk.id as number, box, winkel: kk.winkel as number | null };
+    if (typeof kk.name === "string" && KI_NAME_MUSTER.test(kk.name)) kuh.name = kk.name;
+    kuehe.push(kuh);
   }
   const objekte: KiObjekt[] = [];
   for (const o of d.objekte) {
@@ -176,7 +188,9 @@ const NAMEN: Record<string, string> = { amniotic_sac: "Fruchtblase", calf_legs: 
 export function kaesten(bild: KiBild): KiKasten[] {
   const out: KiKasten[] = bild.kuehe.map((k) => ({
     art: "kuh",
-    text: `Kuh #${k.id}${k.winkel !== null ? ` · ${Math.round(k.winkel)}°` : ""}`,
+    text: `Kuh #${k.id}${k.name ? ` · ${k.name}` : ""}${
+      k.winkel !== null ? ` · ${Math.round(k.winkel)}°` : ""
+    }`,
     box: k.box,
   }));
   for (const o of bild.objekte) {

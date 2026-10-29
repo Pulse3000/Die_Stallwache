@@ -129,6 +129,21 @@ sudo systemctl enable --now stallblick-agent
 2. **@userinfobot** öffnen → Start → numerische **Chat-ID** kopieren.
 3. Beides in `config.yaml` unter `telegram:` eintragen.
 
+### Kuh-Namen (Telegram `/kuh`)
+
+Am Kasten im Livebild steht die Nummer der KI („Kuh #12“). Schreiben Sie dem
+Bot im eingetragenen Chat `/kuh 12 Berta`, steht dort „Kuh #12 · Berta“, und
+Alarme nennen „Kuh #12 (Berta)“. `/kuh 12 -` entfernt den Namen, `/kuehe`
+zeigt alle. Regeln (`docs/kuh-namen-spezifikation.md`):
+
+- nur für Nummern, die gerade im Bild sind (letzte 120 s), nur im Analyse-Modus;
+- ein Name gehört höchstens einer Kuh – neu vergeben verschiebt ihn;
+- nur im Arbeitsspeicher: Nach einem Neustart des Agenten oder wenn die Kuh
+  länger als ~90 s aus dem Bild ist (neue Nummer), ist der Name weg. Eine
+  gespeicherte Zuordnung hinge nach dem Neustart an einer anderen Kuh;
+- braucht `telegram.feedback_buttons: true` (Standard); Nachrichten aus anderen
+  Chats werden ignoriert.
+
 ---
 
 ## Weg zum eigenen Modell (alles kostenlos)

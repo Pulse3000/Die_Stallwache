@@ -38,7 +38,9 @@ Kriterien 7–11 am Gerät offen.
    eingearbeitet):
    - jede getrackte Kuh: grüner Kasten, „Kuh #12 · 52°“ (Tracker-Nummer wie
      in den Alarmen, Schwanzwinkel nur bei gültigen Keypoints). Kühe ohne
-     Tracker-Nummer (-1) fallen weg, es gibt kein „Kuh #-1“.
+     Tracker-Nummer (-1) fallen weg, es gibt kein „Kuh #-1“. Mit vom
+     Landwirt bestätigtem Namen „Kuh #12 · Berta · 52°“
+     ([`kuh-namen-spezifikation.md`](./kuh-namen-spezifikation.md)).
    - Fruchtblase und Kälberfüße **ab Alarmschwelle** (`override_konfidenz`,
      ≥ 0,80 wie `LogicEngine.bewerte`): roter, dicker Kasten,
      „Fruchtblase 91 % ALARM“. Diese Kästen liegen immer obenauf; keine
@@ -68,13 +70,16 @@ Kriterien 7–11 am Gerät offen.
      Fernzugriff-Route prüft die Sitzung zusätzlich selbst
      (`fernzugriff-spezifikation.md` §1).
    - Die Kachel prüft jede Antwort streng: Nur Zahlen und die zwei bekannten
-     Klassen gelangen ins DOM, nie Text vom Stall-Rechner.
+     Klassen gelangen ins DOM. Einzige Ausnahme ist der Kuh-Name, und nur,
+     wenn er die Namensregel erfüllt (1–20 Buchstaben inkl. Umlaute/ß,
+     Ziffern, Leerzeichen, Punkt, Bindestrich; React setzt ihn als Text).
+     Ein ungültiger Name fällt weg, die Kuh bleibt.
 5. **Stille Degradation:** Schreibfehler, voller RAM oder fehlender Ordner
    stoppen die Analyse nie. Der Agent protokolliert höchstens eine Warnung
    je Stunde und analysiert weiter. Fällt die KI aus, läuft das Video
    unverändert weiter; die Statuszeile sagt, warum keine Kästen kommen.
-6. **Datenschutz:** Die Datei enthält keine Bilder, nur Kästen, Nummern und
-   Konfidenzen. Sie verlässt den Stall-Rechner nur über den ausdrücklich
+6. **Datenschutz:** Die Datei enthält keine Bilder, nur Kästen, Nummern,
+   Konfidenzen und die vom Landwirt vergebenen Kuh-Namen. Sie verlässt den Stall-Rechner nur über den ausdrücklich
    eingerichteten Fernzugriff und nur auf Abruf eines angemeldeten Nutzers.
 
 ## 2. Grenzen
@@ -86,7 +91,10 @@ Kriterien 7–11 am Gerät offen.
   eigene Entscheidung.
 - **Die ID ist die Nummer des Trackers, keine Ohrmarke.** Nach einem
   Neustart des Agenten bekommt dieselbe Kuh eine neue Nummer (Skill
-  `bytetrack-tuning`, Grenzen). Die Statuszeile sagt das.
+  `bytetrack-tuning`, Grenzen). Die Statuszeile sagt das. Einen **Namen**
+  trägt der Kasten nur, wenn der Landwirt ihn per Telegram `/kuh 12 Berta`
+  für diese laufende Nummer bestätigt hat; er gilt bis zum Neustart bzw. bis
+  die Spur abreißt ([`kuh-namen-spezifikation.md`](./kuh-namen-spezifikation.md)).
 - **Ein Kalb kann als „Kuh“ erscheinen.** Das Modell kennt keine Klasse
   „Kalb“; was es als `kuh` erkennt, bekommt einen grünen Kasten.
 - **Fruchtblase und Kälberfüße tragen keine Kuh-Nummer.** Die Austreibung
@@ -151,6 +159,7 @@ Kriterien 7–11 am Gerät offen.
 | --- | --- |
 | Schalter | „KI-Kästen“ (an: grün hinterlegt, `aria-pressed`) |
 | Kuh | „Kuh #12 · 52°“, ohne gültigen Winkel „Kuh #12“ |
+| Kuh mit bestätigtem Namen | „Kuh #12 · Berta · 52°“ bzw. „Kuh #12 · Berta“ (Name nur, wenn er die Namensregel erfüllt; sonst fällt nur der Name weg) |
 | Objekt mit Alarm | „Fruchtblase 91 % ALARM“, „Kälberfüße 87 % ALARM“ |
 | Objekt unter Schwelle | „Kälberfüße? 79 % (Alarm ab 80 %)“ |
 | Statuszeile, Kästen da | „KI · 2 Kühe · Versatz ≈ 4 s · Nr. von der KI, nicht Ohrmarke“ |
@@ -187,7 +196,8 @@ Automatisch (vor dem Merge):
    Pfade bleiben gesperrt. `tests/middleware.test.ts`: Die Middleware
    erfasst alle Fernzugriff-Pfade.
 4. `tests/ki-ansicht.test.ts`:
-   - strenge Prüfung der Antwort (auch Klassennamen mit HTML → verworfen);
+   - strenge Prüfung der Antwort (auch Klassennamen mit HTML → verworfen;
+     Kuh-Name mit HTML oder zu lang → nur der Name fällt weg);
    - Puffer und Wahl nach Versatz, Lücke > 3 s → keine Kästen;
    - Versatz aus Playlist-Ende und Wiedergabe, Rechteck bei object-contain,
      Seitenverhältnis;
