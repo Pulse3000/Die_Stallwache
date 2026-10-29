@@ -46,7 +46,7 @@ class FalscherNotifier:
     def status(self, nachricht: str) -> None:
         self.status_meldungen.append(nachricht)
 
-    def digest_tick(self, analyse_aktiv: bool) -> None:
+    def digest_tick(self, analyse_aktiv: bool, zusatz=None) -> None:
         pass
 
 

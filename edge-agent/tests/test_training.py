@@ -301,4 +301,49 @@ p.check("Bericht enthaelt Gate 2b und Hinweis bei zu wenig Material",
         "| 2b Sichtbarkeit |" in text and "erhobene Schwänze" in text)
 p.check("Bericht warnt ohne Geburt im Val-Set", "NICHT scharfschalten" in text)
 
+# --- Brunst-Phase (Modell nur mit Klasse kuh) ---------------------------------
+m_quelle = (TRAINING.parent / "main.py").read_text(encoding="utf-8")
+
+def kuh(box, konf=None):
+    o = {"klasse": ab.KUH, "box": box, "kp": []}
+    if konf is not None:
+        o["konf"] = konf
+    return o
+
+
+oben, unten = (100, 100, 300, 260), (120, 160, 320, 320)   # IoU ~0,57: Aufsprung
+p.check("Brunst: Testpaar ueberlappt wie ein Aufsprung", ab.iou(oben, unten) >= ab.AUFSPRUNG_IOU)
+frei = (600, 100, 800, 260)
+bilder_b = [
+    # beide erkannt
+    ([kuh(oben), kuh(unten), kuh(frei)], [kuh(oben, 0.9), kuh(unten, 0.8), kuh(frei, 0.9)]),
+    # NMS hat die untere Kuh geschluckt
+    ([kuh(oben), kuh(unten)], [kuh(oben, 0.9)]),
+    # untere Kuh nur unsicher (unter 0,5 -> keine Spur im Tracker)
+    ([kuh(oben), kuh(unten)], [kuh(oben, 0.9), kuh(unten, 0.45)]),
+]
+p.check("Brunst: Kuh-Recall zaehlt nur ab Konfidenz 0,5", ab.kuh_recall(bilder_b) == (7, 5))
+p.check("Brunst: Ueberlappung zaehlt Paare, beide noetig", ab.ueberlapp_recall(bilder_b) == (3, 1))
+p.check("Brunst: weit entfernte Kuh ist kein Paar",
+        ab.ueberlapp_recall([([kuh(oben), kuh(frei)], [kuh(oben, 0.9), kuh(frei, 0.9)])]) == (0, 0))
+
+e = ab.bewerte_brunst((100, 95), (10, 9))
+p.check("Brunst: 95 % und 90 % -> bestanden, Exit 0",
+        (e["gate_k"], e["gate_u"], e["code"]) == ("bestanden", "bestanden", 0))
+e = ab.bewerte_brunst((100, 95), (10, 7))
+p.check("Brunst: Ueberlappung 70 % -> verfehlt, Exit 1", (e["gate_u"], e["code"]) == ("verfehlt", 1))
+e = ab.bewerte_brunst((100, 89), (10, 10))
+p.check("Brunst: Kuh-Recall 89 % -> verfehlt", (e["gate_k"], e["code"]) == ("verfehlt", 1))
+e = ab.bewerte_brunst((100, 95), (4, 4))
+p.check("Brunst: < 5 ueberlappende Paare -> nicht pruefbar, Exit 2",
+        (e["gate_u"], e["code"]) == ("nicht prüfbar", 2))
+e = ab.bewerte_brunst((29, 29), (10, 10))
+p.check("Brunst: < 30 Kuehe -> nicht pruefbar", (e["gate_k"], e["code"]) == ("nicht prüfbar", 2))
+text_b = ab.bericht_brunst(ab.bewerte_brunst((100, 95), (4, 4)), "best_v1.pt", "datensatz")
+p.check("Brunst-Bericht: Austreibung/Kalbeverdacht ausdruecklich NICHT scharf",
+        "NICHT scharf" in text_b and "Austreibung" in text_b)
+p.check("Brunst-Bericht: Hinweis auf fehlende Ueberlappungs-Bilder", "überlappende Kühe" in text_b)
+p.check("Brunst-Schwelle = Agent: AUFSPRUNG_IOU wie LogicEngine._brunst (0.15)",
+        ab.AUFSPRUNG_IOU == 0.15 and "self._iou(a.box, b.box) < 0.15" in m_quelle)
+
 sys.exit(p.bericht())

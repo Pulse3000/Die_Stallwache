@@ -456,3 +456,46 @@ test("Kontakt ohne Ereignisse und ohne Kamera-Lebenszeichen: nicht „kein Agent
   assert.match(s.text, /Edge-Agent hat sich zuletzt 03:57 gemeldet, aber ohne Kamera-Lebenszeichen/);
   assert.doesNotMatch(s.text, /Kein Edge-Agent/);
 });
+
+test("24: Brunst-Phase — Modell ohne Kalbe-Klassen -> nie OK, Grund nennt, was fehlt", () => {
+  const s = status([], { stallwache: frisch({ nichtScharf: ["austreibung", "kalbeverdacht"] }) });
+  assert.equal(s.stufe, "UNBEKANNT");
+  assert.equal(s.kameras[0].datenlage.aktuell, false);
+  assert.match(s.kameras[0].text, /Austreibung \(Fruchtblase\/Kälberfüße\), Kalbeverdacht \(Schwanzwinkel\) nicht scharf/);
+  assert.match(s.kameras[0].text, /Keine Aussage über die Tiere möglich/);
+});
+
+test("24b: alles scharf ([]) oder alter Agent (Feld fehlt) -> OK wie bisher", () => {
+  assert.equal(status([], { stallwache: frisch({ nichtScharf: [] }) }).stufe, "OK");
+  assert.equal(status([], { stallwache: frisch() }).stufe, "OK");
+});
+
+test("24c: ungueltig gemeldeter Umfang (null) -> UNBEKANNT", () => {
+  const s = status([], { stallwache: frisch({ nichtScharf: null }) });
+  assert.equal(s.stufe, "UNBEKANNT");
+  assert.match(s.text, /Umfang des Modells unklar/);
+});
+
+test("24d: Brunst-Phase — offener Brunstverdacht bleibt WARNUNG, mit Hinweis", () => {
+  const s = status(
+    [ereignis("brunstverdacht", 20, { kuhId: "Kuh #12" })],
+    { stallwache: frisch({ nichtScharf: ["austreibung", "kalbeverdacht"] }) },
+  );
+  assert.equal(s.stufe, "WARNUNG");
+  assert.match(s.kameras[0].text, /Achtung: .*nicht scharf/);
+});
+
+test("24e: Parser nicht_scharf — bekannte Werte, Rest verworfen, kaputt -> null", () => {
+  const lies = (wert: unknown) =>
+    leseLebenszeichen({ kamera: "stallwache", modus: "analyse", bild: true, nicht_scharf: wert })?.nichtScharf;
+  assert.deepEqual(lies(["austreibung", "kalbeverdacht"]), ["austreibung", "kalbeverdacht"]);
+  assert.deepEqual(lies([]), []);
+  assert.deepEqual(lies(["austreibung", "austreibung", "festliegen", 3, "toString", "__proto__"]), ["austreibung"]);
+  assert.equal(lies("austreibung"), null);
+  assert.equal(lies(null), null);
+  assert.equal(lies(Array(21).fill("brunst")), null);
+  assert.equal(
+    "nichtScharf" in (leseLebenszeichen({ kamera: "stallwache", modus: "analyse", bild: true }) ?? {}),
+    false,
+  );
+});

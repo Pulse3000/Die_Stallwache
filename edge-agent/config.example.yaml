@@ -33,6 +33,12 @@ stream:
   # Kamera-Name fuer Meldungen
   # (stallwache | futterwache | abkalbebox | weidewache)
   kamera: stallwache
+  # Mindestbreite des Kamerabilds. Der Agent loggt beim Verbinden, welche
+  # Aufloesung WIRKLICH ankommt (und nennt sie im Tagesbericht); darunter
+  # eine Warnung. Tapo 2K = 2560x1440 bzw. 2304x1296 – nur ueber den
+  # Hauptstream (go2rtc „stallwache“ = stream1) und mit Videoqualitaet 2K in
+  # der Tapo-App. 0 = keine Pruefung.
+  min_breite: 1920
   # 1 Frame/Sekunde reicht voellig: Kalbeanzeichen entwickeln sich ueber
   # Minuten – so laeuft die Analyse auch auf einem alten Laptop ohne GPU.
   ziel_fps: 1.0
@@ -56,6 +62,13 @@ modell:
     kuh: 0
     amniotic_sac: 1  # Fruchtblase
     calf_legs: 2     # Kaelberfuesse
+  # Alarmwege mit bestandener Abnahme (training/abnahme.py). Nur diese
+  # meldet der Agent der App als „scharf“; fehlt der Eintrag, gilt, was das
+  # Modell kann. Unterdrueckt keine Erkennung (Recall vor allem).
+  # Brunst-Phase (Modell aus stall-brunst.yaml, docs/brunst-zuerst-entscheidung.md):
+  #   freigegeben: [brunst]
+  # Spaeter mit Kalbeueberwachung: [brunst, austreibung, kalbeverdacht]
+  # In der Brunst-Phase zusaetzlich klassen auf  kuh: 0  kuerzen.
   # Nur diese Klassen sind Tiere (Tracking, Schwanzwinkel, Brunst). Andere
   # Boxen (z. B. Mensch bei einem allgemeinen Modell) werden ignoriert.
   # Kommt eine Tier-Klasse im 2. Training dazu (kuh_seitenlage), hier ergaenzen.

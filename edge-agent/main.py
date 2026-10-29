@@ -466,6 +466,31 @@ class StreamHandler:
         self.fehler_in_folge = 0
         self.nutze_fallback = False
         self._letzter_frame_ts = 0.0
+        # Aufloesung, die tatsaechlich ankommt (Beleg statt Annahme: welcher
+        # Stream der Tapo wirklich gewaehlt ist, sieht man nur am Bild).
+        # Unter min_breite eine Warnung im Log; 0 = keine Pruefung.
+        self.min_breite = int(cfg["stream"].get("min_breite", 1920) or 0)
+        self.aufloesung: tuple[int, int] | None = None
+
+    def _pruefe_aufloesung(self, frame: np.ndarray, quelle: str) -> None:
+        """Loggt jede neue Aufloesung genau einmal; wirft nie."""
+        try:
+            h, w = (int(v) for v in frame.shape[:2])
+        except Exception:  # noqa: BLE001 – kein Bild im erwarteten Format
+            return
+        if (w, h) == self.aufloesung:
+            return
+        self.aufloesung = (w, h)
+        if self.min_breite and w < self.min_breite:
+            log.warning(
+                "Bild von der Kamera nur %dx%d (%s) – erwartet mindestens %d px "
+                "Breite (stream.min_breite). Tapo: Hauptstream nehmen (go2rtc "
+                "„stallwache“ = stream1, nicht „stallwache_sd“) und in der "
+                "Tapo-App die Videoqualitaet auf 2K stellen.",
+                w, h, quelle, self.min_breite,
+            )
+        else:
+            log.info("Bild von der Kamera: %dx%d (%s).", w, h, quelle)
 
     def _oeffne_live(self):
         """Laeuft im Greifer-Thread: Cloud-URL holen, Capture oeffnen."""
@@ -534,6 +559,7 @@ class StreamHandler:
         if self.fehler_in_folge:
             log.info("Stream wieder stabil.")
         self.fehler_in_folge = 0
+        self._pruefe_aufloesung(frame, "Snapshot" if self.nutze_fallback else "Datei")
         return frame
 
     def _frame_live(self) -> np.ndarray | None:
@@ -549,13 +575,17 @@ class StreamHandler:
             elif self.fehler_in_folge:
                 log.info("Stream wieder stabil.")
             self.fehler_in_folge = 0
+            self._pruefe_aufloesung(frame, "Livestream")
             return frame
         self.fehler_in_folge += 1
         if self.fallback_url and self.fehler_in_folge >= self.FEHLER_BIS_FALLBACK:
             if not self.nutze_fallback:
                 log.warning("RTSP instabil – wechsle auf Snapshot-Polling.")
                 self.nutze_fallback = True
-            return self._frame_snapshot()
+            frame = self._frame_snapshot()
+            if frame is not None:
+                self._pruefe_aufloesung(frame, "Snapshot")
+            return frame
         return None
 
 
@@ -647,6 +677,10 @@ class Lebenszeichen:
         self._zustand: tuple[str, bool] | None = None
         self._thread: threading.Thread | None = None
         self.fehler_in_folge = 0
+        # Von main() gesetzt (Analyse-Modus): Alarmwege, die das Modell nicht
+        # bedient. Die App sagt dann fuer die Kamera nie „OK"; leere Liste =
+        # alles scharf, None = nicht melden (Silent Mode).
+        self.nicht_scharf: list[str] | None = None
 
     @property
     def aktiv(self) -> bool:
@@ -678,6 +712,8 @@ class Lebenszeichen:
                     "bild": zustand[1],
                 },
             }
+            if analyse_aktiv and self.nicht_scharf is not None:
+                nutzlast["lebenszeichen"]["nicht_scharf"] = list(self.nicht_scharf)
             self._thread = threading.Thread(
                 target=self._sende, args=(nutzlast,), name="lebenszeichen", daemon=True
             )
@@ -777,6 +813,81 @@ class ObjektErkennung:
 OBJEKT_KLASSEN = ("amniotic_sac", "calf_legs")
 
 
+# Alarmwege des Agenten und was sie vom Modell brauchen. Ein Modell der
+# Brunst-Phase (nur Klasse kuh, Boxen) bedient nur den ersten — die App darf
+# dann fuer die Kalbung nie „OK" sagen (docs/brunst-zuerst-entscheidung.md).
+ALARMWEGE = {
+    "brunst": "Brunst (Aufsprung)",
+    "austreibung": "Austreibung (Fruchtblase/Kälberfüße)",
+    "kalbeverdacht": "Kalbeverdacht (Schwanzwinkel)",
+}
+
+
+def nicht_scharf(namen, task, klassen: dict, tier_klassen, freigegeben=None) -> list[str]:
+    """Alarmwege, die ein Modell mangels Klassen oder Keypoints NICHT bedient.
+
+    namen: ``model.names`` (Index -> Name), task: ``model.task`` (pose,
+    detect, …). Tiere: der in ``modell.klassen`` eingetragene Index muss im
+    Modell existieren, der Name ist frei (ein allgemeines Modell darf „cow"
+    heissen). Fruchtblase/Kaelberfuesse: Index UND Name muessen passen — bei
+    einem allgemeinen Modell stehen auf Index 1/2 „bicycle"/„car", das ist
+    keine Austreibungs-Erkennung. Die Erkennung selbst bleibt unveraendert
+    (Recall vor allem); nur „scharf" wird dann nicht behauptet. Fehlt die
+    Angabe (None), gilt sie als unbekannt und es wird nichts behauptet.
+
+    freigegeben: ``modell.freigegeben`` aus config.yaml — die Alarmwege, deren
+    Abnahme bestanden ist (training/abnahme.py). Alles andere gilt als nicht
+    scharf, auch wenn das Modell die Klassen traegt (z. B. Namen aus
+    stall.yaml, aber nie eine Fruchtblase gelernt). Nur Meldung: Erkannt und
+    alarmiert wird weiter alles, was das Modell findet.
+    """
+    fehlt = _nicht_scharf_laut_modell(namen, task, klassen, tier_klassen)
+    if freigegeben is not None:
+        # Im Zweifel weniger behaupten: „freigegeben: brunst" (ohne Klammern)
+        # gilt als [brunst], jeder andere Typ als „nichts freigegeben".
+        if isinstance(freigegeben, str):
+            freigegeben = [freigegeben]
+        elif not isinstance(freigegeben, (list, tuple, set)):
+            freigegeben = []
+        fehlt += [k for k in ALARMWEGE if k not in freigegeben and k not in fehlt]
+    return [k for k in ALARMWEGE if k in fehlt]
+
+
+def _nicht_scharf_laut_modell(namen, task, klassen: dict, tier_klassen) -> list[str]:
+    if namen is None:
+        return []
+    if not isinstance(namen, dict):
+        namen = dict(enumerate(namen))
+    namen = {int(i): str(n) for i, n in namen.items()}
+
+    def im_modell(name: str, name_pruefen: bool = False) -> bool:
+        idx = klassen.get(name)
+        if idx is None or int(idx) not in namen:
+            return False
+        return not name_pruefen or namen[int(idx)].strip().lower() == name
+
+    tier = any(im_modell(t) for t in tier_klassen)
+    fehlt = []
+    if not tier:
+        fehlt.append("brunst")
+    if not all(im_modell(k, name_pruefen=True) for k in OBJEKT_KLASSEN):
+        fehlt.append("austreibung")
+    if not tier or (task is not None and task != "pose"):
+        fehlt.append("kalbeverdacht")
+    return fehlt
+
+
+def umfang_text(fehlt: list[str]) -> str:
+    """„Scharf: … · NICHT scharf: …" fuer Start- und Tagesmeldung."""
+    scharf = [t for k, t in ALARMWEGE.items() if k not in fehlt]
+    teile = []
+    if scharf:
+        teile.append("Scharf: " + ", ".join(scharf))
+    if fehlt:
+        teile.append("NICHT scharf: " + ", ".join(ALARMWEGE[k] for k in fehlt if k in ALARMWEGE))
+    return " · ".join(teile)
+
+
 # Keypoints unter dieser Konfidenz gelten als verdeckt. Das ist die
 # Sichtbarkeitsgrenze von Ultralytics (setzt solche Punkte auf (0, 0)),
 # kein Fach-Schwellenwert – deshalb bewusst nicht konfigurierbar.
@@ -839,6 +950,8 @@ class InferenceEngine:
         self._roh_objekte: list[ObjektErkennung] | None = None
         self._merke_fehler = 0          # aufeinanderfolgende Fehlschlaege
         self._merke_traceback: float | None = None  # letzter voller Traceback
+        # Alarmwege, die dieses Modell nicht bedient (siehe nicht_scharf()).
+        self.nicht_scharf: list[str] = []
         pfad = (self.cfg.get("pfad") or "").strip()
         if pfad:
             if alte_cpu.alte_cpu_aktiv(self.cfg.get("alte_cpu", "auto")):
@@ -851,6 +964,15 @@ class InferenceEngine:
             # Vor dem ersten track() registrieren: Ultralytics haengt seine
             # Tracker-Callbacks erst dann an, dieser laeuft also davor.
             self.modell.add_callback("on_predict_postprocess_end", self._merke_objekte)
+            self.nicht_scharf = nicht_scharf(
+                getattr(self.modell, "names", None),
+                getattr(self.modell, "task", None),
+                {k: v for k, v in self.cfg["klassen"].items()},
+                self.tier_klassen,
+                self.cfg.get("freigegeben"),
+            )
+            if self.nicht_scharf:
+                log.warning("Modell-Umfang – %s", umfang_text(self.nicht_scharf))
 
     @property
     def aktiv(self) -> bool:
@@ -1880,8 +2002,10 @@ class Notifier:
         self._dashboard(meldung)
         self._mqtt(meldung)
 
-    def digest_tick(self, analyse_aktiv: bool) -> None:
-        """Sendet einmal taeglich (digest_uhrzeit) einen kompakten Tagesbericht."""
+    def digest_tick(self, analyse_aktiv: bool, zusatz=None) -> None:
+        """Sendet einmal taeglich (digest_uhrzeit) einen kompakten Tagesbericht.
+        zusatz: Funktion -> weitere Zeilen (Modell-Umfang, Bildaufloesung);
+        laeuft nur beim Versand, ein Fehler darin kostet nur die Zeilen."""
         if not (self.digest_uhrzeit and self.tg_token and self.tg_chat):
             return
         heute = time.strftime("%Y-%m-%d")
@@ -1897,6 +2021,11 @@ class Notifier:
             f"Brunstverdacht: {z['brunstverdacht']}\n"
             f"Agent läuft seit {stunden:.1f} h · Kamera: {self.kamera}"
         )
+        try:
+            for zeile in (zusatz() if zusatz else []):
+                text += f"\n{zeile}"
+        except Exception:  # noqa: BLE001 – der Bericht geht trotzdem raus
+            log.exception("Tagesbericht: Zusatzzeilen nicht verfuegbar")
         fb = self.feedback.zaehler
         if fb["treffer"] or fb["fehlalarm"]:
             text += f"\nFeedback: ✅ {fb['treffer']} Treffer · ❌ {fb['fehlalarm']} Fehlalarm"
@@ -2373,6 +2502,23 @@ def pruefe_kamerabild(
     return defekt
 
 
+def tagesbericht_zusatz(stream: "StreamHandler", engine: "InferenceEngine") -> list[str]:
+    """Zeilen fuer den Tagesbericht: was scharf ist und welche Aufloesung
+    wirklich ankommt (Beleg fuer „2K gewaehlt?“)."""
+    zeilen: list[str] = []
+    if engine.aktiv:
+        zeilen.append(umfang_text(getattr(engine, "nicht_scharf", [])))
+    aufloesung = getattr(stream, "aufloesung", None)
+    if aufloesung:
+        w, h = aufloesung
+        mindest = getattr(stream, "min_breite", 0)
+        zeile = f"Bild: {w}×{h}"
+        if mindest and w < mindest:
+            zeile += f" ⚠️ unter {mindest} px – Hauptstream/2K prüfen"
+        zeilen.append(zeile)
+    return zeilen
+
+
 _TRAININGSBILD_ZEIT = re.compile(r"\d{8}-\d{6}")
 
 
@@ -2531,7 +2677,11 @@ def main() -> None:
         )
 
     if engine.aktiv:
-        notifier.status("Edge-Agent gestartet – Analyse-Modus aktiv")
+        lebenszeichen.nicht_scharf = list(getattr(engine, "nicht_scharf", []))
+        notifier.status(
+            "Edge-Agent gestartet – Analyse-Modus aktiv. "
+            + umfang_text(lebenszeichen.nicht_scharf)
+        )
     else:
         notifier.status("Edge-Agent gestartet (Silent Mode – Datensammlung)")
         ordner = Path(cfg["silent_mode"]["ordner"])
@@ -2542,7 +2692,7 @@ def main() -> None:
     while True:
         try:
             frame = stream.naechster_frame()
-            notifier.digest_tick(engine.aktiv)
+            notifier.digest_tick(engine.aktiv, lambda: tagesbericht_zusatz(stream, engine))
             notifier.feedback.tick()
             totmann_meldung = totmann.tick(frame is not None)
             if totmann_meldung:

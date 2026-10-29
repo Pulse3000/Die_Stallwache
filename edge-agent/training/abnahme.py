@@ -28,6 +28,13 @@ sonst misst die Abnahme etwas anderes, als im Stall laeuft.
 
 Exit-Code: 0 Gate 1, 2 und 2b bestanden, 1 ein Gate verfehlt,
 2 keines verfehlt, aber Gate 1 oder 2b nicht pruefbar (zu wenig Val-Material).
+
+Brunst-Phase (--phase brunst, Modell nur mit Klasse kuh,
+docs/brunst-zuerst-entscheidung.md):
+  Gate K  Kuh-Recall >= 90 % bei Konfidenz >= 0.5 (n >= 30).
+  Gate Ü  Bei Kuh-Paaren mit IoU >= 0.15 (Aufsprung-Kandidat) erkennt das
+          Modell BEIDE in >= 80 % (n >= 5) - sonst schluckt die NMS eine Box.
+  Exit-Code wie oben (0 / 1 verfehlt / 2 nicht pruefbar).
 """
 
 from __future__ import annotations
@@ -201,6 +208,94 @@ def bewerte(recall: dict, paare: list, sicht: tuple[int, int] = (0, 0),
             "gate2b": gate2b, "sicht": sicht, "code": code}
 
 
+# --------------------------------------------------------------------------
+# Brunst-Phase (docs/brunst-zuerst-entscheidung.md): Modell nur mit Klasse
+# kuh. Die Werte sind ein Vorschlag des Orchestrators; der Betreiber
+# entscheidet. Austreibung und Kalbeverdacht sind NICHT Teil dieser Abnahme
+# und bleiben nicht scharf (der Agent meldet das selbst).
+# --------------------------------------------------------------------------
+
+KUH_KONFIDENZ = 0.5          # = new_track_thresh (tracker-kuh.yaml): darunter keine neue Spur
+KUH_RECALL_MIN = 0.90
+KUH_STICHPROBEN_MIN = 30
+AUFSPRUNG_IOU = 0.15         # = LogicEngine._brunst: ab hier gilt ein Paar als Aufsprung-Kandidat
+UEBERLAPP_RECALL_MIN = 0.80
+UEBERLAPP_STICHPROBEN_MIN = 5
+
+
+def kuh_recall(bilder, konf: float = KUH_KONFIDENZ, iou_min: float = IOU_MIN) -> tuple[int, int]:
+    """(n, treffer): gelabelte Kuehe und davon vom Modell erkannte."""
+    n = treffer = 0
+    for gt, pred in bilder:
+        sicher = [o for o in pred if o["konf"] >= konf]
+        n += sum(1 for o in gt if o["klasse"] == KUH)
+        treffer += len(ordne_zu(gt, sicher, KUH, iou_min))
+    return n, treffer
+
+
+def ueberlapp_recall(bilder, konf: float = KUH_KONFIDENZ, iou_min: float = IOU_MIN,
+                     ab: float = AUFSPRUNG_IOU) -> tuple[int, int]:
+    """(n, beide): gelabelte Kuh-Paare, deren Boxen sich wie beim Aufsprung
+    ueberlappen (IoU >= 0.15), und wie oft das Modell BEIDE erkennt.
+
+    Genau hier droht die Non-Maximum-Suppression eine der zwei Boxen zu
+    verschlucken - dann gibt es kein Paar und nie einen Brunstverdacht,
+    obwohl die Kuh-Erkennung insgesamt gut aussieht.
+    """
+    n = beide = 0
+    for gt, pred in bilder:
+        sicher = [o for o in pred if o["konf"] >= konf]
+        zuordnung = dict(ordne_zu(gt, sicher, KUH, iou_min))
+        kuehe = [i for i, o in enumerate(gt) if o["klasse"] == KUH]
+        for pos, a in enumerate(kuehe):
+            for b in kuehe[pos + 1:]:
+                if iou(gt[a]["box"], gt[b]["box"]) >= ab:
+                    n += 1
+                    if a in zuordnung and b in zuordnung:
+                        beide += 1
+    return n, beide
+
+
+def bewerte_brunst(kuh: tuple[int, int], ueberlapp: tuple[int, int]) -> dict:
+    n_k, t_k = kuh
+    if n_k < KUH_STICHPROBEN_MIN:
+        gate_k = "nicht prüfbar"
+    else:
+        gate_k = "bestanden" if t_k / n_k >= KUH_RECALL_MIN else "verfehlt"
+    n_u, t_u = ueberlapp
+    if n_u < UEBERLAPP_STICHPROBEN_MIN:
+        gate_u = "nicht prüfbar"
+    else:
+        gate_u = "bestanden" if t_u / n_u >= UEBERLAPP_RECALL_MIN else "verfehlt"
+    stati = (gate_k, gate_u)
+    code = 1 if "verfehlt" in stati else 2 if "nicht prüfbar" in stati else 0
+    return {"gate_k": gate_k, "kuh": kuh, "gate_u": gate_u, "ueberlapp": ueberlapp, "code": code}
+
+
+def bericht_brunst(e: dict, modell: str, datensatz: str) -> str:
+    n_k, t_k = e["kuh"]
+    n_u, t_u = e["ueberlapp"]
+    z = [f"## Abnahme {Path(modell).name} – Brunst-Phase", "",
+         f"Val-Set: `{datensatz}/images/val`", "",
+         "| Gate | Kriterium | Ergebnis | Status |", "| --- | --- | --- | --- |",
+         f"| K Kuh-Erkennung | Recall ≥ {KUH_RECALL_MIN:.0%} bei Konfidenz ≥ {KUH_KONFIDENZ} "
+         f"(n ≥ {KUH_STICHPROBEN_MIN}) | {t_k}/{n_k} | {e['gate_k']} |",
+         f"| Ü Überlappung | beide Kühe erkannt bei Paaren mit IoU ≥ {AUFSPRUNG_IOU} "
+         f"in ≥ {UEBERLAPP_RECALL_MIN:.0%} (n ≥ {UEBERLAPP_STICHPROBEN_MIN}) | {t_u}/{n_u} | {e['gate_u']} |",
+         "| A1 Goldstandard | Aufsprung im Replay erkannt (Brunst-Spezifikation §6) | von Hand | offen |",
+         "| 3b Fehlalarm-Budget | 24 h: ≤ 1 falscher Brunstverdacht | von Hand | offen |",
+         "| 4 Laufzeit | ≥ 1 FPS auf der Zielhardware | `--nur-fps` dort | offen |",
+         "", "Austreibung und Kalbeverdacht sind nicht Teil dieser Abnahme: NICHT scharf. "
+         "Der Agent meldet das selbst, die App sagt für diese Kamera kein „OK“."]
+    if e["gate_u"] == "nicht prüfbar":
+        z += ["", "Zu wenige gelabelte überlappende Kühe im Val-Set: Ob beim Aufsprung beide "
+              "erkannt werden, ist unbelegt – Bilder mit eng stehenden/aufspringenden Kühen labeln."]
+    elif e["gate_u"] == "verfehlt":
+        z += ["", "Bei überlappenden Kühen fehlt oft eine Box: Aufsprung würde übersehen. "
+              "Mehr solche Szenen labeln; nicht scharfschalten."]
+    return "\n".join(z) + "\n"
+
+
 def bericht(e: dict, modell: str, datensatz: str) -> str:
     z = [f"## Abnahme {Path(modell).name}", "",
          f"Val-Set: `{datensatz}/images/val`", "",
@@ -325,6 +420,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bericht", help="Markdown-Bericht zusaetzlich in diese Datei")
     parser.add_argument("--nur-fps", action="store_true",
                         help="nur Laufzeit messen (auf der Zielhardware ausfuehren)")
+    parser.add_argument("--phase", choices=("voll", "brunst"), default="voll",
+                        help="brunst = Modell nur mit Klasse kuh (Gates K und Ü)")
     args = parser.parse_args(argv)
 
     from ultralytics import YOLO
@@ -336,6 +433,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Gate 4 Laufzeit: {fps:.2f} FPS – {'bestanden' if fps >= 1 else 'verfehlt'} "
               "(zählt nur auf der Zielhardware)")
         return 0 if fps >= 1 else 1
+
+    if args.phase == "brunst":
+        bilder = sammle(modell, datensatz)
+        ergebnis = bewerte_brunst(kuh_recall(bilder), ueberlapp_recall(bilder))
+        text = bericht_brunst(ergebnis, args.modell, args.datensatz)
+        print(text)
+        if args.bericht:
+            Path(args.bericht).write_text(text, encoding="utf-8")
+        return ergebnis["code"]
 
     gt_winkel, pred_winkel = winkel_des_agenten()
     bilder = sammle(modell, datensatz)

@@ -39,7 +39,21 @@ export interface Lebenszeichen {
   trainingsbilder24h?: number | null;
   /** Aufnahmezeit des juengsten Bilds (ISO, aus dem Dateinamen). */
   trainingsbildZuletzt?: string;
+  /**
+   * Alarmwege, die das Modell im Analyse-Modus NICHT bedient (z. B. ein
+   * Modell der Brunst-Phase ohne Fruchtblase/Kaelberfuesse). Fehlt = alter
+   * Agent (keine Aussage); [] = alles scharf; null = ungueltig gemeldet.
+   */
+  nichtScharf?: Alarmweg[] | null;
 }
+
+/** Alarmwege des Edge-Agenten (edge-agent/main.py ALARMWEGE). */
+export type Alarmweg = "brunst" | "austreibung" | "kalbeverdacht";
+export const ALARMWEG_TEXT: Record<Alarmweg, string> = {
+  brunst: "Brunst (Aufsprung)",
+  austreibung: "Austreibung (Fruchtblase/Kälberfüße)",
+  kalbeverdacht: "Kalbeverdacht (Schwanzwinkel)",
+};
 
 /** Kamera-Zustand aus dem Lebenszeichen eines Ingest-Stapels. */
 export interface KameraZustand {
@@ -49,6 +63,7 @@ export interface KameraZustand {
   trainingsbilder?: number | null;
   trainingsbilder24h?: number | null;
   trainingsbildZuletzt?: string;
+  nichtScharf?: Alarmweg[] | null;
 }
 
 export interface StatusEingabe {
@@ -401,6 +416,12 @@ function bewerteDatenlage(
     grund = "Kamera liefert kein Bild";
   } else if (lz.bild !== true) {
     grund = "Bildzustand der Kamera unbekannt";
+  } else if (lz.nichtScharf === null) {
+    grund = "Umfang des Modells unklar (ungültige Meldung des Edge-Agenten)";
+  } else if (lz.nichtScharf && lz.nichtScharf.length > 0) {
+    // Brunst-Phase: Ein Modell ohne Fruchtblase/Kaelberfuesse sieht keine
+    // Geburt. „OK" hiesse hier „auch keine Kalbung" — das waere gelogen.
+    grund = `${lz.nichtScharf.map((k) => ALARMWEG_TEXT[k]).join(", ")} nicht scharf – das Modell erkennt das noch nicht`;
   } else if (speicher !== "kv") {
     // Ohne dauerhaften Store sieht diese Instanz nur ihre eigenen
     // Ereignisse: Ein Alarm, der auf einer anderen Instanz oder vor einem
@@ -569,6 +590,15 @@ export function leseLebenszeichen(roh: unknown): KameraZustand | undefined {
   const zuletzt = r.trainingsbild_zuletzt;
   if (typeof zuletzt === "string" && zuletzt.length <= 40 && !Number.isNaN(Date.parse(zuletzt))) {
     zustand.trainingsbildZuletzt = new Date(zuletzt).toISOString();
+  }
+  // Fehlt = alter Agent; Liste -> nur bekannte Alarmwege (ein neuerer Agent
+  // darf weitere melden, die diese App nicht kennt); sonst ungueltig -> null.
+  if ("nicht_scharf" in r) {
+    const roh = r.nicht_scharf;
+    zustand.nichtScharf =
+      Array.isArray(roh) && roh.length <= 20
+        ? [...new Set(roh.filter((k): k is Alarmweg => typeof k === "string" && Object.hasOwn(ALARMWEG_TEXT, k)))]
+        : null;
   }
   return zustand;
 }
