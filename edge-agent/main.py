@@ -40,7 +40,7 @@ import threading
 import time
 import urllib.parse
 from collections import defaultdict, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 # FFmpeg-Meldungen erst ab „fatal" ausgeben: Manche Kameras haengen
@@ -1090,6 +1090,9 @@ class Alarm:
     sofort: bool = False
     # Austreibungs-Episode, zu der die Meldung gehoert (Fehlalarm-Feedback).
     episode: int | None = None
+    # Vom Landwirt bestaetigter Name zu kuh_id – nur Anzeige (Telegram-Kopf,
+    # Alarmbild); kuh_id bleibt die Kennung (docs/kuh-namen-spezifikation.md).
+    kuh_name: str | None = None
 
 
 # Austreibungs-Episode endet, wenn ein Bild OHNE Erkennung kommt und die
@@ -1625,6 +1628,9 @@ class FeedbackSchleife:
         # Von main() gesetzt: (typ, episode) eines als Fehlalarm markierten
         # Alarms an die LogicEngine (Austreibungs-Takt).
         self.bei_fehlalarm = None
+        # Von main() gesetzt: Kuh-Namen fuer die Befehle /kuh und /kuehe
+        # (docs/kuh-namen-spezifikation.md). None = Befehle aus.
+        self.namen: KuhNamen | None = None
 
     def registriere(self, alarm: Alarm, bilder: list[bytes]) -> dict | None:
         """Merkt die (unannotierten) Alarm-Bilder fuer spaeteres Feedback und
@@ -1676,7 +1682,7 @@ class FeedbackSchleife:
                 params={
                     "offset": self._offset,
                     "timeout": 0,
-                    "allowed_updates": '["callback_query"]',
+                    "allowed_updates": '["callback_query","message"]',
                 },
                 timeout=10,
             )
@@ -1714,7 +1720,7 @@ class FeedbackSchleife:
                 params={
                     "offset": offset,
                     "timeout": 0,
-                    "allowed_updates": '["callback_query"]',
+                    "allowed_updates": '["callback_query","message"]',
                 },
                 timeout=10,
             )
@@ -1741,6 +1747,9 @@ class FeedbackSchleife:
             if update_id < self._offset:
                 continue  # schon verarbeitet (z. B. Abruf nach Sperren-Freigabe)
             self._offset = update_id + 1
+            if u.get("message"):
+                self._befehl(u["message"])
+                continue
             cq = u.get("callback_query")
             if not cq:
                 continue
@@ -1774,6 +1783,52 @@ class FeedbackSchleife:
                     self._netz(self._speichere_und_antworte, cq, fid, eintrag)
                     continue
             self._netz(self._antworte, cq, antwort)
+
+    def _befehl(self, msg: dict) -> None:
+        """Textbefehle /kuh und /kuehe (Kuh-Namen). Nur aus dem eingetragenen
+        Chat; alles andere bleibt still. Laeuft im Hauptthread (wie die
+        Knoepfe), geantwortet wird ueber den Versand-Thread."""
+        if self.namen is None:
+            return
+        if str((msg.get("chat") or {}).get("id", "")).strip() != self.chat:
+            return
+        teile = str(msg.get("text") or "").split()
+        if not teile:
+            return
+        befehl = teile[0].split("@", 1)[0].lower()
+        if befehl not in ("/kuh", "/kuehe", "/kühe"):
+            return
+        try:
+            antwort = self._kuh_befehl(befehl, teile[1:])
+        except Exception:  # noqa: BLE001 – ein Befehl stoppt nie die Analyse
+            log.exception("Befehl %s nicht verarbeitet", befehl)
+            antwort = "Befehl nicht verarbeitet (Log prüfen)."
+        self._netz(self._sende_text, antwort)
+
+    def _kuh_befehl(self, befehl: str, argumente: list[str]) -> str:
+        namen = self.namen
+        if befehl != "/kuh":
+            return namen.liste()
+        if not argumente:
+            return KuhNamen.HILFE
+        try:
+            nr = int(argumente[0].lstrip("#"))
+        except ValueError:
+            return KuhNamen.HILFE
+        rest = " ".join(argumente[1:]).strip()
+        if not rest or rest == "-":
+            return namen.entferne(nr)
+        return namen.setze(nr, rest)
+
+    def _sende_text(self, text: str) -> None:
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{self.token}/sendMessage",
+                data={"chat_id": self.chat, "text": text},
+                timeout=10,
+            ).raise_for_status()
+        except requests.RequestException as e:
+            log.warning("Antwort auf Befehl nicht zugestellt: %s", e)
 
     def _speichere_und_antworte(
         self, cq: dict, fid: str, eintrag: tuple[str, list[bytes]] | None
@@ -1922,6 +1977,9 @@ class Notifier:
                 # nach NACHLIEFER_INTERVALL_S.
                 self._outbox_signal.put(None)
         self.feedback = FeedbackSchleife(cfg, kanal=self._tg_feedback)
+        # Von main() gesetzt: bestaetigte Kuh-Namen fuer die Anzeige
+        # (docs/kuh-namen-spezifikation.md). None = Texte ohne Namen.
+        self.namen: KuhNamen | None = None
 
         # Optionaler MQTT-Zusatzausgang (Home Assistant & Co.); Ausfall darf
         # den Alarmweg nie beeintraechtigen.
@@ -1961,6 +2019,9 @@ class Notifier:
         self._zuletzt[schluessel] = jetzt
         self._zaehler[alarm.typ] += 1
         log.warning("ALARM [%s] %s: %s", alarm.typ, alarm.kuh_id or "-", alarm.nachricht)
+        # Ab hier die Anzeige-Fassung: Namen im Text, kuh_id unveraendert
+        # (Cooldown-Schluessel oben und Analytik haengen an ihr).
+        alarm = self._mit_namen(alarm)
 
         bild = self._annotiere(frame, alarm) if frame is not None else None
         serie: list[bytes] = []
@@ -2059,6 +2120,35 @@ class Notifier:
             time.sleep(0.01)
         return ok
 
+    def _mit_namen(self, alarm: Alarm) -> Alarm:
+        """Kopie mit den bestaetigten Kuh-Namen im Text (nur Anzeige). Ein
+        Fehler hier kostet hoechstens den Namen, nie den Alarm."""
+        if self.namen is None:
+            return alarm
+        try:
+            return replace(
+                alarm,
+                nachricht=self.namen.ergaenze(alarm.nachricht),
+                kuh_name=self.namen.name_zu(alarm.kuh_id),
+            )
+        except Exception:  # noqa: BLE001 – der Alarm geht vor
+            log.exception("Kuh-Namen nicht ergaenzt – Alarm ohne Namen")
+            return alarm
+
+    @staticmethod
+    def beschriftung(alarm: Alarm) -> str:
+        """Bildschrift des Alarmbilds. Die OpenCV-Schrift kennt keine
+        Umlaute: ä -> ae usw., damit nie „B??rta“ im Bild steht."""
+        text = alarm.typ
+        if alarm.kuh_id:
+            text += f" {alarm.kuh_id}"
+            if alarm.kuh_name:
+                text += f" ({alarm.kuh_name})"
+        for umlaut, ersatz in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("Ä", "Ae"),
+                               ("Ö", "Oe"), ("Ü", "Ue"), ("ß", "ss")):
+            text = text.replace(umlaut, ersatz)
+        return text
+
     @staticmethod
     def _annotiere(frame: np.ndarray, alarm: Alarm) -> bytes:
         bild = frame.copy()
@@ -2067,7 +2157,7 @@ class Notifier:
             cv2.rectangle(bild, (x1, y1), (x2, y2), (0, 0, 255), 3)
             cv2.putText(
                 bild,
-                f"{alarm.typ}{' ' + alarm.kuh_id if alarm.kuh_id else ''}",
+                Notifier.beschriftung(alarm),
                 (x1, max(24, y1 - 8)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.8,
@@ -2090,6 +2180,8 @@ class Notifier:
         text = f"⚠️ {alarm.typ.upper()}"
         if alarm.kuh_id:
             text += f" – {alarm.kuh_id}"
+            if alarm.kuh_name:
+                text += f" ({alarm.kuh_name})"
         text += f"\n{alarm.nachricht}\nKamera: {self.kamera}"
         try:
             if bild and serie:
@@ -2538,6 +2630,131 @@ def trainingsbild_name(kamera: str, zeit: float | None = None) -> str:
 
 
 # --------------------------------------------------------------------------
+# Kuh-Namen: vom Landwirt bestaetigte Namen zu Tracker-Nummern (Stufe 1)
+# --------------------------------------------------------------------------
+
+class KuhNamen:
+    """Namen zu Tracker-Nummern, die der Landwirt per Telegram bestaetigt hat
+    (``/kuh 12 Berta``; docs/kuh-namen-spezifikation.md).
+
+    Die Nummer vergibt ByteTrack; sie ist keine Identitaet. Ein Name gilt
+    deshalb nur fuer die laufende Spur und liegt nur im Arbeitsspeicher:
+    Nach einem Neustart zaehlt der Tracker wieder ab 1, eine gespeicherte
+    Zuordnung hinge an einer anderen Kuh. Vergeben wird nur fuer Nummern,
+    die gerade im Bild sind, und jeder Name gehoert hoechstens einer Nummer.
+    Reine Anzeige: Schwellen, Cooldowns und die Kennung „Kuh #12“ im
+    Ereignis bleiben unberuehrt. Nur im Hauptthread benutzt (Analyse,
+    Befehle, Alarme), daher ohne Sperre.
+    """
+
+    SICHTBAR_S = 120            # /kuh nur fuer Nummern, die so kurz zuvor im Bild waren
+    VERGESSEN_S = 24 * 3600     # ungesehene Nummern (samt Name) fallen weg
+    MAX_EINTRAEGE = 200         # Obergrenze bei vielen ID-Wechseln, aelteste zuerst raus
+    NAME_MUSTER = re.compile(r"[A-Za-zÄÖÜäöüß0-9][A-Za-zÄÖÜäöüß0-9 .\-]{0,19}")
+    HILFE = ("So geht's: /kuh 12 Berta gibt Kuh #12 den Namen Berta · /kuh 12 - "
+             "entfernt ihn · /kuehe zeigt alle. Die Nummer steht am Kasten im Livebild.")
+    # Ganze Nummer (kein Rueckfall von #12 auf #1) und nicht schon benannt.
+    _KUH_NR = re.compile(r"Kuh #(\d+)(?!\d| \()")
+
+    def __init__(self) -> None:
+        self._gesehen: dict[int, float] = {}   # Nummer -> letzte Sichtung
+        self._namen: dict[int, str] = {}       # Nummer -> Name
+
+    def sehe(self, kuehe: list[KuhBeobachtung], jetzt: float | None = None) -> None:
+        """Nach jeder Analyse: Sichtungen merken, Altes vergessen."""
+        t = time.time() if jetzt is None else jetzt
+        for k in kuehe:
+            if k.track_id >= 0:
+                self._gesehen[k.track_id] = t
+        for nr in [n for n, z in self._gesehen.items() if t - z > self.VERGESSEN_S]:
+            self._vergiss(nr)
+        if len(self._gesehen) > self.MAX_EINTRAEGE:
+            for nr in sorted(self._gesehen, key=self._gesehen.get)[
+                : len(self._gesehen) - self.MAX_EINTRAEGE
+            ]:
+                self._vergiss(nr)
+
+    def _vergiss(self, nr: int) -> None:
+        self._gesehen.pop(nr, None)
+        self._namen.pop(nr, None)
+
+    @classmethod
+    def gueltiger_name(cls, roh: str) -> str | None:
+        """Bereinigter Name (Leerraum zusammengefasst) oder None."""
+        name = " ".join(str(roh).split())
+        return name if cls.NAME_MUSTER.fullmatch(name) else None
+
+    def name(self, nr: int) -> str | None:
+        return self._namen.get(nr)
+
+    def name_zu(self, kuh_id: str | None) -> str | None:
+        """Name zur Kennung „Kuh #12“ (wie Alarm.kuh_id) oder None."""
+        treffer = re.fullmatch(r"Kuh #(\d+)", kuh_id or "")
+        return self._namen.get(int(treffer.group(1))) if treffer else None
+
+    def ergaenze(self, text: str) -> str:
+        """„Kuh #12“ -> „Kuh #12 (Berta)“, wo ein Name bekannt ist; nie doppelt."""
+        if not self._namen:
+            return text
+
+        def ersetze(treffer: re.Match) -> str:
+            name = self._namen.get(int(treffer.group(1)))
+            return f"{treffer.group(0)} ({name})" if name else treffer.group(0)
+
+        return self._KUH_NR.sub(ersetze, text)
+
+    def setze(self, nr: int, roh: str, jetzt: float | None = None) -> str:
+        t = time.time() if jetzt is None else jetzt
+        name = self.gueltiger_name(roh)
+        if name is None:
+            return ("Name ungültig – erlaubt sind 1–20 Buchstaben, Ziffern, Leerzeichen, "
+                    "Punkt und Bindestrich. Beispiel: /kuh 12 Berta")
+        if not self._gesehen:
+            return ("Noch keine Kuh-Nummern – die KI läuft im Silent Mode oder sieht "
+                    "gerade keine Kuh.")
+        zuletzt = self._gesehen.get(nr)
+        if zuletzt is None or t - zuletzt > self.SICHTBAR_S:
+            return f"Kuh #{nr} ist gerade nicht im Bild – nichts geändert."
+        teile = []
+        alt_nr = next((n for n, v in self._namen.items()
+                       if v.casefold() == name.casefold() and n != nr), None)
+        if alt_nr is not None:
+            del self._namen[alt_nr]
+            teile.append(f"{name} war Kuh #{alt_nr} – jetzt Kuh #{nr}.")
+        alt_name = self._namen.get(nr)
+        self._namen[nr] = name
+        if alt_name and alt_name != name:
+            teile.append(f"Kuh #{nr} hieß {alt_name} – jetzt {name}.")
+        if not teile:
+            teile.append(f"Kuh #{nr} heißt jetzt {name}. Gilt, solange die KI die Kuh unter "
+                         "dieser Nummer verfolgt (bis zum Neustart des Agenten).")
+        return " ".join(teile)
+
+    def entferne(self, nr: int) -> str:
+        name = self._namen.pop(nr, None)
+        return (f"Name von Kuh #{nr} ({name}) entfernt." if name
+                else f"Kuh #{nr} hatte keinen Namen.")
+
+    def liste(self, jetzt: float | None = None) -> str:
+        t = time.time() if jetzt is None else jetzt
+        im_bild = sorted(n for n, z in self._gesehen.items() if t - z <= self.SICHTBAR_S)
+        zeilen = []
+        for nr in sorted(self._namen):
+            alter = t - self._gesehen.get(nr, t)
+            wo = "im Bild" if alter <= self.SICHTBAR_S else f"zuletzt vor {int(alter // 60)} min"
+            zeilen.append(f"Kuh #{nr} {self._namen[nr]} – {wo}")
+        ohne = [n for n in im_bild if n not in self._namen]
+        if not zeilen and not im_bild:
+            return ("Noch keine Kuh-Nummern – die KI läuft im Silent Mode oder sieht "
+                    "gerade keine Kuh.")
+        text = ("Namen (gelten bis zum Neustart des Agenten):\n" + "\n".join(zeilen)
+                if zeilen else "Noch keine Namen vergeben. Beispiel: /kuh 12 Berta")
+        if ohne:
+            text += "\nOhne Namen im Bild: " + ", ".join(f"#{n}" for n in ohne)
+        return text
+
+
+# --------------------------------------------------------------------------
 # KI-Ansicht: Kaesten und Kuh-Nummern fuer das Livebild der Kachel
 # --------------------------------------------------------------------------
 
@@ -2574,6 +2791,8 @@ class KiAnsicht:
         self.kamera = kamera
         self.alarm_ab = alarm_ab
         self._letzte_warnung: float | None = None
+        # Von main() gesetzt: bestaetigte Kuh-Namen (None = ohne Namen).
+        self.namen: KuhNamen | None = None
 
     @property
     def aktiv(self) -> bool:
@@ -2587,6 +2806,14 @@ class KiAnsicht:
             return [round(min(1.0, max(0.0, v / g)), 4)
                     for v, g in ((x1, breite), (y1, hoehe), (x2, breite), (y2, hoehe))]
 
+        def kuh(k: KuhBeobachtung) -> dict:
+            eintrag = {"id": k.track_id, "box": rel(k.box),
+                       "winkel": None if k.winkel_grad is None else round(k.winkel_grad, 1)}
+            name = self.namen.name(k.track_id) if self.namen is not None else None
+            if name:  # Feld nur mit Namen (docs/kuh-namen-spezifikation.md)
+                eintrag["name"] = name
+            return eintrag
+
         return {
             "v": 1,
             "kamera": self.kamera,
@@ -2594,11 +2821,7 @@ class KiAnsicht:
             "breite": breite,
             "hoehe": hoehe,
             "alarm_ab": self.alarm_ab,
-            "kuehe": [
-                {"id": k.track_id, "box": rel(k.box),
-                 "winkel": None if k.winkel_grad is None else round(k.winkel_grad, 1)}
-                for k in kuehe if k.track_id >= 0
-            ],
+            "kuehe": [kuh(k) for k in kuehe if k.track_id >= 0],
             "objekte": [
                 {"klasse": o.klasse, "box": rel(o.box),
                  "prozent": math.floor(o.konfidenz * 100 + 1e-9),
@@ -2659,6 +2882,10 @@ def main() -> None:
     notifier.feedback.archiv = archiv
     # Kaesten der letzten Analyse fuer das Livebild der Kachel (nur Analyse-Modus)
     ki_ansicht = KiAnsicht(cfg, notifier.kamera, logik.override_konf)
+    # Kuh-Namen per Telegram /kuh – nur im RAM, gelten bis zum Neustart
+    # (docs/kuh-namen-spezifikation.md).
+    namen = KuhNamen()
+    notifier.namen = notifier.feedback.namen = ki_ansicht.namen = namen
     # „❌ Fehlalarm" auf eine Austreibung -> naechste Erkennung meldet sofort.
     notifier.feedback.bei_fehlalarm = logik.fehlalarm_gemeldet
 
@@ -2738,6 +2965,7 @@ def main() -> None:
 
             frame_puffer.append(frame)
             kuehe, objekte = engine.analysiere(frame)
+            namen.sehe(kuehe)
             for alarm in logik.bewerte(kuehe, objekte):
                 notifier.melde(alarm, frame, verlauf=list(frame_puffer)[:-1])
             # Erst nach den Alarmen: Kein Alarm wartet auf die KI-Ansicht.

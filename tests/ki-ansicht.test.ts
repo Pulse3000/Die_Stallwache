@@ -176,6 +176,49 @@ test("kaesten: Beschriftung, rot nur mit Alarm (Befund ki-wache)", () => {
   assert.ok(!k.some((x) => x.art !== "alarm" && x.text.includes("ALARM")));
 });
 
+test("Kuh-Name: gueltig uebernommen, ungueltig faellt nur der Name weg", () => {
+  // docs/kuh-namen-spezifikation.md §6 Kriterium 2
+  const mitNamen = (name: unknown) => {
+    const d = roh();
+    (d.kuehe[0] as Record<string, unknown>).name = name;
+    return leseKiBild(d);
+  };
+  const b = mitNamen("Berta");
+  assert.ok(b);
+  assert.deepEqual(b.kuehe[0], { id: 12, box: [0.25, 0.25, 0.5, 0.75], winkel: 52.4, name: "Berta" });
+  assert.equal(mitNamen("Jürgen-Öße 2.")!.kuehe[0].name, "Jürgen-Öße 2.", "Umlaute, ß, Punkt, Bindestrich");
+  assert.equal(mitNamen("A".repeat(20))!.kuehe[0].name, "A".repeat(20), "genau 20 Zeichen");
+  for (const schlecht of [
+    "<img src=x onerror=alert(1)>",
+    "A".repeat(21),
+    "",
+    " Berta",
+    "-Berta",
+    "Berta\n",
+    "Bé",
+    42,
+    null,
+    ["Berta"],
+  ]) {
+    const x = mitNamen(schlecht);
+    assert.ok(x, `Kuh bleibt bei ${JSON.stringify(schlecht)}`);
+    assert.equal(x.kuehe.length, 2);
+    assert.equal(x.kuehe[0].name, undefined, `kein Name bei ${JSON.stringify(schlecht)}`);
+    assert.ok(!("name" in x.kuehe[0]));
+  }
+});
+
+test("kaesten: Beschriftung mit Namen", () => {
+  const d = roh();
+  (d.kuehe[0] as Record<string, unknown>).name = "Berta";
+  (d.kuehe[1] as Record<string, unknown>).name = "Resi";
+  const k = kaesten(leseKiBild(d)!);
+  assert.deepEqual(
+    k.filter((x) => x.art === "kuh").map((x) => x.text),
+    ["Kuh #12 · Berta · 52°", "Kuh #7 · Resi"],
+  );
+});
+
 test("Zustand: Erkennungszeit bewegt sich -> aktuell", () => {
   let s = naechsterKiStand(KI_START, 200, 1000, 0);
   assert.deepEqual(s, { zustand: "bild", neueste: 1000, seit: 0 });
