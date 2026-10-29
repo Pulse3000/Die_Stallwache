@@ -13,6 +13,7 @@ import {
   STALLWACHE_FERN,
   webrtcUrl,
 } from "@/lib/config";
+import { hlsLiveConfig, passeLatenzGrenzeAn } from "@/lib/hls-live";
 import {
   LEERER_PING_STAND,
   PING_TIMEOUT_MS,
@@ -355,15 +356,14 @@ export default function CameraStream({
       onFatal: () => void,
     ) => {
       if (HlsJs.isSupported()) {
-        // Live-Bild: kurzer Puffer, kein Rueckpuffer (vier Player gleichzeitig).
-        const hls = new HlsJs({
-          lowLatencyMode: true,
-          liveSyncDuration: 2,
-          maxBufferLength: 8,
-          maxMaxBufferLength: 12,
-          backBufferLength: 0,
-        });
+        // Live-Bild: kurzer Puffer, kein Rueckpuffer (vier Player gleichzeitig),
+        // und Aufholen nach Pausen (lib/hls-live.ts): ohne Sprunggrenze blieb
+        // die Verzoegerung nach jeder Pause dauerhaft groesser.
+        const hls = new HlsJs(hlsLiveConfig());
         hlsRef.current = hls;
+        hls.on(HlsJs.Events.LEVEL_LOADED, (_e, data) =>
+          passeLatenzGrenzeAn(hls.config, data.details),
+        );
         hls.loadSource(url);
         hls.attachMedia(video);
         hls.on(HlsJs.Events.MANIFEST_PARSED, () => {
