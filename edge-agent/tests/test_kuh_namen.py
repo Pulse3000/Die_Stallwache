@@ -247,7 +247,10 @@ p.check("9: main() verdrahtet Notifier, Befehle und KI-Ansicht",
 analyse = haupt.index("kuehe, objekte = engine.analysiere(frame)")
 sehen = haupt.index("namen.sehe(kuehe)")
 alarme = haupt.index("logik.bewerte(kuehe, objekte)")
-p.check("9: Sichtungen nach der Analyse, vor den Alarmen", analyse < sehen < alarme)
+# Nach den Alarmen: Die Namen sind reine Anzeige, ein Fehler darin darf nie
+# einen Alarm dieses Bilds kosten. Die Alarmtexte brauchen nur die
+# vergebenen Namen, nicht die Sichtung dieses Bilds.
+p.check("9: Sichtungen nach der Analyse und erst nach den Alarmen", analyse < alarme < sehen)
 klasse = quelle[quelle.index("class KuhNamen:"):quelle.index("class KiAnsicht:")]
 p.check("9: KuhNamen schreibt nichts auf die Platte",
         not any(w in klasse for w in ("open(", "write_text", "json.dump", "Path(")))

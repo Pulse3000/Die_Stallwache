@@ -249,6 +249,19 @@ Fachliche Prüfung: `ki-wache` (25.10., Befund B1 blockierend, übernommen).
   Der Stapel wird deswegen nie abgelehnt.
 - Antwort: `kameras[].datenlage.lebenszeichen.trainingsbilder`,
   `.trainingsbilder24h`, `.trainingsbildZuletzt`.
+- **Modell-Umfang** (29.10.2026, [`brunst-zuerst-entscheidung.md`](./brunst-zuerst-entscheidung.md)):
+  Im Analyse-Modus meldet der Agent `nicht_scharf`, die Alarmwege, die sein
+  Modell nicht bedient (`brunst`, `austreibung`, `kalbeverdacht`; `[]` =
+  alles scharf). Server: Liste → nur bekannte Werte (Unbekanntes von neueren
+  Agenten fällt weg, doppelte auch), kein Array oder > 20 Einträge → `null`.
+  Fehlt das Feld (alter Agent), gilt nichts als nicht scharf.
+  **Regel:** Mit nicht leerem `nicht_scharf` ist die Datenlage nicht aktuell:
+  Grund „Austreibung (Fruchtblase/Kälberfüße), Kalbeverdacht (Schwanzwinkel)
+  nicht scharf – das Modell erkennt das noch nicht“, Stufe ohne Alarme
+  `UNBEKANNT`, nie `OK`. Offene Alarme stufen wie bisher (Brunstverdacht →
+  `WARNUNG`), mit „Achtung: …“. `null` → „Umfang des Modells unklar“.
+  Antwort: `kameras[].datenlage.lebenszeichen.nichtScharf`. Tests:
+  `tests/stall-status.test.ts` 24–24e.
 
 ### 9.4 Konfiguration
 

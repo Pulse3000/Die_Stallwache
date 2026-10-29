@@ -146,6 +146,59 @@ zeigt alle. Regeln (`docs/kuh-namen-spezifikation.md`):
 
 ---
 
+## Kamerabild: kommt wirklich 2K an?
+
+Welcher Stream gewählt ist, belegt nur das Bild selbst. Der Agent loggt beim
+Verbinden genau einmal je Wechsel die Auflösung und nennt sie im
+Tagesbericht; unter `stream.min_breite` (Standard 1920) steht eine Warnung:
+
+```bash
+docker compose logs agent | grep "Bild von der Kamera"
+# Bild von der Kamera: 2560x1440 (Livestream).          <- 2K, gut
+# Bild von der Kamera nur 640x360 (Livestream) – …      <- Substream!
+```
+
+Direkt an der Quelle (Stall-Rechner, go2rtc-Restream):
+
+```bash
+ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,height \
+  -of csv=p=0 rtsp://127.0.0.1:8554/stallwache      # Hauptstream (stream1)
+ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,height \
+  -of csv=p=0 rtsp://127.0.0.1:8554/stallwache_sd   # Substream (stream2)
+```
+
+- `stream.url` muss auf `…/stallwache` zeigen (go2rtc → `stream1`), nicht auf
+  `…/stallwache_sd`.
+- Liefert auch `stallwache` weniger als 2K, steht die Kamera selbst niedriger:
+  Tapo-App → Kamera → Einstellungen → Videoqualität → 2K (Bezeichnung je
+  nach Modell). Danach go2rtc neu verbinden lassen (`docker compose restart`
+  in `bridge/`).
+- Die Webapp bekommt über den Fernzugriff **bewusst** den SD-Stream
+  (`FERN_QUELLE=stallwache_sd`, Datenvolumen am Handy). Das Livebild in der App
+  ist also nicht das Bild, das der Agent analysiert.
+- 2K kostet Rechenzeit beim Dekodieren (alle Bilder des Streams, nicht nur
+  1/s). Auf der A6-3650 nach dem Umstellen prüfen, ob „Bildgreifer … hinter
+  dem Stream“ im Log erscheint (Bildfrische-Spezifikation, Kriterium 10).
+
+## Brunst zuerst: das erste Modell kennt nur Kühe
+
+Entscheidung des Betreibers (29.10.2026, `docs/brunst-zuerst-entscheidung.md`):
+v1 erkennt nur `kuh` (Boxen) → scharf ist nur das **Aufsprungverhalten**.
+Der Agent meldet beim Start und im Tagesbericht „NICHT scharf: Austreibung …,
+Kalbeverdacht …“, die App sagt für die Kamera kein „OK“. Kurzfassung:
+
+1. CVAT: Label `kuh` (Rechteck), jede Kuh einzeln – auch eng stehende und
+   aufspringende. Export „Ultralytics YOLO Detection“.
+2. `training/colab_training.py` mit `PHASE = "brunst"` (Datensatz
+   `training/stall-brunst.yaml`).
+3. `python3 training/abnahme.py best_v1.pt datensatz --phase brunst`
+   (Gate K: Kuh-Recall, Gate Ü: beide Kühe bei Überlappung).
+4. `config.yaml`: `modell.pfad: best_v1.pt`, `modell.klassen: {kuh: 0}`,
+   `modell.freigegeben: [brunst]`; dann `ANALYSE=1 docker compose up -d --build`.
+
+Der Abschnitt unten beschreibt den vollen Weg (Pose, Fruchtblase,
+Kälberfüße) für die Kalbeüberwachung danach.
+
 ## Weg zum eigenen Modell (alles kostenlos)
 
 Zyklus: **Sammeln → Sichten → Labeln → Split → Trainieren → Abnehmen →

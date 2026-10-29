@@ -10,6 +10,21 @@ eigenes Modell läuft der Edge-Agent im Silent Mode; erst `best.pt` schaltet
 die Erkennung scharf. Alles hier ist mit 0 € umsetzbar (Colab-Free-GPU,
 CVAT kostenlos, offene Datensätze).
 
+## Reihenfolge: Brunst-Phase zuerst (Entscheidung 29.10.2026)
+
+Der Betreiber hat entschieden: erst Brunst/Aufsprung, dann Kalbung
+(`docs/brunst-zuerst-entscheidung.md`). Für **v1** gilt deshalb:
+- Labeln nur `kuh` (Rechteck), Export „Ultralytics YOLO Detection“,
+  Datensatz `training/stall-brunst.yaml`, Colab `PHASE = "brunst"`.
+- Abnahme `abnahme.py … --phase brunst` (Gate K Kuh-Recall, Gate Ü beide
+  Kühe bei Überlappung); dazu Goldstandard A1, 24 h ≤ 1 falscher
+  Brunstverdacht, `--nur-fps` am Stall-Rechner.
+- `config.yaml`: `klassen: {kuh: 0}`, `freigegeben: [brunst]`. Der Agent
+  meldet „NICHT scharf: Austreibung, Kalbeverdacht“, die App sagt kein „OK“
+  – das ist gewollt, nicht reparieren.
+- Phasen 2–3b unten (Keypoints, Fruchtblase/Kälberfüße, Gates 1/2/2b) gelten
+  ab v2 für die Kalbeüberwachung.
+
 ## Voraussetzungen prüfen
 
 1. Der Agent hat eine Videoquelle — **einer** der beiden Wege genügt:

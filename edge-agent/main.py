@@ -2965,9 +2965,11 @@ def main() -> None:
 
             frame_puffer.append(frame)
             kuehe, objekte = engine.analysiere(frame)
-            namen.sehe(kuehe)
             for alarm in logik.bewerte(kuehe, objekte):
                 notifier.melde(alarm, frame, verlauf=list(frame_puffer)[:-1])
+            # Erst nach den Alarmen: Ein Fehler in der reinen Anzeige (Namen,
+            # KI-Ansicht) darf nie einen Alarm dieses Bilds kosten.
+            namen.sehe(kuehe)
             # Erst nach den Alarmen: Kein Alarm wartet auf die KI-Ansicht.
             if ki_ansicht.aktiv:
                 ki_ansicht.schreibe(frame, kuehe, objekte, letztes_bild)
