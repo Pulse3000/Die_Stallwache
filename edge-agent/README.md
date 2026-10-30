@@ -284,8 +284,11 @@ Scharfschalten → Beobachten → wieder Sammeln.** Werkzeuge in `training/`.
    `docs/metriken.md` mit Praxiswerten füllen.
 10. **Nachtrainieren** bei > 2 Fehlalarmen/Woche desselben Typs, neuer
     Kamera/Umbau, Saisonwechsel oder der ersten aufgezeichneten Geburt.
-    Fehlalarm-Bilder (Ein-Tipp-Feedback) zurück in CVAT als Negativ-
-    Beispiele.
+    Fehlalarm-Bilder (Ein-Tipp-Feedback) zurück in CVAT, dort **alle echten
+    Kühe umranden**; leer bleiben nur Bilder ganz ohne Tier. Ein Bild mit
+    nicht umrandeten Kühen lehrt „hier ist keine Kuh“. Regelfehler (Boxen
+    stimmen, Verhalten harmlos) gehören nicht ins Training (Skill
+    `fehlalarm-triage`).
 
 ---
 

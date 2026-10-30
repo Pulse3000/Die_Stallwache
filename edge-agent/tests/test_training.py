@@ -399,6 +399,22 @@ p.check("Brunst-Bericht: Ü bestanden ohne Video-Paare -> ausdruecklicher Hinwei
 e_wenig = ab.bewerte_brunst((200, 190), dict(ue(20, 18), n_video=5, treffer_video=5), (200, 2))
 p.check("Brunst-Bericht: wenige Video-Paare -> Hinweis auf 20",
         "Nur 5 Paare aus Aufsprung-Videos" in ab.bericht_brunst(e_wenig, "best_v1.pt", "datensatz"))
+e_schwach = ab.bewerte_brunst((300, 290), dict(ue(220, 205), n_video=20, treffer_video=10), (300, 3))
+t_schwach = ab.bericht_brunst(e_schwach, "best_v1.pt", "datensatz")
+p.check("Brunst-Bericht: Ü bestanden, aber Video-Paare unter 90 % -> Warnung (Befund qa-waechter L1)",
+        e_schwach["gate_u"] == "bestanden" and "nur 10/20 (50%" in t_schwach)
+e_gut = ab.bewerte_brunst((300, 290), dict(ue(220, 205), n_video=20, treffer_video=18), (300, 3))
+p.check("Brunst-Bericht: Video-Paare bei 90 % -> keine Video-Warnung",
+        "Paaren aus Aufsprung-Videos nur" not in ab.bericht_brunst(e_gut, "best_v1.pt", "datensatz"))
+p.check("Brunst: nur die volle Video-Namenskonvention zaehlt (Befund qa-waechter L3)",
+        ab.aus_video("stallwache_20261102-031500_aufsprung_007.jpg")
+        and ab.aus_video("STALLWACHE_20261102-031500_AUFSPRUNG_7.JPG")
+        and ab.aus_video(Path("val/stallwache_20261102-031500_aufsprung_007.jpg"))
+        and not any(ab.aus_video(n) for n in ("kein_aufsprung_007.jpg", "x_aufsprungversuch.jpg",
+                                               "stallwache_aufsprung.jpg", "stallwache_20261102-031500.jpg",
+                                               None, "", 12)))
+p.check("Brunst: Phantom-Hinweis ohne „None“ bei fehlendem Namen",
+        ab.phantom_lagen(phantom_bild, namen=[None]) == (1, ["Bild 1"]))
 p.check("Brunst-Bericht: Phantom-Lagen als Info mit Bildnamen",
         "2 Phantom-Aufsprung-Lage(n)" in t_ok and "x.jpg, y.jpg" in t_ok)
 p.check("Brunst-Bericht: einheitliche Freigabe-Regel mit allen Gates (K-Nacht, 3b, 4)",

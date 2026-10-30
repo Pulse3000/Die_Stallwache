@@ -38,7 +38,7 @@ docs/brunst-zuerst-entscheidung.md):
           >= 90 % (n >= 20) - sonst fehlt eine Box (unbekannte Haltung der
           aufspringenden Kuh oder NMS) oder der Alarm naennte die falsche
           Kuh. Paare ab IoU 0,5 und Paare aus Aufsprung-Videos (Dateiname
-          mit „_aufsprung“) getrennt ausgewiesen.
+          <kamera>_<JJJJMMTT-HHMMSS>_aufsprung_<nr>.jpg) getrennt ausgewiesen.
   Gate D  Hoechstens 2 % der Kuehe mit Doppelbox (loest sonst Aufsprung aus).
   Info    Phantom-Aufsprung-Lagen: erkannte Paare in Aufsprung-Lage ohne
           gelabeltes Paar, mit Bildnamen zur Sichtpruefung.
@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import re
 import sys
 import time
 from pathlib import Path
@@ -250,12 +251,15 @@ def kuh_recall(bilder, konf: float = KUH_KONFIDENZ, iou_min: float = IOU_MIN) ->
     return n, treffer
 
 
-VIDEO_MARKE = "_aufsprung"   # Frames aus Aufsprung-Videos: <kamera>_<JJJJMMTT-HHMMSS>_aufsprung_<nr>.jpg
+# Frames aus Aufsprung-Videos: <kamera>_<JJJJMMTT-HHMMSS>_aufsprung_<nr>.jpg
+VIDEO_MUSTER = re.compile(r"(?:^|_)\d{8}-\d{6}_aufsprung_\d+\.\w+$", re.IGNORECASE)
 
 
-def aus_video(name: str | None) -> bool:
-    """Bild stammt aus einem echten Aufsprung-Video (Namenskonvention)."""
-    return bool(name) and VIDEO_MARKE in name.lower()
+def aus_video(name) -> bool:
+    """Bild stammt aus einem echten Aufsprung-Video. Nur die volle
+    Namenskonvention zaehlt - sonst blaehten „kein_aufsprung_007.jpg“ & Co.
+    n_video auf und unterdrueckten die Ü-Warnungen (Befund qa-waechter L3)."""
+    return bool(name) and VIDEO_MUSTER.search(Path(str(name)).name) is not None
 
 
 def lage_erkannt(gt_a: tuple, gt_b: tuple, pred_a: tuple, pred_b: tuple, aufsprung_oben) -> bool:
@@ -278,7 +282,7 @@ def ueberlapp_recall(bilder, konf: float = KUH_KONFIDENZ, iou_min: float = IOU_M
     Paar und nie einen Brunstverdacht, obwohl die Kuh-Erkennung insgesamt gut
     aussieht. Nebeneinander stehende Kuehe zaehlen nicht. Getrennt
     ausgewiesen: Paare ab IoU 0,5 (NMS) und Paare aus Aufsprung-Videos
-    (namen[i] mit „_aufsprung“) - nur diese zeigen echte Aufspruenge; zwei
+    (namen[i] nach VIDEO_MUSTER) - nur diese zeigen echte Aufspruenge; zwei
     Kuehe hintereinander am Fressgitter erfuellen die Regel ebenfalls.
     -> {"n", "treffer", "n_eng", "treffer_eng", "n_video", "treffer_video"}
     """
@@ -330,7 +334,7 @@ def phantom_lagen(bilder, konf: float = KUH_KONFIDENZ, iou_min: float = IOU_MIN,
                 hier += 1
         if hier:
             anzahl += hier
-            betroffen.append(namen[i] if namen and i < len(namen) else f"Bild {i + 1}")
+            betroffen.append(namen[i] if namen and i < len(namen) and namen[i] else f"Bild {i + 1}")
     return anzahl, betroffen
 
 
@@ -416,6 +420,13 @@ def bericht_brunst(e: dict, modell: str, datensatz: str) -> str:
     elif e["gate_u"] == "bestanden" and u.get("n_video", 0) < UEBERLAPP_STICHPROBEN_MIN:
         z += ["", f"Nur {u['n_video']} Paare aus Aufsprung-Videos – für echte Aufsprünge aussagekräftig "
               f"erst ab {UEBERLAPP_STICHPROBEN_MIN}."]
+    elif e["gate_u"] == "bestanden" and u.get("treffer_video", 0) / u["n_video"] < UEBERLAPP_RECALL_MIN:
+        # Befund qa-waechter L1: Ü kann allein dank stehender Paare bestehen.
+        tv = u.get("treffer_video", 0)
+        z += ["", f"Bei den Paaren aus Aufsprung-Videos nur {tv}/{u['n_video']} "
+              f"({tv / u['n_video']:.0%}, Soll {UEBERLAPP_RECALL_MIN:.0%}): Gate Ü besteht "
+              "dank stehender Paare, aufspringende Kühe erkennt das Modell zu oft nicht. Mehr "
+              "Aufsprung-Szenen labeln; Gate E entscheidet."]
     if e["gate_u"] == "nicht prüfbar":
         z += ["", "Zu wenige gelabelte Aufsprung-Lagen im Val-Set: Ob beim Aufsprung beide Kühe "
               "erkannt werden, ist unbelegt – Bilder aus echten Aufsprung-Videos labeln "
