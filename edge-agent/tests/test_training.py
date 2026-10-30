@@ -374,6 +374,36 @@ p.check("Brunst-Bericht: Hinweis auf echte Aufsprung-Videos statt eng stehender 
         "Aufsprung-Videos" in text_b and "genügen nicht" in text_b)
 p.check("Brunst-Bericht: Ende-zu-Ende-Gate E mit 1 Bild/s und Freigabe-Regel",
         "| E Ende zu Ende" in text_b and "-r 1" in text_b and "freigegeben: []" in text_b)
+# Nachpruefung ki-wache (H1, S1, S2, S3, H2)
+ao = m.aufsprung_oben
+p.check("Brunst: Treffer nur in derselben Richtung (sonst naennte der Alarm die falsche Kuh)",
+        ab.lage_erkannt(oben, unten, oben, unten, ao)
+        and not ab.lage_erkannt(oben, unten, unten, oben, ao)
+        and not ab.lage_erkannt(oben, neben, oben, neben, ao))
+video_bilder = [([kuh(oben), kuh(unten)], [kuh(oben, 0.9), kuh(unten, 0.9)]),
+                ([kuh(eng_o), kuh(eng_u)], [kuh(eng_o, 0.9)])]
+uv = ab.ueberlapp_recall(video_bilder, namen=["stallwache_20261027-061000.jpg",
+                                              "stallwache_20261102-031500_aufsprung_007.jpg"])
+p.check("Brunst: Paare aus Aufsprung-Videos getrennt gezaehlt",
+        (uv["n"], uv["treffer"], uv["n_video"], uv["treffer_video"]) == (2, 1, 1, 0))
+p.check("Brunst: Videoframes mit Zeitstempel landen beim Split im richtigen Stalltag",
+        ds.zeit_aus_name("stallwache_20261102-031500_aufsprung_007.jpg") is not None)
+phantom_bild = [([kuh(oben)], [kuh(eng_o, 0.9), kuh(eng_u, 0.8)])]   # eine Kuh, zwei Boxen in Aufsprung-Lage
+p.check("Brunst: Phantom-Aufsprung-Lage (Doppelbox) wird mit Bildname gemeldet",
+        ab.phantom_lagen(phantom_bild, namen=["a.jpg"]) == (1, ["a.jpg"]))
+p.check("Brunst: echtes Paar ist kein Phantom", ab.phantom_lagen([bilder_b[0]]) == (0, []))
+e_ok = ab.bewerte_brunst((200, 190), ue(20, 18), (200, 2), (2, ["x.jpg", "y.jpg"]))
+t_ok = ab.bericht_brunst(e_ok, "best_v1.pt", "datensatz")
+p.check("Brunst-Bericht: Ü bestanden ohne Video-Paare -> ausdruecklicher Hinweis",
+        "nur mit stehenden, hintereinander stehenden Kühen bestanden" in t_ok)
+e_wenig = ab.bewerte_brunst((200, 190), dict(ue(20, 18), n_video=5, treffer_video=5), (200, 2))
+p.check("Brunst-Bericht: wenige Video-Paare -> Hinweis auf 20",
+        "Nur 5 Paare aus Aufsprung-Videos" in ab.bericht_brunst(e_wenig, "best_v1.pt", "datensatz"))
+p.check("Brunst-Bericht: Phantom-Lagen als Info mit Bildnamen",
+        "2 Phantom-Aufsprung-Lage(n)" in t_ok and "x.jpg, y.jpg" in t_ok)
+p.check("Brunst-Bericht: einheitliche Freigabe-Regel mit allen Gates (K-Nacht, 3b, 4)",
+        ab.FREIGABE_REGEL in t_ok and all(g in ab.FREIGABE_REGEL for g in ("K-Nacht", "3b", "4 (mindestens 1 Bild/s")))
+p.check("Brunst-Bericht: Gate E nur auf Hardware, die Gate 4 besteht", "Gate 4 besteht" in t_ok)
 p.check("Brunst: Gate-Konfidenz = new_track_thresh aus tracker-kuh.yaml",
         f"new_track_thresh: {ab.KUH_KONFIDENZ}" in (TRAINING.parent / "tracker-kuh.yaml").read_text(encoding="utf-8"))
 

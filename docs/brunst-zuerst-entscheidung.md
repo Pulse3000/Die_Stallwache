@@ -4,8 +4,8 @@ Stand: 30.10.2026 · Entscheidung des Betreibers (29.10.2026): „Zuerst fangen
 wir mit der Brunsterkennung an und dem Aufsprungverhalten der Kühe, die
 Kalb-Überwachung und Kalb-Erkennung kommt erst danach.“
 **Status: im Repo umgesetzt (Trainingsweg, Abnahme, ehrliche Statusmeldung),
-fachlich geprüft (`ki-wache`, 30.10.2026). Gate-Werte K, Ü und D vom
-Betreiber bestätigt (30.10.2026). Am Gerät nichts scharf: Vor dem
+fachlich geprüft und nachgeprüft (`ki-wache`, 30.10.2026). Gate-Werte K, Ü
+und D vom Betreiber bestätigt (30.10.2026). Am Gerät nichts scharf: Vor dem
 Scharfschalten sind die Punkte in Abschnitt 9 offen.**
 
 ## 1. Grundsatz
@@ -16,7 +16,7 @@ Scharfschalten sind die Punkte in Abschnitt 9 offen.**
    (`aufsprung_oben` in `edge-agent/main.py`, genutzt von
    `LogicEngine._brunst`). Die Regel greift, wenn zwei getrackte Kuh-Boxen
    sich überlappen (IoU ≥ 0,15) und die obere mindestens 20 % der Boxhöhe
-   höher ansetzt, und zwar mindestens `logik.brunst_min_dauer_s` (4 s) lang.
+   der unteren Kuh höher ansetzt, und zwar mindestens `logik.brunst_min_dauer_s` (4 s) lang.
 2. **Was v1 nicht kann, wird nicht behauptet.** Austreibung (Fruchtblase,
    Kälberfüße) und Kalbeverdacht (Schwanzwinkel) brauchen Klassen bzw.
    Keypoints, die v1 nicht hat. Der Agent erkennt das selbst
@@ -78,7 +78,10 @@ minutenlang anhalten:
 | Doppelbox derselben Kuh | ≈ 0,44 |
 
 **Stichprobe der Stallwache-Bilder vom 27.10.2026.** Drei Bilder aus der
-Google-Drive-Ablage (05:41, 10:02 und 22:59 Uhr) zeigen:
+Google-Drive-Ablage des Betreibers (05:41, 10:02 und 22:59 Uhr laut
+Dateiname). Die Namen `JJJJMMTT-HHMMSS.jpg` ohne Kamera-Kürzel und etwa ein
+Bild pro Minute sind das Schema des alten kuhwatch, nicht des Edge-Agenten.
+Sie zeigen:
 - **Kühe nur am Rand.** Die Kamera blickt auf Futtertisch, Fressgitter und
   Strohlager. Kühe sind nur am unteren Rand am Gitter zu sehen. Der
   Laufbereich, in dem Aufsprünge passieren, ist nicht im Bild. Um 22:59 Uhr
@@ -88,13 +91,31 @@ Google-Drive-Ablage (05:41, 10:02 und 22:59 Uhr) zeigen:
   Spinnennetz.
 - **Bildfehler.** Blockartige Fehler im Bild deuten auf verlorene
   Datenpakete hin.
-- **Uhrzeit weicht ab.** Die eingeblendete Uhrzeit liegt 53–57 min hinter
-  dem Dateinamen.
-- **Auflösung stimmt:** 2560×1440, also 2K.
+- **Uhrzeit weicht ab.** Die Einblendung der Kamera zeigt 53–57 min später
+  als der Dateiname (06:38:48 gegen 05:41:36, 10:55:52 gegen 10:02:32,
+  23:57:08 gegen 22:59:40). Eine reine Zeitzonen- oder Sommerzeit-Abweichung
+  (Umstellung 25.10.) wäre konstant 60 min. Dazu passen würde: Die Kamera
+  steht noch auf Sommerzeit, und die Bilder waren beim Speichern 2,5–7 min
+  alt. Das wäre der bekannte Pufferfehler von kuhwatch
+  (`bildfrische-spezifikation.md`), den der Edge-Agent behoben hat. Belegt
+  ist das nicht. Ein altes Bild würde jede Meldung verspäten.
+  **Vor dem Labeln klären:** Handy-Uhr ins Bild halten und Einblendung,
+  Handy und Dateiname vergleichen (Bildfrische-Kriterium 9, Soll unter 5 s).
+- **Auflösung:** Die Bilder haben 2560×1440, also 2K. Für den Edge-Agenten
+  belegt das erst seine Logzeile „Bild von der Kamera“.
 
-**Folge:** Vor dem Labeln die Kamera auf den Laufbereich der
-besamungsfähigen Gruppe richten. Ist das an der Stallwache nicht möglich,
-läuft die Brunst-Phase auf einer anderen Kamera.
+**Folge:** Die Stallwache bleibt auf den Abkalbebereich gerichtet, solange
+über ihr Livebild Kalbungen kontrolliert werden (Bedingung 1 oben). Sie
+liefert außerdem die Bilder für Phase 2 (B3).
+- Für die Brunst-Phase eine vorhandene **andere** Kamera auf den
+  Laufbereich der besamungsfähigen Gruppe richten.
+- Wird doch die Stallwache gedreht, muss die Kalbekontrolle vorher anders
+  gesichert sein.
+- Unabhängig davon den Kasten vor der Linse entfernen und die Linse
+  reinigen. Das verbessert auch die Nachtbilder für Phase 2.
+
+(Korrektur nach Nachprüfung `ki-wache`; die erste Fassung empfahl, die
+Stallwache umzurichten.)
 
 **Im Analyse-Modus endet die Datensammlung.** Trainingsbilder speichert der
 Agent nur im Silent Mode. Jede Geburt während der Brunst-Phase fehlt damit
@@ -106,7 +127,16 @@ Abkalbebereich betreiben.
 **Im Training fehlen Aufsprung-Bilder.** Bei einem Bild alle 120 s landen pro
 Brunst im Mittel 0,1–0,25 Aufsprung-Bilder im Datensatz. Die aufgerichtete
 Kuh ist für das Modell unbekannt. Gate Ü (Abschnitt 4) braucht deshalb
-Bilder aus echten Aufsprung-Videos; eng stehende Kühe genügen nicht.
+Bilder aus echten Aufsprung-Videos. Zwei Kühe hintereinander am Fressgitter
+erfüllen die Regel ebenfalls (IoU ≈ 0,29) und bestehen Ü, ohne dass je ein
+Aufsprung gezeigt wurde.
+- Frames aus Aufsprung-Videos mit der Aufnahmezeit des Clips benennen:
+  `stallwache_20261102-031500_aufsprung_007.jpg`. Dann verteilt der Split sie
+  nach Stalltagen, auch ins Val-Set.
+- Ohne Zeitstempel im Namen landen Bilder nur im Training.
+- Die Abnahme weist die Video-Paare getrennt aus und warnt, wenn Ü ohne sie
+  bestanden ist.
+- Ob Ü nur aus Video-Paaren gezählt wird, entscheidet der Betreiber.
 
 **Nummern tauschen beim Aufsprung am ehesten.** Das ist der Moment mit der
 größten Bewegung und Überdeckung. Ein Tausch nennt die falsche Kuh als
@@ -146,7 +176,8 @@ Aufsprünge.
 
 Begründung der Stichproben: 27 von 30 belegen nur eine Rate ≥ 0,76
 (einseitige 95-%-Untergrenze). Bei 5 Paaren bestünde eine wahre Rate von 60 %
-das Gate in 34 % der Fälle, bei 20 Paaren in 5 %. Die NMS-Grenze von
+das Gate (bei der früheren Schwelle 80 %) in 34 % der Fälle, bei 20 Paaren
+und 90 % nur in 0,4 %. Die NMS-Grenze von
 Ultralytics (0,7) bleibt; höher hieße mehr Doppelboxen. K, Ü und D hat der
 Betreiber am 30.10.2026 bestätigt. K-Nacht und E sind Vorschläge von
 `ki-wache` und noch nicht ausdrücklich bestätigt; bis dahin gelten sie.
@@ -157,8 +188,13 @@ Betreiber am 30.10.2026 bestätigt. K-Nacht und E sind Vorschläge von
 modell:
   pfad: best_v1.pt
   tier_klassen: [kuh]
-  freigegeben: [brunst]   # erst wenn K, Ü, D und E bestanden; vorher []
+  freigegeben: [brunst]   # erst nach allen Gates (unten); vorher []
 ```
+
+Freigabe-Regel (gleichlautend im Abnahmebericht): Erst wenn K, K-Nacht, Ü,
+D, E, 3b (24 h höchstens ein falscher Brunstverdacht) und 4 (mindestens
+1 Bild/s am Stall-Rechner) bestanden sind: `modell.freigegeben: [brunst]`.
+Bis dahin darf das Modell laufen, aber mit `freigegeben: []`.
 
 `modell.klassen` **nicht** kürzen. Das Modell meldet selbst, welche Klassen
 es kennt, und `nicht_scharf` wertet das aus. Gekürzte Klassen wären eine
@@ -170,10 +206,11 @@ der Logik wegfiltern.
 Der Silent Mode endet nur auf eine Art: Ein abgenommenes Modell steht in
 `modell.pfad`. Bis dahin sammelt der Agent weiter, und das ist gut so.
 
-0. **Kamera prüfen:**
-   - Laufbereich der besamungsfähigen Gruppe im Bild?
+0. **Kamera wählen und prüfen:**
+   - Laufbereich der besamungsfähigen Gruppe im Bild? Nicht die
+     Stallwache, solange über sie Kalbungen kontrolliert werden.
    - Nichts vor dem Objektiv?
-   - Uhr richtig?
+   - Uhr und Bildalter richtig (Kriterium 9)?
 
    Siehe Abschnitt 2, Stichprobe.
 1. **Bestand prüfen** (Stall-Rechner):
@@ -236,32 +273,34 @@ Am Gerät (Beweispflicht, erst mit v1):
    Grundsatz 2. Restrisiko: Die Startmeldung geht bisher nur ans Dashboard
    und nicht per Telegram (B4 in Abschnitt 9).
 2. **Aufsprung-Regel passt nicht zur Kameraposition.** Bei Draufsicht heißt
-   „höher im Bild“ „weiter hinten“. Gegenmittel: Kamera richten, Gate E.
+   „höher im Bild“ „weiter hinten“. Gegenmittel: passende Kamera für die
+   Brunst-Phase wählen, Gate E.
 3. **NMS schluckt die zweite Kuh.** Das Risiko ist bei Seitenansicht
    kleiner als vermutet (IoU beim Aufsprung etwa 0,3–0,45), bei Ansicht von
    hinten größer. Gegenmittel: Gate Ü mit getrennt ausgewiesenen engen
    Paaren.
 4. **Doppelbox, Kalb am Euter, Tiefenstaffelung** lösen die Regel aus.
-   Gegenmittel: Gate D, Labelregel Saugkälber, Kamera nicht auf den
-   Abkalbebereich.
-5. **Nachtraining nach Fehlalarmen beschädigt das Kuh-Modell.** Brunst-
-   Fehlalarme zeigen echte Kühe. Als „Background“ gelabelt (Skill
-   `fehlalarm-triage`) lernt das Modell, dass überlappende Kühe kein Objekt
-   sind. Deshalb in der Brunst-Phase trennen:
-   - **Modellfehler** (Geisterbox, Doppelbox, Kalb als Kuh): jede Kuh korrekt
-     umranden.
-   - **Regelfehler** (Boxen stimmen, es war aber kein Aufsprung): nicht ins
-     Training.
+   Gegenmittel: Gate D, Phantom-Lagen im Abnahmebericht, Labelregel
+   Saugkälber, Brunst-Phase nicht an der Kamera des Abkalbebereichs.
+5. **Nachtraining nach Fehlalarmen beschädigt das Kuh-Modell.** Ein Bild
+   ohne Label behandelt das Training als Hintergrund. Ein Fehlalarm-Bild mit
+   nicht umrandeten Kühen lehrt also „hier ist keine Kuh“, und das gilt für
+   jede Phase. Regel (Skill `fehlalarm-triage`, korrigiert):
+   - In jedem Fehlalarm-Bild alle echten Kühe korrekt umranden, nur die
+     fälschlich erkannte Klasse bleibt ungelabelt.
+   - Ein leeres Label (Background) gibt es nur für Bilder ganz ohne Tier.
+   - **Regelfehler** (Boxen stimmen, das Verhalten war harmlos) kommen nicht
+     ins Training.
 
 ## 9. Vor dem Scharfschalten offen
 
 | Nr. | Punkt | Wer |
 | --- | --- | --- |
 | B1 | Erfolgsmaß Brunst: Gate E und ein Feldvergleich über 4 Wochen (erkannte gegen notierte Brunsten). Vorschlag `ki-wache`: ≥ 50 % bei ≤ 1 Fehlalarm/Tag, also mindestens so gut wie Sichtbeobachtung. Der alte Goldstandard A1 (Bilder im 2-min-Takt) prüft keine 4-s-Regel | Betreiber legt das Ziel fest |
-| B2 | Kamera auf die besamungsfähige Gruppe im Laufbereich, nicht auf den Abkalbebereich | Betreiber |
+| B2 | Eine Kamera auf die besamungsfähige Gruppe im Laufbereich. Nicht die Stallwache, solange über sie Kalbungen kontrolliert werden | Betreiber |
 | B3 | Datensammlung für Phase 2 während der Brunst-Phase (parallel sammeln oder andere Kamera) | Betreiber entscheidet |
 | B4 | Startmeldung „Kalbung nicht überwacht“ einmal per Telegram, nur bei geändertem Umfang oder höchstens 1× in 24 h | Code, nach Entscheidung |
-| B5 | Fehlalarm-Triage in der Brunst-Phase: Modell- und Regelfehler trennen (Risiko 5) | Skill `fehlalarm-triage` anpassen |
+| B5 | Fehlalarm-Triage: Kühe in Fehlalarm-Bildern immer umranden, Regelfehler nicht ins Training (Risiko 5) | Skill `fehlalarm-triage` angepasst |
 | B6 | Aufsprung-Alarmbild mit beiden Kästen (rot: duldet, gelb: springt auf) und Hinweis „bitte im Bild prüfen“. Namen weglassen, wenn die Spur seit der Bestätigung verloren war, gesprungen ist oder stark überlappt hat | Code, eigene Spezifikation |
 | – | Brunst-Alarme nachts (22–6 Uhr) still zustellen; Austreibung, Eskalation und Totmann bleiben laut | Betreiber entscheidet |
 | – | Wach-Modus warnt, wenn die Austreibung nicht scharf ist (er senkt sonst nur die Brunst-Mindestdauer) | Code, klein |

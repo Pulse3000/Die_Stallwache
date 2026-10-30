@@ -904,8 +904,12 @@ def umfang_text(fehlt: list[str]) -> str:
     if fehlt:
         teile.append("NICHT scharf: " + ", ".join(ALARMWEGE[k] for k in fehlt if k in ALARMWEGE))
     text = " · ".join(teile)
-    if "austreibung" in fehlt or "kalbeverdacht" in fehlt:
-        text += ". Kalbungen erkennt die KI damit nicht – bitte wie bisher selbst kontrollieren."
+    # Handlungsanweisung genau zum fehlenden Weg (Befund ki-wache H4).
+    if "austreibung" in fehlt:
+        text += ". Geburten erkennt die KI damit nicht – Kalbungen bitte wie bisher selbst kontrollieren."
+    elif "kalbeverdacht" in fehlt:
+        text += (". Fruchtblase und Kälberfüße werden gemeldet, Wehenzeichen vorher nicht – "
+                 "Kühe vor dem Termin bitte wie bisher beobachten.")
     return text
 
 
@@ -2132,9 +2136,12 @@ class Notifier:
         def zahl(typ: str, weg: str):
             # „Austreibung: 0" laese sich wie „keine Geburt" – bei einem Modell,
             # das Geburten gar nicht sieht, waere das eine falsche Entwarnung.
+            # Zugestellte Alarme eines nicht abgenommenen Wegs werden aber nie
+            # verschwiegen (Befund ki-wache S4): Zahl plus Hinweis.
+            n = z[typ]
             if analyse_aktiv and weg in (self.nicht_scharf or ()):
-                return "nicht überwacht"
-            return z[typ]
+                return f"{n} (nicht abgenommen – bitte am Bild prüfen)" if n else "nicht überwacht"
+            return n
 
         text = (
             "📋 Stallblick-Tagesbericht\n"

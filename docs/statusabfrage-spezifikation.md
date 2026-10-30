@@ -261,14 +261,15 @@ Fachliche Prüfung: `ki-wache` (25.10., Befund B1 blockierend, übernommen).
   Kameras). Fehlt das Feld (alter Agent), gilt nichts als nicht scharf.
   **Regel:** Mit nicht leerem `nicht_scharf` ist die Datenlage nicht aktuell:
   Grund „Austreibung (Fruchtblase/Kälberfüße), Kalbeverdacht (Schwanzwinkel)
-  nicht scharf – das Modell ist dafür nicht abgenommen; Kalbungen bitte wie
-  bisher selbst kontrollieren“, Stufe ohne Alarme `UNBEKANNT`, nie `OK`. Mit
+  nicht scharf – das Modell erkennt das nicht oder ist dafür nicht
+  abgenommen; Kalbungen bitte wie bisher selbst kontrollieren“ (fehlt nur der
+  Kalbeverdacht: „…; Kühe vor dem Termin bitte wie bisher beobachten“), Stufe ohne Alarme `UNBEKANNT`, nie `OK`. Mit
   KV folgt statt „Keine Aussage über die Tiere möglich“ der Stand der
   scharfen Wege: „Brunst (Aufsprung): keine offenen Meldungen in den letzten
   12 h, Analyse läuft, letztes Lebenszeichen 03:58.“ Offene Alarme stufen wie
   bisher (Brunstverdacht → `WARNUNG`), mit „Achtung: …“. `null` → „Umfang des
   Modells unklar“. Antwort: `kameras[].datenlage.lebenszeichen.nichtScharf`,
-  `kameras[].datenlage.scharf`. Tests: `tests/stall-status.test.ts` 24–24g.
+  `kameras[].datenlage.scharf`. Tests: `tests/stall-status.test.ts` 24–24h.
 
 ### 9.4 Konfiguration
 

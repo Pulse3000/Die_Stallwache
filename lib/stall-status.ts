@@ -433,11 +433,14 @@ function bewerteDatenlage(
     // Brunst-Phase: Ein Modell ohne Fruchtblase/Kaelberfuesse sieht keine
     // Geburt. „OK" hiesse hier „auch keine Kalbung" — das waere gelogen.
     const fehlt = new Set(nichtScharf);
+    // Handlungsanweisung genau zum fehlenden Weg (Befund ki-wache H4/H5).
     grund =
-      `${nichtScharf.map((k) => ALARMWEG_TEXT[k]).join(", ")} nicht scharf – das Modell ist dafür nicht abgenommen` +
-      (fehlt.has("austreibung") || fehlt.has("kalbeverdacht")
+      `${nichtScharf.map((k) => ALARMWEG_TEXT[k]).join(", ")} nicht scharf – das Modell erkennt das nicht oder ist dafür nicht abgenommen` +
+      (fehlt.has("austreibung")
         ? "; Kalbungen bitte wie bisher selbst kontrollieren"
-        : "");
+        : fehlt.has("kalbeverdacht")
+          ? "; Kühe vor dem Termin bitte wie bisher beobachten"
+          : "");
     const bedient = (Object.keys(ALARMWEG_TEXT) as Alarmweg[]).filter((k) => !fehlt.has(k));
     // „keine offenen Meldungen" nur mit dauerhafter Ablage — sonst koennten
     // Meldungen anderer Instanzen fehlen (siehe unten).

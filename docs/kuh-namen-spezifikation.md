@@ -180,8 +180,11 @@ Am Gerät (erst mit Modell, Beweispflicht):
 5. **Mehrere Agenten, ein Bot** (Befund `qa-waechter`): Läuft je Kamera ein
    Agent mit demselben Bot (Skill `neue-kamera`), bekommt `/kuh` der Agent,
    der zuerst abruft. „Kuh #12“ ist über Kameras hinweg mehrdeutig. Heute
-   läuft nur ein Analyse-Agent. Vor einem zweiten: je Kamera ein eigener Bot
-   oder ein Kamera-Kürzel im Befehl (eigene Entscheidung).
+   läuft nur ein Analyse-Agent. Dasselbe gilt für die Feedback-Knöpfe: Ein
+   Fehlalarm-Tipp, den der falsche Agent abholt, sichert keine Bildserie,
+   und das Votum zählt im falschen Tagesbericht (Befund `ki-wache`). Vor
+   einem zweiten Agenten: je Kamera ein eigener Bot oder ein Kamera-Kürzel
+   im Befehl (eigene Entscheidung).
 6. **Nachricht in unerwarteter Form** kostete vorher ein Analysebild (5 s
    Pause). Jetzt wird sie gekapselt verworfen; nur ASCII-Ziffern gelten als
    Nummer (Befund `qa-waechter`, Test `test_kuh_namen.py` 6).
