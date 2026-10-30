@@ -35,10 +35,11 @@ stream:
   kamera: stallwache
   # Mindestbreite des Kamerabilds. Der Agent loggt beim Verbinden, welche
   # Aufloesung WIRKLICH ankommt (und nennt sie im Tagesbericht); darunter
-  # eine Warnung. Tapo 2K = 2560x1440 bzw. 2304x1296 – nur ueber den
-  # Hauptstream (go2rtc „stallwache“ = stream1) und mit Videoqualitaet 2K in
-  # der Tapo-App. 0 = keine Pruefung.
-  min_breite: 1920
+  # eine Warnung. 1280 erkennt den Unterstream (Tapo stream2 = 640x360). Die
+  # Stallwache liefert ueber stream1 2560x1440 (gemessen 27.10.2026). Fuer
+  # Kuh-Boxen (Brunst-Phase, imgsz 640) bringt 2K nichts und kostet
+  # Dekodierzeit auf alter Hardware – nicht hochsetzen. 0 = keine Pruefung.
+  min_breite: 1280
   # 1 Frame/Sekunde reicht voellig: Kalbeanzeichen entwickeln sich ueber
   # Minuten – so laeuft die Analyse auch auf einem alten Laptop ohne GPU.
   ziel_fps: 1.0
@@ -63,12 +64,14 @@ modell:
     amniotic_sac: 1  # Fruchtblase
     calf_legs: 2     # Kaelberfuesse
   # Alarmwege mit bestandener Abnahme (training/abnahme.py). Nur diese
-  # meldet der Agent der App als „scharf“; fehlt der Eintrag, gilt, was das
-  # Modell kann. Unterdrueckt keine Erkennung (Recall vor allem).
+  # meldet der Agent der App als „scharf“ – und nur, soweit das Modell sie
+  # kann. FEHLT der Eintrag, gilt nichts als scharf (Warnung beim Start);
+  # die App sagt dann nie „OK“. Unterdrueckt keine Erkennung (Recall vor allem).
   # Brunst-Phase (Modell aus stall-brunst.yaml, docs/brunst-zuerst-entscheidung.md):
-  #   freigegeben: [brunst]
+  #   freigegeben: [brunst]     (erst nach Gate K, Ü, D, E; vorher [])
   # Spaeter mit Kalbeueberwachung: [brunst, austreibung, kalbeverdacht]
-  # In der Brunst-Phase zusaetzlich klassen auf  kuh: 0  kuerzen.
+  # modell.klassen NICHT kuerzen: Was das Modell kennt, meldet es selbst;
+  # gekuerzte Klassen filterten in Phase 2 Fruchtblase/Fuesse vor der Logik weg.
   # Nur diese Klassen sind Tiere (Tracking, Schwanzwinkel, Brunst). Andere
   # Boxen (z. B. Mensch bei einem allgemeinen Modell) werden ignoriert.
   # Kommt eine Tier-Klasse im 2. Training dazu (kuh_seitenlage), hier ergaenzen.

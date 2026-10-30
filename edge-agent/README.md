@@ -150,7 +150,7 @@ zeigt alle. Regeln (`docs/kuh-namen-spezifikation.md`):
 
 Welcher Stream gewählt ist, belegt nur das Bild selbst. Der Agent loggt beim
 Verbinden genau einmal je Wechsel die Auflösung und nennt sie im
-Tagesbericht; unter `stream.min_breite` (Standard 1920) steht eine Warnung:
+Tagesbericht; unter `stream.min_breite` (Standard 1280: erkennt den Unterstream) steht eine Warnung:
 
 ```bash
 docker compose logs agent | grep "Bild von der Kamera"
@@ -176,6 +176,12 @@ ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,heigh
 - Die Webapp bekommt über den Fernzugriff **bewusst** den SD-Stream
   (`FERN_QUELLE=stallwache_sd`, Datenvolumen am Handy). Das Livebild in der App
   ist also nicht das Bild, das der Agent analysiert.
+- **Stichprobe 27.10.2026 (Stallwache):** 2560×1440 kommt an. Schlechte
+  Bildqualität hatte andere Ursachen: Ein weißer Kasten mit Kabel hängt vor
+  der Linse und wird nachts vom IR-Licht grell angestrahlt, dazu
+  Spinnweben; außerdem blockartige Bildfehler, vermutlich verlorene
+  WLAN-Pakete zwischen Kamera und Bridge. Abhilfe: Gegenstand aus dem Bild,
+  Linse reinigen, WLAN-Empfang der Kamera prüfen.
 - 2K kostet Rechenzeit beim Dekodieren (alle Bilder des Streams, nicht nur
   1/s). Auf der A6-3650 nach dem Umstellen prüfen, ob „Bildgreifer … hinter
   dem Stream“ im Log erscheint (Bildfrische-Spezifikation, Kriterium 10).
@@ -192,9 +198,14 @@ Kalbeverdacht …“, die App sagt für die Kamera kein „OK“. Kurzfassung:
 2. `training/colab_training.py` mit `PHASE = "brunst"` (Datensatz
    `training/stall-brunst.yaml`).
 3. `python3 training/abnahme.py best_v1.pt datensatz --phase brunst`
-   (Gate K: Kuh-Recall, Gate Ü: beide Kühe bei Überlappung).
-4. `config.yaml`: `modell.pfad: best_v1.pt`, `modell.klassen: {kuh: 0}`,
-   `modell.freigegeben: [brunst]`; dann `ANALYSE=1 docker compose up -d --build`.
+   (Gate K: Kuh-Recall, Gate Ü: beide Kühe in Aufsprung-Lage, Gate D:
+   Doppelboxen; von Hand Gate E mit echten Aufsprung-Videos in 1 Bild/s).
+4. `config.yaml`: `modell.pfad: best_v1.pt`, `modell.freigegeben: [brunst]`
+   (vorher `[]`; `modell.klassen` nicht kürzen); dann
+   `ANALYSE=1 docker compose up -d --build`.
+
+Vorher die Kamera prüfen: Laufbereich der besamungsfähigen Gruppe im Bild,
+nichts vor dem Objektiv (Abschnitt 2 und 9 der Entscheidung).
 
 Der Abschnitt unten beschreibt den vollen Weg (Pose, Fruchtblase,
 Kälberfüße) für die Kalbeüberwachung danach.

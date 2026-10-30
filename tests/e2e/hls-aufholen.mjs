@@ -13,7 +13,9 @@
  *
  * Braucht Chromium (CHROMIUM=/opt/pw-browsers/chromium), ffmpeg mit libx264
  * und playwright-core. Keine Webapp noetig. Gehoert nicht zu `npm test`.
- * Exit 0 = alte Einstellung haengt fest UND die neue holt auf.
+ * Exit 0 = alte Einstellung haengt fest UND die neue holt auf UND die neue
+ * friert bei schwankender Segment-Ladezeit nicht oefter ein als die alte
+ * (Befund qa-waechter: Aufholen per 1,15-facher Geschwindigkeit tat das).
  */
 
 import { execFileSync } from "node:child_process";
@@ -39,6 +41,8 @@ const FENSTER = Math.max(6, Math.ceil(30 / SEG_S));  // Segmente in der Playlist
 const SEGMENTE = Math.ceil(150 / SEG_S);            // 150 s Material
 const PAUSE_S = Number(process.env.PAUSE_S ?? 10);  // Pause, wie bei einem kurz gesperrten Handy
 const ERHOLUNG_S = 16; // so lange darf das Aufholen dauern
+const SCHWANKUNG_MS = Number(process.env.JITTER ?? 1500); // Ladezeit je Segment 0..x ms
+const SCHWANKUNG_S = 40; // Dauer des Laufs mit schwankender Ladezeit
 
 const dir = mkdtempSync(join(tmpdir(), "hls-aufholen-"));
 execFileSync("ffmpeg", ["-loglevel", "error", "-y", "-f", "lavfi", "-i",
@@ -59,6 +63,9 @@ function playlist() {
 }
 
 const hlsJs = readFileSync(HLS_JS);
+// Schwankende Ladezeit: fuer jeden Lauf dieselbe Folge (gleiche Bedingungen alt/neu).
+const netz = { schwankung: 0, saat: 1 };
+const zufall = () => ((netz.saat = (netz.saat * 1103515245 + 12345) % 2147483648) / 2147483648);
 const server = createServer((req, res) => {
   const u = req.url ?? "";
   if (u.startsWith("/hls.js")) {
@@ -68,7 +75,9 @@ const server = createServer((req, res) => {
       .end(playlist());
   } else if (/^\/seg\/\d+\.ts/.test(u)) {
     const n = Number(u.match(/seg\/(\d+)\.ts/)[1]);
-    res.writeHead(200, { "Content-Type": "video/mp2t" }).end(segment(n));
+    const senden = () => res.writeHead(200, { "Content-Type": "video/mp2t" }).end(segment(n));
+    if (netz.schwankung) setTimeout(senden, zufall() * netz.schwankung);
+    else senden();
   } else {
     res.writeHead(200, { "Content-Type": "text/html" }).end("<!doctype html><video id=v muted playsinline></video>");
   }
@@ -88,7 +97,9 @@ const abstand = (page) => page.evaluate(() => {
 });
 
 /** neu=false: Einstellung vor der Korrektur; neu=true: lib/hls-live.ts wie in CameraStream.tsx. */
-async function messe(name, neu, mitPause) {
+async function messe(name, neu, mitPause, schwankung = 0) {
+  netz.schwankung = schwankung;
+  netz.saat = 1;
   const page = await browser.newPage();
   const fehler = [];
   page.on("pageerror", (e) => fehler.push(e.message));
@@ -102,7 +113,9 @@ async function messe(name, neu, mitPause) {
       : { lowLatencyMode: true, liveSyncDuration: 2, maxBufferLength: 8, maxMaxBufferLength: 12, backBufferLength: 0 });
     if (neu) hls.on(Hls.Events.LEVEL_LOADED, (_e, d) => passeLatenzGrenzeAn(hls.config, d.details));
     window.__seeks = 0;
+    window.__standbilder = 0;
     v.addEventListener("seeking", () => { window.__seeks++; });
+    v.addEventListener("waiting", () => { window.__standbilder++; });
     hls.loadSource("/live.m3u8");
     hls.attachMedia(v);
     v.play();
@@ -121,8 +134,11 @@ async function messe(name, neu, mitPause) {
   };
   const ruhig = await abtasten(8);          // Normalbetrieb vor der Pause
   const seeksVorher = await page.evaluate(() => window.__seeks);
+  const standVorher = await page.evaluate(() => window.__standbilder);
   let danach = ruhig;
-  if (mitPause) {
+  if (schwankung) {
+    danach = await abtasten(SCHWANKUNG_S);
+  } else if (mitPause) {
     await page.evaluate(() => document.getElementById("v").pause());
     await sleep(PAUSE_S * 1000);
     await page.evaluate(() => document.getElementById("v").play());
@@ -131,13 +147,16 @@ async function messe(name, neu, mitPause) {
     danach = await abtasten(ERHOLUNG_S);
   }
   const seeks = (await page.evaluate(() => window.__seeks)) - seeksVorher;
+  const standbilder = (await page.evaluate(() => window.__standbilder)) - standVorher;
+  netz.schwankung = 0;
   await page.close();
   const max = (a) => Math.max(...a), letzte = danach.slice(-5);
   const mittel = letzte.reduce((a, b) => a + b, 0) / letzte.length;
   console.log(`${name} Sprunggrenze ${grenze ?? "keine"} s · Abstand ruhig ${Math.min(...ruhig).toFixed(1)}..${max(ruhig).toFixed(1)} s · ` +
     `${mitPause ? "nach der Pause" : "weiter ruhig"}: Verlauf ${danach.map((w) => w.toFixed(0)).join(" ")} · ` +
-    `Ende ${mittel.toFixed(1)} s · Spruenge ${seeks}${fehler.length ? ` · Seitenfehler: ${fehler[0]}` : ""}`);
-  return { ruhigMax: max(ruhig), ende: mittel, seeks, grenze };
+    `Ende ${mittel.toFixed(1)} s · Spruenge ${seeks} · Standbilder ${standbilder}` +
+    `${fehler.length ? ` · Seitenfehler: ${fehler[0]}` : ""}`);
+  return { ruhigMax: max(ruhig), ende: mittel, seeks, standbilder, grenze };
 }
 
 let ok = true;
@@ -146,17 +165,22 @@ try {
   const alt = await messe("ALT      ", false, true);
   const neu = await messe("NEU      ", true, true);
   const still = await messe("NEU ruhig", true, false);
+  const altWackel = await messe("ALT Netz ", false, false, SCHWANKUNG_MS);
+  const neuWackel = await messe("NEU Netz ", true, false, SCHWANKUNG_MS);
 
   // Aussagekraeftig nur, wenn die alte Einstellung das Problem wirklich zeigt.
   const altHaengt = alt.ende > alt.ruhigMax + PAUSE_S * 0.6;
   const neuHolt = neu.ende <= neu.grenze && neu.ende < alt.ende - PAUSE_S * 0.3;
   const neuRuhig = still.seeks === 0;
+  const neuStabil = neuWackel.standbilder <= altWackel.standbilder;
   const pruefe = (b, t) => console.log(`${b ? "OK  " : "FEHL"} ${t}`);
   console.log("");
   pruefe(altHaengt, "alt: Verzoegerung bleibt nach der Pause groesser (Problem nachgestellt)");
   pruefe(neuHolt, "neu: Player holt nach der Pause auf (Ende unter der Sprunggrenze und deutlich unter alt)");
   pruefe(neuRuhig, "neu: im ruhigen Betrieb kein Springen");
-  ok = altHaengt && neuHolt && neuRuhig;
+  pruefe(neuStabil, `neu: bei schwankender Ladezeit (0..${SCHWANKUNG_MS} ms) nicht oefter Standbild als alt ` +
+    `(${neuWackel.standbilder} gegen ${altWackel.standbilder})`);
+  ok = altHaengt && neuHolt && neuRuhig && neuStabil;
 } finally {
   await browser.close();
   server.close();

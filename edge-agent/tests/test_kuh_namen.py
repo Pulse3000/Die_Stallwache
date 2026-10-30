@@ -137,6 +137,12 @@ p.check("6: /kuh 12 - entfernt", tn.name(12) is None)
 fb.verarbeite([nachricht(106, "/kuh 12 Anni"), nachricht(107, "/kuh 12")])
 p.check("6: /kuh 12 entfernt", tn.name(12) is None)
 gesendet.clear()
+fb.verarbeite([{"update_id": 107, "message": {"chat": "kaputt", "text": 5}},
+               {"update_id": 107, "message": ["keine", "nachricht"]}])
+p.check("6: Nachricht in unerwarteter Form -> still verworfen, kein Absturz (qa-waechter H3)",
+        tn.name(12) is None and fb._offset == 108)
+fb.verarbeite([nachricht(108, "/kuh ١٢ Berta"), nachricht(108, "/kuh 1_2 Berta")])
+p.check("6: nur ASCII-Ziffern als Nummer (qa-waechter H4)", tn.name(12) is None)
 fb.verarbeite([nachricht(108, "/kuh"), nachricht(109, "/kuh zwoelf Berta"), nachricht(110, "/kuehe")])
 a = antworten()
 p.check("6: /kuh ohne Nummer -> Hilfe", len(a) == 3 and a[0] == a[1] == m.KuhNamen.HILFE)

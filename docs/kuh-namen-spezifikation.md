@@ -158,6 +158,18 @@ Am Gerät (erst mit Modell, Beweispflicht):
 
 1. **Name auf der falschen Kuh nach ID-Wechsel** (Grenzen): sichtbar am Bild,
    durch Neuvergabe behoben. Die Erkennung selbst hängt nicht am Namen.
+   **Beim Aufsprung am gefährlichsten** (Befund `ki-wache`, nachgestellt):
+   Ein Nummerntausch vor dem Aufsprung meldet „Kuh #1 (Berta) auf Kuh #2
+   (Resi)“, obwohl Berta geduldet hat. Das führt zur falschen Besamung.
+   Maßgeblich bleibt das Alarmbild: Der rote Kasten sitzt immer auf der
+   geometrisch unteren Kuh.
+   **Vor dem Scharfschalten der Brunst-Phase** (Entscheidung
+   `brunst-zuerst-entscheidung.md` §9, B6):
+   - Beide Kästen ins Alarmbild (rot: duldet, gelb: springt auf).
+   - „Bitte im Bild prüfen“ in den Alarmtext.
+   - Namen weglassen, sobald die Spur seit der Bestätigung verloren war,
+     gesprungen ist oder stark überlappt hat (IoU ≥ 0,5).
+   - Die Antwort auf `/kuh` mit Bildausschnitt der benannten Kuh.
 2. **Fremde steuern Namen:** nur der eingetragene Chat wird angenommen; ein
    Name kann keinen Alarm auslösen oder unterdrücken.
 3. **Mehr Telegram-Updates:** Mit `message` liefert Telegram auch normale
@@ -165,6 +177,14 @@ Am Gerät (erst mit Modell, Beweispflicht):
    eigenen Chat ist. Abruftakt (10 s) bleibt.
 4. **Verwechslung Nummer ↔ Ohrmarke:** Die Statuszeile sagt weiter „Nr. von
    der KI, nicht Ohrmarke“; Stufe 1 ersetzt keine Tierkennzeichnung.
+5. **Mehrere Agenten, ein Bot** (Befund `qa-waechter`): Läuft je Kamera ein
+   Agent mit demselben Bot (Skill `neue-kamera`), bekommt `/kuh` der Agent,
+   der zuerst abruft. „Kuh #12“ ist über Kameras hinweg mehrdeutig. Heute
+   läuft nur ein Analyse-Agent. Vor einem zweiten: je Kamera ein eigener Bot
+   oder ein Kamera-Kürzel im Befehl (eigene Entscheidung).
+6. **Nachricht in unerwarteter Form** kostete vorher ein Analysebild (5 s
+   Pause). Jetzt wird sie gekapselt verworfen; nur ASCII-Ziffern gelten als
+   Nummer (Befund `qa-waechter`, Test `test_kuh_namen.py` 6).
 
 ## 8. Umsetzung
 

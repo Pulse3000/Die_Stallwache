@@ -303,6 +303,8 @@ p.check("Bericht warnt ohne Geburt im Val-Set", "NICHT scharfschalten" in text)
 
 # --- Brunst-Phase (Modell nur mit Klasse kuh) ---------------------------------
 m_quelle = (TRAINING.parent / "main.py").read_text(encoding="utf-8")
+ab_quelle = (TRAINING / "abnahme.py").read_text(encoding="utf-8")
+
 
 def kuh(box, konf=None):
     o = {"klasse": ab.KUH, "box": box, "kp": []}
@@ -311,39 +313,68 @@ def kuh(box, konf=None):
     return o
 
 
-oben, unten = (100, 100, 300, 260), (120, 160, 320, 320)   # IoU ~0,57: Aufsprung
-p.check("Brunst: Testpaar ueberlappt wie ein Aufsprung", ab.iou(oben, unten) >= ab.AUFSPRUNG_IOU)
+oben, unten = (100, 100, 300, 260), (120, 160, 320, 320)   # IoU ~0,39, 60 px hoeher: Aufsprung
+eng_o, eng_u = (100, 100, 300, 260), (105, 140, 305, 300)  # IoU ~0,58, 40 px hoeher
+neben = (310, 100, 510, 260)                                # daneben, gleiche Hoehe
 frei = (600, 100, 800, 260)
+p.check("Brunst: Testpaar liegt wie ein Aufsprung (Regel des Agenten)",
+        m.aufsprung_oben(oben, unten) == 0 and m.aufsprung_oben(unten, oben) == 1)
+p.check("Brunst: nebeneinander ist kein Aufsprung", m.aufsprung_oben(oben, neben) is None)
 bilder_b = [
-    # beide erkannt
+    # beide erkannt, Lage stimmt
     ([kuh(oben), kuh(unten), kuh(frei)], [kuh(oben, 0.9), kuh(unten, 0.8), kuh(frei, 0.9)]),
     # NMS hat die untere Kuh geschluckt
     ([kuh(oben), kuh(unten)], [kuh(oben, 0.9)]),
     # untere Kuh nur unsicher (unter 0,5 -> keine Spur im Tracker)
     ([kuh(oben), kuh(unten)], [kuh(oben, 0.9), kuh(unten, 0.45)]),
+    # beide erkannt, aber die erkannten Boxen liegen gleich hoch -> kein Aufsprung erkennbar
+    ([kuh(oben), kuh(unten)], [kuh(oben, 0.9), kuh((118, 110, 318, 270), 0.9)]),
+    # nebeneinander stehende Kuehe zaehlen nicht als Aufsprung-Lage
+    ([kuh(oben), kuh(neben)], [kuh(oben, 0.9), kuh(neben, 0.9)]),
+    # enges Paar (IoU >= 0,5, NMS-kritisch), beide erkannt
+    ([kuh(eng_o), kuh(eng_u)], [kuh(eng_o, 0.9), kuh(eng_u, 0.8)]),
 ]
-p.check("Brunst: Kuh-Recall zaehlt nur ab Konfidenz 0,5", ab.kuh_recall(bilder_b) == (7, 5))
-p.check("Brunst: Ueberlappung zaehlt Paare, beide noetig", ab.ueberlapp_recall(bilder_b) == (3, 1))
-p.check("Brunst: weit entfernte Kuh ist kein Paar",
-        ab.ueberlapp_recall([([kuh(oben), kuh(frei)], [kuh(oben, 0.9), kuh(frei, 0.9)])]) == (0, 0))
+p.check("Brunst: enges Testpaar liegt ueber der NMS-kritischen IoU",
+        ab.iou(eng_o, eng_u) >= ab.NMS_KRITISCH_IOU > ab.iou(oben, unten))
+p.check("Brunst: Kuh-Recall zaehlt nur ab Konfidenz 0,5", ab.kuh_recall(bilder_b) == (13, 11))
+u = ab.ueberlapp_recall(bilder_b)
+p.check("Brunst: Gate Ü zaehlt nur Aufsprung-Lagen, Treffer nur mit erkannter Lage",
+        (u["n"], u["treffer"]) == (5, 2))
+p.check("Brunst: Gate Ü weist enge Paare (IoU >= 0,5) getrennt aus", (u["n_eng"], u["treffer_eng"]) == (1, 1))
+p.check("Brunst: Gate Ü nutzt die Regel des Agenten, keine Kopie",
+        "lade_agent().aufsprung_oben" in ab_quelle and "aufsprung_oben(a.box, b.box)" in m_quelle
+        and "AUFSPRUNG_IOU" not in ab_quelle)
 
-e = ab.bewerte_brunst((100, 95), (10, 9))
-p.check("Brunst: 95 % und 90 % -> bestanden, Exit 0",
-        (e["gate_k"], e["gate_u"], e["code"]) == ("bestanden", "bestanden", 0))
-e = ab.bewerte_brunst((100, 95), (10, 7))
-p.check("Brunst: Ueberlappung 70 % -> verfehlt, Exit 1", (e["gate_u"], e["code"]) == ("verfehlt", 1))
-e = ab.bewerte_brunst((100, 89), (10, 10))
-p.check("Brunst: Kuh-Recall 89 % -> verfehlt", (e["gate_k"], e["code"]) == ("verfehlt", 1))
-e = ab.bewerte_brunst((100, 95), (4, 4))
-p.check("Brunst: < 5 ueberlappende Paare -> nicht pruefbar, Exit 2",
-        (e["gate_u"], e["code"]) == ("nicht prüfbar", 2))
-e = ab.bewerte_brunst((29, 29), (10, 10))
-p.check("Brunst: < 30 Kuehe -> nicht pruefbar", (e["gate_k"], e["code"]) == ("nicht prüfbar", 2))
-text_b = ab.bericht_brunst(ab.bewerte_brunst((100, 95), (4, 4)), "best_v1.pt", "datensatz")
+doppel = [([kuh(oben), kuh(frei)], [kuh(oben, 0.9), kuh((105, 105, 295, 250), 0.7), kuh(frei, 0.9)])]
+p.check("Brunst: Doppelbox auf derselben Kuh wird gezaehlt", ab.doppelboxen(doppel) == (2, 1))
+p.check("Brunst: eng stehende, je einmal erkannte Kuehe sind keine Doppelbox",
+        ab.doppelboxen([bilder_b[0]]) == (3, 0))
+
+def ue(n, t):
+    return {"n": n, "treffer": t, "n_eng": 0, "treffer_eng": 0}
+
+e = ab.bewerte_brunst((200, 190), ue(20, 18), (200, 2))
+p.check("Brunst: 95 %, 90 %, 1 % Doppel -> bestanden, Exit 0",
+        (e["gate_k"], e["gate_u"], e["gate_d"], e["code"]) == ("bestanden", "bestanden", "bestanden", 0))
+e = ab.bewerte_brunst((200, 190), ue(20, 17), (200, 2))
+p.check("Brunst: Ü 85 % -> verfehlt, Exit 1", (e["gate_u"], e["code"]) == ("verfehlt", 1))
+e = ab.bewerte_brunst((200, 179), ue(20, 20), (200, 0))
+p.check("Brunst: Kuh-Recall 89,5 % -> verfehlt", (e["gate_k"], e["code"]) == ("verfehlt", 1))
+e = ab.bewerte_brunst((200, 190), ue(19, 19), (200, 0))
+p.check("Brunst: < 20 Aufsprung-Paare -> nicht pruefbar, Exit 2", (e["gate_u"], e["code"]) == ("nicht prüfbar", 2))
+e = ab.bewerte_brunst((99, 99), ue(20, 20), (99, 0))
+p.check("Brunst: < 100 Kuehe -> K und D nicht pruefbar",
+        (e["gate_k"], e["gate_d"], e["code"]) == ("nicht prüfbar", "nicht prüfbar", 2))
+e = ab.bewerte_brunst((200, 190), ue(20, 20), (200, 5))
+p.check("Brunst: 2,5 % Doppelboxen -> verfehlt", (e["gate_d"], e["code"]) == ("verfehlt", 1))
+text_b = ab.bericht_brunst(ab.bewerte_brunst((200, 190), ue(4, 4), (200, 0)), "best_v1.pt", "datensatz")
 p.check("Brunst-Bericht: Austreibung/Kalbeverdacht ausdruecklich NICHT scharf",
         "NICHT scharf" in text_b and "Austreibung" in text_b)
-p.check("Brunst-Bericht: Hinweis auf fehlende Ueberlappungs-Bilder", "überlappende Kühe" in text_b)
-p.check("Brunst-Schwelle = Agent: AUFSPRUNG_IOU wie LogicEngine._brunst (0.15)",
-        ab.AUFSPRUNG_IOU == 0.15 and "self._iou(a.box, b.box) < 0.15" in m_quelle)
+p.check("Brunst-Bericht: Hinweis auf echte Aufsprung-Videos statt eng stehender Kuehe",
+        "Aufsprung-Videos" in text_b and "genügen nicht" in text_b)
+p.check("Brunst-Bericht: Ende-zu-Ende-Gate E mit 1 Bild/s und Freigabe-Regel",
+        "| E Ende zu Ende" in text_b and "-r 1" in text_b and "freigegeben: []" in text_b)
+p.check("Brunst: Gate-Konfidenz = new_track_thresh aus tracker-kuh.yaml",
+        f"new_track_thresh: {ab.KUH_KONFIDENZ}" in (TRAINING.parent / "tracker-kuh.yaml").read_text(encoding="utf-8"))
 
 sys.exit(p.bericht())

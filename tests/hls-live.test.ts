@@ -14,7 +14,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import {
-  AUFHOL_RATE,
   LIVE_SYNC_S,
   MAX_LATENZ_MAX_S,
   MAX_LATENZ_MIN_S,
@@ -24,14 +23,13 @@ import {
   passeLatenzGrenzeAn,
 } from "../lib/hls-live.ts";
 
-test("Konfiguration: Sprunggrenze und Aufholen sind gesetzt", () => {
+test("Konfiguration: Sprunggrenze gesetzt, kein schnelleres Abspielen", () => {
   const c = hlsLiveConfig();
   assert.equal(c.liveSyncDuration, LIVE_SYNC_S);
   assert.equal(c.liveMaxLatencyDuration, MAX_LATENZ_START_S);
-  assert.ok(c.maxLiveSyncPlaybackRate > 1, "ohne Rate > 1 holt hls.js nie auf");
-  assert.ok(c.maxLiveSyncPlaybackRate <= 1.25, "sichtbar schneller Lauf vermeiden");
-  assert.equal(c.maxLiveSyncPlaybackRate, AUFHOL_RATE);
-  // Aufholen per Geschwindigkeit wirkt in hls.js nur im lowLatencyMode.
+  // Gemessen (qa-waechter): Rate > 1 erzeugte bei schwankender Ladezeit
+  // kurze Standbilder. hls.js-Vorgabe ist 1 — nicht ueberschreiben.
+  assert.ok(!("maxLiveSyncPlaybackRate" in c));
   assert.equal(c.lowLatencyMode, true);
   // hls.js verwirft liveMaxLatencyDuration <= liveSyncDuration und das
   // Mischen mit *Count-Werten (src/config.ts, Pruefung beim Erzeugen).

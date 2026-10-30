@@ -43,7 +43,7 @@ def bild(h, w):
 
 # --- 1. Aufloesung ------------------------------------------------------------
 sh = m.StreamHandler({"stream": {"url": "aufnahme.mp4"}})
-p.check("1: Default min_breite 1920", sh.min_breite == 1920)
+p.check("1: Default min_breite 1280 (erkennt Unterstream, drängt nicht zu 2K)", sh.min_breite == 1280)
 p.check("1: vor dem ersten Bild keine Aufloesung", sh.aufloesung is None)
 
 sh._pruefe_aufloesung(bild(1440, 2560), "Livestream")
@@ -61,7 +61,7 @@ sh._pruefe_aufloesung(bild(360, 640), "Livestream")
 warnungen = [z for lv, z in sammler.zeilen if lv == logging.WARNING]
 p.check("1: Substream 640x360 -> genau eine Warnung", len(warnungen) == 1)
 p.check("1: Warnung nennt Hauptstream und 2K",
-        warnungen and "stream1" in warnungen[0] and "2K" in warnungen[0] and "640x360" in warnungen[0])
+        warnungen and "stream1" in warnungen[0] and "Unterstream" in warnungen[0] and "640x360" in warnungen[0])
 
 sh0 = m.StreamHandler({"stream": {"url": "aufnahme.mp4", "min_breite": 0}})
 sammler.zeilen.clear()
@@ -98,9 +98,15 @@ p.check("2: Gross/Klein im Modellnamen egal",
         ns({0: "Kuh", 1: "Amniotic_Sac", 2: "CALF_LEGS"}, "pose", KLASSEN, TIERE) == [])
 p.check("2: Modell ohne Tierklasse -> nichts ausser ggf. Austreibung",
         ns({1: "amniotic_sac", 2: "calf_legs"}, "pose", KLASSEN, TIERE) == ["brunst", "kalbeverdacht"])
-p.check("2: names unbekannt (None) -> nichts behaupten", ns(None, None, KLASSEN, TIERE) == [])
-p.check("2: task unbekannt -> Kalbeverdacht nicht abgesprochen",
-        ns({0: "kuh", 1: "amniotic_sac", 2: "calf_legs"}, None, KLASSEN, TIERE) == [])
+# Im Zweifel weniger behaupten (Befund ki-wache S6 / qa-waechter H2): [] hiesse
+# fuer die App „alles scharf".
+p.check("2: names unbekannt (None) -> nichts scharf", ns(None, None, KLASSEN, TIERE) == list(m.ALARMWEGE))
+p.check("2: task unbekannt -> Kalbeverdacht nicht scharf",
+        ns({0: "kuh", 1: "amniotic_sac", 2: "calf_legs"}, None, KLASSEN, TIERE) == ["kalbeverdacht"])
+p.check("2: freigegeben fehlt in der Konfig -> nichts freigegeben, mit Warnhinweis",
+        m.freigabe_aus_konfig({}) == ([], True) and m.freigabe_aus_konfig({"freigegeben": None}) == ([], True))
+p.check("2: freigegeben gesetzt -> unveraendert durchgereicht",
+        m.freigabe_aus_konfig({"freigegeben": ["brunst"]}) == (["brunst"], False))
 
 VOLL = {0: "kuh", 1: "amniotic_sac", 2: "calf_legs"}
 p.check("2: freigegeben [brunst] -> Kalbe-Wege nicht scharf, auch wenn das Modell sie traegt",
@@ -122,6 +128,10 @@ p.check("2: Text nennt scharf und NICHT scharf",
         text.startswith("Scharf: Brunst (Aufsprung)") and "NICHT scharf: Austreibung" in text
         and "Kalbeverdacht" in text)
 p.check("2: alles scharf -> kein NICHT", "NICHT" not in m.umfang_text([]))
+p.check("2: Kalbe-Wege nicht scharf -> Handlungsanweisung im Text",
+        text.endswith("Kalbungen erkennt die KI damit nicht – bitte wie bisher selbst kontrollieren."))
+p.check("2: nur Brunst nicht scharf -> keine Kalbe-Anweisung",
+        "Kalbungen" not in m.umfang_text(["brunst"]))
 
 # --- 3. Lebenszeichen ------------------------------------------------------------
 lz = m.Lebenszeichen({"dashboard": {"url": "https://app/api/events", "token": "t"},
@@ -151,10 +161,29 @@ engine = types.SimpleNamespace(aktiv=True, nicht_scharf=["austreibung", "kalbeve
 zeilen = m.tagesbericht_zusatz(sh, engine)
 p.check("4: Tagesbericht nennt Umfang", any("NICHT scharf" in z for z in zeilen))
 p.check("4: Tagesbericht nennt Aufloesung mit Warnung",
-        any(z.startswith("Bild: 640×360") and "2K" in z for z in zeilen))
+        any(z.startswith("Bild: 640×360") and "Unterstream" in z for z in zeilen))
 sh2 = m.StreamHandler({"stream": {"url": "aufnahme.mp4"}})
 sh2._pruefe_aufloesung(bild(1440, 2560), "Livestream")
 zeilen = m.tagesbericht_zusatz(sh2, types.SimpleNamespace(aktiv=False, nicht_scharf=[]))
 p.check("4: Silent + 2K -> nur Bildzeile ohne Warnung", zeilen == ["Bild: 2560×1440"])
+
+# --- 5. Tagesbericht: „nicht überwacht" statt 0 --------------------------------
+tg = []
+n5 = m.Notifier({"telegram": {"token": "T", "chat_id": "1", "digest_uhrzeit": "00:00"},
+                 "stream": {"kamera": "stallwache"}})
+n5._tg.auftrag = lambda fn, *a, **kw: tg.append(a)
+n5.nicht_scharf = ["austreibung", "kalbeverdacht"]
+n5._zaehler["brunstverdacht"] += 2
+n5.digest_tick(True)
+bericht = tg[-1][0] if tg else ""
+p.check("5: Brunst-Phase -> Austreibung/Kalbeverdacht „nicht überwacht“, Brunst gezaehlt",
+        "Kalbeverdacht: nicht überwacht · Austreibung: nicht überwacht · Brunstverdacht: 2" in bericht)
+n6 = m.Notifier({"telegram": {"token": "T", "chat_id": "1", "digest_uhrzeit": "00:00"},
+                 "stream": {"kamera": "stallwache"}})
+n6._tg.auftrag = lambda fn, *a, **kw: tg.append(a)
+n6.nicht_scharf = ["austreibung", "kalbeverdacht"]
+n6.digest_tick(False)
+p.check("5: Silent Mode -> Zahlen wie bisher (Modus steht in der Zeile darueber)",
+        "Austreibung: 0" in tg[-1][0])
 
 sys.exit(p.bericht())

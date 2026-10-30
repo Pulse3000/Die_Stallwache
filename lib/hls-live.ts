@@ -2,11 +2,18 @@
  * hls.js-Einstellungen fuer das Livebild (Tuya-Cloud und go2rtc-Fernzugriff).
  *
  * Warum dieses Modul existiert: hls.js springt mit den Voreinstellungen nie
- * zurueck ans Live-Ende (`liveMaxLatencyDuration` ungesetzt = unendlich) und
- * holt auch nicht auf (`maxLiveSyncPlaybackRate` = 1). Jede Pause — Handy
- * gesperrt, Tab im Hintergrund, kurzer Funkausfall — macht die Verzoegerung
- * dann dauerhaft um genau diese Pause groesser; sie sinkt erst, wenn die
- * Kachel neu aufgebaut wird. Gemessen im Browser: tests/e2e/hls-aufholen.mjs.
+ * zurueck ans Live-Ende (`liveMaxLatencyDuration` ungesetzt = unendlich).
+ * Jede Pause — Handy gesperrt, Tab im Hintergrund, kurzer Funkausfall —
+ * macht die Verzoegerung dann dauerhaft um genau diese Pause groesser; sie
+ * sinkt erst, wenn die Kachel neu aufgebaut wird. Gemessen im Browser:
+ * tests/e2e/hls-aufholen.mjs.
+ *
+ * Bewusst KEIN schnelleres Abspielen zum Aufholen (`maxLiveSyncPlaybackRate`
+ * bleibt 1): Gemessen (qa-waechter, 2-s-Segmente mit schwankender
+ * Ladezeit) zog es den Puffer auf ~1 s herunter und erzeugte 2–6 kurze
+ * Standbilder je Minute, die alte Einstellung keines. Ausserdem beschleunigt
+ * hls.js nur innerhalb einer Segmentdauer um den Zielabstand — einen
+ * Rueckstand unterhalb der Sprunggrenze baut es so kaum ab.
  *
  * Die Verzoegerung der Quelle selbst (Tuya packt sein HLS in der Cloud) liegt
  * ausserhalb der Kontrolle der App; hier geht es nur darum, dass der Player
@@ -15,9 +22,6 @@
 
 /** Abstand zum Live-Ende, den der Player anpeilt (Sekunden). */
 export const LIVE_SYNC_S = 2;
-
-/** Hoechste Wiedergabegeschwindigkeit beim sanften Aufholen. */
-export const AUFHOL_RATE = 1.15;
 
 /** Untere/obere Grenze des Rueckstands, ab dem der Player ans Live-Ende springt. */
 export const MAX_LATENZ_MIN_S = 8;
@@ -29,12 +33,16 @@ export const MAX_LATENZ_START_S = 12;
 /**
  * Rueckstand (Sekunden zum Playlist-Ende), ab dem der Player springt.
  *
- * Im normalen Lauf pendelt der Abstand zwischen LIVE_SYNC_S und
- * LIVE_SYNC_S + Segmentdauer (jedes neue Segment schiebt das Ende um eine
- * Segmentdauer). Die Grenze liegt bei LIVE_SYNC_S + 3 Segmenten, also zwei
- * Segmente ueber dem Normalbetrieb: kein Springen im Takt, aber ein Sprung,
- * sobald eine Pause laenger als etwa zwei Segmente dauerte. Ohne bekannte
- * Segmentdauer gilt MAX_LATENZ_START_S.
+ * Im normalen Lauf pendelt der Abstand etwa zwischen einer und zwei
+ * Segmentdauern (hls.js setzt nie naeher als eine Segmentdauer ans Ende;
+ * jedes neue Segment schiebt das Ende um eine weiter, gemessen von
+ * qa-waechter). Die Grenze LIVE_SYNC_S + 3 Segmente liegt damit mindestens
+ * ein Segment plus 2 s ueber dem Normalbetrieb: kein Springen im Takt, aber
+ * ein Sprung, sobald eine Pause laenger als etwa ein bis zwei Segmente
+ * dauerte. Der Rueckstand bleibt also immer unter dieser Grenze; darunter
+ * wird er nicht abgebaut. Ohne bekannte Segmentdauer gilt
+ * MAX_LATENZ_START_S. Sprung-Schleifen waeren erst ab etwa 13-s-Segmenten
+ * denkbar (Obergrenze 30 s); Tuya und go2rtc liefern kuerzere.
  */
 export function maxLatenzS(segmentDauerS: number | undefined | null): number {
   if (
@@ -69,7 +77,6 @@ export function hlsLiveConfig() {
     lowLatencyMode: true,
     liveSyncDuration: LIVE_SYNC_S,
     liveMaxLatencyDuration: MAX_LATENZ_START_S,
-    maxLiveSyncPlaybackRate: AUFHOL_RATE,
     maxBufferLength: 8,
     maxMaxBufferLength: 12,
     backBufferLength: 0,

@@ -468,8 +468,11 @@ class StreamHandler:
         self._letzter_frame_ts = 0.0
         # Aufloesung, die tatsaechlich ankommt (Beleg statt Annahme: welcher
         # Stream der Tapo wirklich gewaehlt ist, sieht man nur am Bild).
-        # Unter min_breite eine Warnung im Log; 0 = keine Pruefung.
-        self.min_breite = int(cfg["stream"].get("min_breite", 1920) or 0)
+        # Unter min_breite eine Warnung im Log; 0 = keine Pruefung. 1280
+        # erkennt den Unterstream (640x360), drängt aber nicht zu 2K: Fuer
+        # Kuh-Boxen bei imgsz 640 bringt 2K nichts und kostet Dekodierzeit
+        # (Befund ki-wache).
+        self.min_breite = int(cfg["stream"].get("min_breite", 1280) or 0)
         self.aufloesung: tuple[int, int] | None = None
 
     def _pruefe_aufloesung(self, frame: np.ndarray, quelle: str) -> None:
@@ -484,9 +487,9 @@ class StreamHandler:
         if self.min_breite and w < self.min_breite:
             log.warning(
                 "Bild von der Kamera nur %dx%d (%s) – erwartet mindestens %d px "
-                "Breite (stream.min_breite). Tapo: Hauptstream nehmen (go2rtc "
-                "„stallwache“ = stream1, nicht „stallwache_sd“) und in der "
-                "Tapo-App die Videoqualitaet auf 2K stellen.",
+                "Breite (stream.min_breite). Unterstream? Tapo: Hauptstream "
+                "nehmen (go2rtc „stallwache“ = stream1, nicht „stallwache_sd“), "
+                "Videoqualitaet in der Tapo-App pruefen (2K liefert stream1).",
                 w, h, quelle, self.min_breite,
             )
         else:
@@ -832,14 +835,18 @@ def nicht_scharf(namen, task, klassen: dict, tier_klassen, freigegeben=None) -> 
     heissen). Fruchtblase/Kaelberfuesse: Index UND Name muessen passen — bei
     einem allgemeinen Modell stehen auf Index 1/2 „bicycle"/„car", das ist
     keine Austreibungs-Erkennung. Die Erkennung selbst bleibt unveraendert
-    (Recall vor allem); nur „scharf" wird dann nicht behauptet. Fehlt die
-    Angabe (None), gilt sie als unbekannt und es wird nichts behauptet.
+    (Recall vor allem); nur „scharf" wird dann nicht behauptet. Ist
+    ``namen`` unbekannt (None), gilt nichts als scharf; ist ``task``
+    unbekannt, gilt der Kalbeverdacht nicht als scharf — im Zweifel weniger
+    behaupten (Befund ki-wache/qa-waechter).
 
     freigegeben: ``modell.freigegeben`` aus config.yaml — die Alarmwege, deren
     Abnahme bestanden ist (training/abnahme.py). Alles andere gilt als nicht
     scharf, auch wenn das Modell die Klassen traegt (z. B. Namen aus
-    stall.yaml, aber nie eine Fruchtblase gelernt). Nur Meldung: Erkannt und
-    alarmiert wird weiter alles, was das Modell findet.
+    stall.yaml, aber nie eine Fruchtblase gelernt). None = keine
+    Einschraenkung (nur fuer Tests und Werkzeuge; der Agent selbst reicht
+    ``freigabe_aus_konfig`` durch). Nur Meldung: Erkannt und alarmiert wird
+    weiter alles, was das Modell findet.
     """
     fehlt = _nicht_scharf_laut_modell(namen, task, klassen, tier_klassen)
     if freigegeben is not None:
@@ -853,9 +860,20 @@ def nicht_scharf(namen, task, klassen: dict, tier_klassen, freigegeben=None) -> 
     return [k for k in ALARMWEGE if k in fehlt]
 
 
+def freigabe_aus_konfig(modell_cfg: dict) -> tuple[list, bool]:
+    """``modell.freigegeben`` fuer den Agenten: (Liste, fehlte). Fehlt der
+    Eintrag oder ist er leer, gilt nichts als freigegeben — die Freigabe ist
+    ausdruecklich (docs/brunst-zuerst-entscheidung.md). Den Typ prueft
+    ``nicht_scharf``."""
+    wert = (modell_cfg or {}).get("freigegeben")
+    if wert is None:
+        return [], True
+    return wert, False
+
+
 def _nicht_scharf_laut_modell(namen, task, klassen: dict, tier_klassen) -> list[str]:
     if namen is None:
-        return []
+        return list(ALARMWEGE)
     if not isinstance(namen, dict):
         namen = dict(enumerate(namen))
     namen = {int(i): str(n) for i, n in namen.items()}
@@ -872,7 +890,7 @@ def _nicht_scharf_laut_modell(namen, task, klassen: dict, tier_klassen) -> list[
         fehlt.append("brunst")
     if not all(im_modell(k, name_pruefen=True) for k in OBJEKT_KLASSEN):
         fehlt.append("austreibung")
-    if not tier or (task is not None and task != "pose"):
+    if not tier or task != "pose":
         fehlt.append("kalbeverdacht")
     return fehlt
 
@@ -885,7 +903,10 @@ def umfang_text(fehlt: list[str]) -> str:
         teile.append("Scharf: " + ", ".join(scharf))
     if fehlt:
         teile.append("NICHT scharf: " + ", ".join(ALARMWEGE[k] for k in fehlt if k in ALARMWEGE))
-    return " · ".join(teile)
+    text = " · ".join(teile)
+    if "austreibung" in fehlt or "kalbeverdacht" in fehlt:
+        text += ". Kalbungen erkennt die KI damit nicht – bitte wie bisher selbst kontrollieren."
+    return text
 
 
 # Keypoints unter dieser Konfidenz gelten als verdeckt. Das ist die
@@ -964,13 +985,23 @@ class InferenceEngine:
             # Vor dem ersten track() registrieren: Ultralytics haengt seine
             # Tracker-Callbacks erst dann an, dieser laeuft also davor.
             self.modell.add_callback("on_predict_postprocess_end", self._merke_objekte)
-            self.nicht_scharf = nicht_scharf(
-                getattr(self.modell, "names", None),
-                getattr(self.modell, "task", None),
-                {k: v for k, v in self.cfg["klassen"].items()},
-                self.tier_klassen,
-                self.cfg.get("freigegeben"),
-            )
+            freigabe, fehlte = freigabe_aus_konfig(self.cfg)
+            if fehlte:
+                log.warning("modell.freigegeben fehlt – der Agent meldet keinen Alarmweg als "
+                            "scharf (Eintrag nach bestandener Abnahme setzen, z. B. [brunst]).")
+            try:
+                self.nicht_scharf = nicht_scharf(
+                    getattr(self.modell, "names", None),
+                    getattr(self.modell, "task", None),
+                    {k: v for k, v in self.cfg["klassen"].items()},
+                    self.tier_klassen,
+                    freigabe,
+                )
+            except Exception:  # noqa: BLE001 – der Umfang ist nur eine Meldung
+                # z. B. exportiertes Modell, dessen .names erst ein Predictor
+                # liefert: lieber „nichts scharf" melden als nicht starten.
+                log.exception("Modell-Umfang nicht bestimmbar – melde nichts als scharf")
+                self.nicht_scharf = list(ALARMWEGE)
             if self.nicht_scharf:
                 log.warning("Modell-Umfang – %s", umfang_text(self.nicht_scharf))
 
@@ -1362,12 +1393,10 @@ class LogicEngine:
             for b in kuehe:
                 if a.track_id >= b.track_id or a.track_id < 0 or b.track_id < 0:
                     continue
-                oben, unten = (a, b) if a.box[1] < b.box[1] else (b, a)
-                if self._iou(a.box, b.box) < 0.15:
+                lage = aufsprung_oben(a.box, b.box)
+                if lage is None:
                     continue
-                # "Oben" muss deutlich hoeher ansetzen -> Aufsprung statt Nebeneinander
-                if unten.box[1] - oben.box[1] < 0.2 * (unten.box[3] - unten.box[1]):
-                    continue
+                oben, unten = (a, b) if lage == 0 else (b, a)
                 paar = (oben.track_id, unten.track_id)
                 aktive.add(paar)
                 start = self.brunst_paare.setdefault(paar, jetzt)
@@ -1398,6 +1427,26 @@ class LogicEngine:
         fl_a = (a[2] - a[0]) * (a[3] - a[1])
         fl_b = (b[2] - b[0]) * (b[3] - b[1])
         return schnitt / (fl_a + fl_b - schnitt) if schnitt else 0.0
+
+
+# Aufsprung-Geometrie (Referenzwerte, Waechter: Agent ki-wache): Boxen
+# ueberlappen, und die obere setzt deutlich hoeher an als die untere.
+AUFSPRUNG_IOU = 0.15
+AUFSPRUNG_HOEHE = 0.2   # Anteil der Boxhoehe der unteren Kuh
+
+
+def aufsprung_oben(a: tuple, b: tuple) -> int | None:
+    """Liegen zwei Kuh-Boxen wie beim Aufsprung? 0 = a oben, 1 = b oben,
+    None = nein. Die Regel von LogicEngine._brunst; die Abnahme
+    (training/abnahme.py, Gate Ü) nutzt genau diese Funktion, nie eine Kopie."""
+    a_oben = a[1] < b[1]
+    oben, unten = (a, b) if a_oben else (b, a)
+    if LogicEngine._iou(a, b) < AUFSPRUNG_IOU:
+        return None
+    # "Oben" muss deutlich hoeher ansetzen -> Aufsprung statt Nebeneinander
+    if unten[1] - oben[1] < AUFSPRUNG_HOEHE * (unten[3] - unten[1]):
+        return None
+    return 0 if a_oben else 1
 
 
 # --------------------------------------------------------------------------
@@ -1748,7 +1797,10 @@ class FeedbackSchleife:
                 continue  # schon verarbeitet (z. B. Abruf nach Sperren-Freigabe)
             self._offset = update_id + 1
             if u.get("message"):
-                self._befehl(u["message"])
+                try:
+                    self._befehl(u["message"])
+                except Exception as e:  # noqa: BLE001 – eine Nachricht kostet nie ein Analysebild
+                    log.warning("Telegram-Nachricht nicht lesbar: %s", type(e).__name__)
                 continue
             cq = u.get("callback_query")
             if not cq:
@@ -1809,12 +1861,10 @@ class FeedbackSchleife:
         namen = self.namen
         if befehl != "/kuh":
             return namen.liste()
-        if not argumente:
+        # Nur ASCII-Ziffern: int() nimmt sonst auch „١٢“ oder „1_2“ an.
+        if not argumente or not re.fullmatch(r"#?[0-9]{1,6}", argumente[0]):
             return KuhNamen.HILFE
-        try:
-            nr = int(argumente[0].lstrip("#"))
-        except ValueError:
-            return KuhNamen.HILFE
+        nr = int(argumente[0].lstrip("#"))
         rest = " ".join(argumente[1:]).strip()
         if not rest or rest == "-":
             return namen.entferne(nr)
@@ -1980,6 +2030,9 @@ class Notifier:
         # Von main() gesetzt: bestaetigte Kuh-Namen fuer die Anzeige
         # (docs/kuh-namen-spezifikation.md). None = Texte ohne Namen.
         self.namen: KuhNamen | None = None
+        # Von main() gesetzt (Analyse-Modus): Alarmwege, die das Modell nicht
+        # bedient – im Tagesbericht „nicht überwacht" statt einer Zahl.
+        self.nicht_scharf: list[str] = []
 
         # Optionaler MQTT-Zusatzausgang (Home Assistant & Co.); Ausfall darf
         # den Alarmweg nie beeintraechtigen.
@@ -2075,11 +2128,20 @@ class Notifier:
         self._digest_tag = heute
         stunden = (time.time() - self._start_ts) / 3600
         z = self._zaehler
+
+        def zahl(typ: str, weg: str):
+            # „Austreibung: 0" laese sich wie „keine Geburt" – bei einem Modell,
+            # das Geburten gar nicht sieht, waere das eine falsche Entwarnung.
+            if analyse_aktiv and weg in (self.nicht_scharf or ()):
+                return "nicht überwacht"
+            return z[typ]
+
         text = (
             "📋 Stallblick-Tagesbericht\n"
             f"Modus: {'Analyse' if analyse_aktiv else 'Silent Mode (Datensammlung)'}\n"
-            f"Kalbeverdacht: {z['kalbeverdacht']} · Austreibung: {z['austreibung']} · "
-            f"Brunstverdacht: {z['brunstverdacht']}\n"
+            f"Kalbeverdacht: {zahl('kalbeverdacht', 'kalbeverdacht')} · "
+            f"Austreibung: {zahl('austreibung', 'austreibung')} · "
+            f"Brunstverdacht: {zahl('brunstverdacht', 'brunst')}\n"
             f"Agent läuft seit {stunden:.1f} h · Kamera: {self.kamera}"
         )
         try:
@@ -2606,7 +2668,7 @@ def tagesbericht_zusatz(stream: "StreamHandler", engine: "InferenceEngine") -> l
         mindest = getattr(stream, "min_breite", 0)
         zeile = f"Bild: {w}×{h}"
         if mindest and w < mindest:
-            zeile += f" ⚠️ unter {mindest} px – Hauptstream/2K prüfen"
+            zeile += f" ⚠️ unter {mindest} px – Unterstream? Hauptstream prüfen"
         zeilen.append(zeile)
     return zeilen
 
@@ -2905,6 +2967,7 @@ def main() -> None:
 
     if engine.aktiv:
         lebenszeichen.nicht_scharf = list(getattr(engine, "nicht_scharf", []))
+        notifier.nicht_scharf = list(lebenszeichen.nicht_scharf)
         notifier.status(
             "Edge-Agent gestartet – Analyse-Modus aktiv. "
             + umfang_text(lebenszeichen.nicht_scharf)

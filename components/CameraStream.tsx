@@ -357,8 +357,8 @@ export default function CameraStream({
     ) => {
       if (HlsJs.isSupported()) {
         // Live-Bild: kurzer Puffer, kein Rueckpuffer (vier Player gleichzeitig),
-        // und Aufholen nach Pausen (lib/hls-live.ts): ohne Sprunggrenze blieb
-        // die Verzoegerung nach jeder Pause dauerhaft groesser.
+        // und Sprung ans Live-Ende nach Pausen (lib/hls-live.ts): ohne
+        // Sprunggrenze blieb die Verzoegerung nach jeder Pause dauerhaft groesser.
         const hls = new HlsJs(hlsLiveConfig());
         hlsRef.current = hls;
         hls.on(HlsJs.Events.LEVEL_LOADED, (_e, data) =>

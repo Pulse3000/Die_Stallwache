@@ -129,6 +129,12 @@ export interface Datenlage {
   lebenszeichen: Lebenszeichen | null;
   /** Klartext-Grund, wenn nicht aktuell. */
   grund: string | null;
+  /**
+   * Nur gesetzt, wenn allein nicht scharfe Alarmwege den Grund bilden (und
+   * die Ablage dauerhaft ist): Text der Wege, die das Modell bedient. Fuer
+   * sie gilt die Aussage „keine offenen Meldungen“ weiterhin.
+   */
+  scharf?: string;
 }
 
 /** info-Ereignis des Agenten (Start, Stream weg/wieder da, Bild eingefroren). */
@@ -416,12 +422,28 @@ function bewerteDatenlage(
     grund = "Kamera liefert kein Bild";
   } else if (lz.bild !== true) {
     grund = "Bildzustand der Kamera unbekannt";
-  } else if (lz.nichtScharf === null) {
+  }
+  const nichtScharf = gueltigeAlarmwege(lz.nichtScharf);
+  let scharf: string | undefined;
+  if (grund !== null) {
+    // Agent, Modus oder Bild sind schon Grund genug; der Umfang aendert nichts.
+  } else if (nichtScharf === null) {
     grund = "Umfang des Modells unklar (ungültige Meldung des Edge-Agenten)";
-  } else if (lz.nichtScharf && lz.nichtScharf.length > 0) {
+  } else if (nichtScharf && nichtScharf.length > 0) {
     // Brunst-Phase: Ein Modell ohne Fruchtblase/Kaelberfuesse sieht keine
     // Geburt. „OK" hiesse hier „auch keine Kalbung" — das waere gelogen.
-    grund = `${lz.nichtScharf.map((k) => ALARMWEG_TEXT[k]).join(", ")} nicht scharf – das Modell erkennt das noch nicht`;
+    const fehlt = new Set(nichtScharf);
+    grund =
+      `${nichtScharf.map((k) => ALARMWEG_TEXT[k]).join(", ")} nicht scharf – das Modell ist dafür nicht abgenommen` +
+      (fehlt.has("austreibung") || fehlt.has("kalbeverdacht")
+        ? "; Kalbungen bitte wie bisher selbst kontrollieren"
+        : "");
+    const bedient = (Object.keys(ALARMWEG_TEXT) as Alarmweg[]).filter((k) => !fehlt.has(k));
+    // „keine offenen Meldungen" nur mit dauerhafter Ablage — sonst koennten
+    // Meldungen anderer Instanzen fehlen (siehe unten).
+    if (bedient.length > 0 && speicher === "kv") {
+      scharf = bedient.map((k) => ALARMWEG_TEXT[k]).join(", ");
+    }
   } else if (speicher !== "kv") {
     // Ohne dauerhaften Store sieht diese Instanz nur ihre eigenen
     // Ereignisse: Ein Alarm, der auf einer anderen Instanz oder vor einem
@@ -429,7 +451,21 @@ function bewerteDatenlage(
     grund =
       "keine dauerhafte Ereignisablage (KV-Store fehlt oder nicht erreichbar) – Alarme anderer App-Instanzen oder von vor einem Neustart wären hier nicht sichtbar";
   }
-  return { aktuell: grund === null, quelle: "kamera", lebenszeichen: lz, grund };
+  const lage: Datenlage = { aktuell: grund === null, quelle: "kamera", lebenszeichen: lz, grund };
+  if (scharf) lage.scharf = scharf;
+  return lage;
+}
+
+/**
+ * Prueft `nichtScharf` erneut (auch Eintraege, die aus der KV zurueckkommen):
+ * undefined = alter Agent, Liste nur aus bekannten Alarmwegen, alles andere
+ * null („Umfang unklar"). Nie „alles scharf" aus etwas Unverstandenem.
+ */
+function gueltigeAlarmwege(roh: unknown): Alarmweg[] | null | undefined {
+  if (roh === undefined) return undefined;
+  if (!Array.isArray(roh) || roh.length > 20) return null;
+  if (!roh.every((k) => typeof k === "string" && Object.hasOwn(ALARMWEG_TEXT, k))) return null;
+  return [...new Set(roh as Alarmweg[])];
 }
 
 /** Silent-Mode-Grund mit Bildbestand, soweit der Agent ihn meldet. */
@@ -539,6 +575,10 @@ function kameraText(
       teile.push(
         `keine offenen Alarme in den letzten ${stunden} h. Analyse läuft, letztes Lebenszeichen ${uhr(datenlage.lebenszeichen!.zeit)}.`,
       );
+    } else if (datenlage.scharf) {
+      teile.push(
+        `${datenlage.grund}. ${datenlage.scharf}: keine offenen Meldungen in den letzten ${stunden} h, Analyse läuft, letztes Lebenszeichen ${uhr(datenlage.lebenszeichen!.zeit)}.`,
+      );
     } else {
       teile.push(`${datenlage.grund}. Keine Aussage über die Tiere möglich.`);
     }
@@ -591,14 +631,11 @@ export function leseLebenszeichen(roh: unknown): KameraZustand | undefined {
   if (typeof zuletzt === "string" && zuletzt.length <= 40 && !Number.isNaN(Date.parse(zuletzt))) {
     zustand.trainingsbildZuletzt = new Date(zuletzt).toISOString();
   }
-  // Fehlt = alter Agent; Liste -> nur bekannte Alarmwege (ein neuerer Agent
-  // darf weitere melden, die diese App nicht kennt); sonst ungueltig -> null.
+  // Fehlt = alter Agent; Liste nur aus bekannten Alarmwegen; alles andere
+  // (auch ein Alarmweg, den diese App nicht kennt) -> null = „Umfang
+  // unklar". Gefiltert waere aus ["festliegen"] ein [] = „alles scharf".
   if ("nicht_scharf" in r) {
-    const roh = r.nicht_scharf;
-    zustand.nichtScharf =
-      Array.isArray(roh) && roh.length <= 20
-        ? [...new Set(roh.filter((k): k is Alarmweg => typeof k === "string" && Object.hasOwn(ALARMWEG_TEXT, k)))]
-        : null;
+    zustand.nichtScharf = gueltigeAlarmwege(r.nicht_scharf) ?? null;
   }
   return zustand;
 }
