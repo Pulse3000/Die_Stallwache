@@ -33,6 +33,13 @@ stream:
   # Kamera-Name fuer Meldungen
   # (stallwache | futterwache | abkalbebox | weidewache)
   kamera: stallwache
+  # Mindestbreite des Kamerabilds. Der Agent loggt beim Verbinden, welche
+  # Aufloesung WIRKLICH ankommt (und nennt sie im Tagesbericht); darunter
+  # eine Warnung. 1280 erkennt den Unterstream (Tapo stream2 = 640x360). Die
+  # Stallwache liefert ueber stream1 2560x1440 (gemessen 27.10.2026). Fuer
+  # Kuh-Boxen (Brunst-Phase, imgsz 640) bringt 2K nichts und kostet
+  # Dekodierzeit auf alter Hardware – nicht hochsetzen. 0 = keine Pruefung.
+  min_breite: 1280
   # 1 Frame/Sekunde reicht voellig: Kalbeanzeichen entwickeln sich ueber
   # Minuten – so laeuft die Analyse auch auf einem alten Laptop ohne GPU.
   ziel_fps: 1.0
@@ -56,6 +63,15 @@ modell:
     kuh: 0
     amniotic_sac: 1  # Fruchtblase
     calf_legs: 2     # Kaelberfuesse
+  # Alarmwege mit bestandener Abnahme (training/abnahme.py). Nur diese
+  # meldet der Agent der App als „scharf“ – und nur, soweit das Modell sie
+  # kann. FEHLT der Eintrag, gilt nichts als scharf (Warnung beim Start);
+  # die App sagt dann nie „OK“. Unterdrueckt keine Erkennung (Recall vor allem).
+  # Brunst-Phase (Modell aus stall-brunst.yaml, docs/brunst-zuerst-entscheidung.md):
+  #   freigegeben: [brunst]     (erst nach Gate K, Ü, D, E; vorher [])
+  # Spaeter mit Kalbeueberwachung: [brunst, austreibung, kalbeverdacht]
+  # modell.klassen NICHT kuerzen: Was das Modell kennt, meldet es selbst;
+  # gekuerzte Klassen filterten in Phase 2 Fruchtblase/Fuesse vor der Logik weg.
   # Nur diese Klassen sind Tiere (Tracking, Schwanzwinkel, Brunst). Andere
   # Boxen (z. B. Mensch bei einem allgemeinen Modell) werden ignoriert.
   # Kommt eine Tier-Klasse im 2. Training dazu (kuh_seitenlage), hier ergaenzen.
@@ -101,6 +117,9 @@ telegram:
   # Ein Tipp auf Fehlalarm legt die unannotierte Bildserie als Hard Negatives
   # fuers Nachtraining ab (Skill fehlalarm-triage). Nutzt getUpdates —
   # der Bot darf daneben keinen Telegram-Webhook betreiben.
+  # Derselbe Abruf liest die Befehle /kuh 12 Berta, /kuh 12 - und /kuehe
+  # (Kuh-Namen am Kasten, nur aus chat_id, nur bis zum Neustart;
+  # docs/kuh-namen-spezifikation.md).
   feedback_buttons: true
   # Ablageort der Fehlalarm-Bilder (Unterordner pro Tag)
   fehlalarm_ordner: ./aufnahmen/fehlalarme

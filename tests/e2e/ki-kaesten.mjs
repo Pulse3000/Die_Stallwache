@@ -84,7 +84,8 @@ async function oeffne(datensparen) {
           kuehe: [
             // Nummer = Sekunde der Erkennung: zeigt, welche Erkennung gewaehlt wurde
             { id: sek % 100000, box: [0.25, 0.25, 0.5, 0.75], winkel: 52.4 },
-            { id: 7, box: [0.7, 0.1, 1.0, 0.45], winkel: null },
+            // per Telegram /kuh benannt (docs/kuh-namen-spezifikation.md)
+            { id: 7, box: [0.7, 0.1, 1.0, 0.45], winkel: null, name: "Berta" },
           ],
           objekte: [
             { klasse: "amniotic_sac", box: [0.05, 0.6, 0.15, 0.8], prozent: 91, alarm: true },
@@ -176,7 +177,9 @@ const videoLaeuft = (page) =>
   pruefe("Fruchtblase rot mit „ALARM“", arten.some(([a, t]) => a === "alarm" && t === "Fruchtblase 91 % ALARM"));
   pruefe("Kälberfüße unter Schwelle ohne „ALARM“",
     arten.some(([a, t]) => a === "unter" && t === "Kälberfüße? 79 % (Alarm ab 80 %)"));
-  pruefe("Kuh ohne Winkel: „Kuh #7“", arten.some(([a, t]) => a === "kuh" && t === "Kuh #7"));
+  pruefe("Kuh mit Namen, ohne Winkel: „Kuh #7 · Berta“",
+    arten.some(([a, t]) => a === "kuh" && t === "Kuh #7 · Berta"));
+  pruefe("Kuh ohne Namen: „Kuh #N · 52°“", arten.some(([a, t]) => a === "kuh" && /^Kuh #\d+ · 52°$/.test(t)));
   pruefe("LIVE-Kennzeichen bleibt sichtbar",
     (await page.locator('[data-kamera="stallwache"] span', { hasText: /^LIVE$/ }).count()) === 1);
 

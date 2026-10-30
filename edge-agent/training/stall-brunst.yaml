@@ -1,0 +1,20 @@
+# YOLOv8-Detection-Datensatz der Brunst-Phase (docs/brunst-zuerst-entscheidung.md).
+# Nur Kuh-Boxen: Daraus erkennt der Agent das Aufsprungverhalten (zwei
+# getrackte Kuh-Boxen ueberlappen, eine deutlich oberhalb, >= 4 s).
+#
+# Bewusst KEINE Klassen amniotic_sac/calf_legs und keine Keypoints: Ein
+# Modell, das diese Namen traegt, ohne sie gelernt zu haben, saehe fuer den
+# Agenten wie eine scharfe Kalbeueberwachung aus. So meldet er ehrlich
+# „Austreibung/Kalbeverdacht NICHT scharf" und die App sagt kein „OK".
+#
+# CVAT: Label „kuh" (Rechteck), Export-Format "Ultralytics YOLO Detection".
+#   datensatz/images/train/*.jpg   datensatz/labels/train/*.txt
+#   datensatz/images/val/*.jpg     datensatz/labels/val/*.txt
+# Wichtig fuer den Aufsprung: Bilder mit eng stehenden und aufspringenden
+# Kuehen JEDE Kuh einzeln umranden (Abnahme Gate Ü prueft genau das).
+path: datensatz
+train: images/train
+val: images/val
+
+names:
+  0: kuh

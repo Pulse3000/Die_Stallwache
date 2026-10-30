@@ -249,6 +249,26 @@ Fachliche Prüfung: `ki-wache` (25.10., Befund B1 blockierend, übernommen).
   Der Stapel wird deswegen nie abgelehnt.
 - Antwort: `kameras[].datenlage.lebenszeichen.trainingsbilder`,
   `.trainingsbilder24h`, `.trainingsbildZuletzt`.
+- **Modell-Umfang** (29.10.2026, [`brunst-zuerst-entscheidung.md`](./brunst-zuerst-entscheidung.md)):
+  Im Analyse-Modus meldet der Agent `nicht_scharf`, die Alarmwege, die sein
+  Modell nicht bedient (`brunst`, `austreibung`, `kalbeverdacht`; `[]` =
+  alles scharf). Server: nur eine Liste aus bekannten Werten gilt (doppelte
+  fallen weg). Alles andere – auch ein Alarmweg, den diese App nicht kennt,
+  kein Array oder > 20 Einträge – wird `null` („Umfang unklar“); gefiltert
+  wäre aus `["festliegen"]` ein `[]` = „alles scharf“ geworden (Befund
+  `qa-waechter`/`ki-wache`). Dieselbe Prüfung gilt beim Bewerten auch für
+  Einträge aus der KV (ein beschädigter Eintrag gab vorher 500 für alle
+  Kameras). Fehlt das Feld (alter Agent), gilt nichts als nicht scharf.
+  **Regel:** Mit nicht leerem `nicht_scharf` ist die Datenlage nicht aktuell:
+  Grund „Austreibung (Fruchtblase/Kälberfüße), Kalbeverdacht (Schwanzwinkel)
+  nicht scharf – das Modell ist dafür nicht abgenommen; Kalbungen bitte wie
+  bisher selbst kontrollieren“, Stufe ohne Alarme `UNBEKANNT`, nie `OK`. Mit
+  KV folgt statt „Keine Aussage über die Tiere möglich“ der Stand der
+  scharfen Wege: „Brunst (Aufsprung): keine offenen Meldungen in den letzten
+  12 h, Analyse läuft, letztes Lebenszeichen 03:58.“ Offene Alarme stufen wie
+  bisher (Brunstverdacht → `WARNUNG`), mit „Achtung: …“. `null` → „Umfang des
+  Modells unklar“. Antwort: `kameras[].datenlage.lebenszeichen.nichtScharf`,
+  `kameras[].datenlage.scharf`. Tests: `tests/stall-status.test.ts` 24–24g.
 
 ### 9.4 Konfiguration
 

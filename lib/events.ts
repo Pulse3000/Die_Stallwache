@@ -187,6 +187,7 @@ export async function meldeKontakt(kamera?: KameraZustand): Promise<void> {
     if (kamera.trainingsbilder !== undefined) lz.trainingsbilder = kamera.trainingsbilder;
     if (kamera.trainingsbilder24h !== undefined) lz.trainingsbilder24h = kamera.trainingsbilder24h;
     if (kamera.trainingsbildZuletzt) lz.trainingsbildZuletzt = kamera.trainingsbildZuletzt;
+    if (kamera.nichtScharf !== undefined) lz.nichtScharf = kamera.nichtScharf;
     store.lebenszeichen.set(kamera.kamera, lz);
     befehle.push(["HSET", KV_LEBENSZEICHEN, kamera.kamera, JSON.stringify(lz)]);
   }

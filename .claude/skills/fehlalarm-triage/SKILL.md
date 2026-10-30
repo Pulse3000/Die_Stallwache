@@ -51,6 +51,15 @@ Ablauf: Fehlalarm-Frames in CVAT als „Background"/Negativ labeln → Datensatz
 erweitern → Colab-Training → neues `best.pt` → 48 h beobachten →
 `docs/metriken.md` aktualisieren.
 
+**Ausnahme Brunst-Phase (Modell nur `kuh`, `docs/brunst-zuerst-entscheidung.md`):**
+Brunst-Fehlalarme zeigen echte Kühe – NIE als „Background“ labeln, sonst
+lernt das Modell, dass überlappende Kühe kein Objekt sind (Gate Ü bricht
+ein). Trennen:
+- **Modellfehler** (Geisterbox, Doppelbox, Kalb als Kuh): jede Kuh korrekt
+  umranden, als schweres Beispiel ins Training.
+- **Regelfehler** (Boxen stimmen, war aber kein Aufsprung): nicht ins
+  Training – Nachtraining hilft hier nicht; Befund an `ki-wache`.
+
 ## 4. Sonderfall Austreibung
 
 Fehlalarme vom Typ `austreibung` werden trotzdem gesammelt, aber der

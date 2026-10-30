@@ -40,7 +40,7 @@ import threading
 import time
 import urllib.parse
 from collections import defaultdict, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 # FFmpeg-Meldungen erst ab „fatal" ausgeben: Manche Kameras haengen
@@ -466,6 +466,34 @@ class StreamHandler:
         self.fehler_in_folge = 0
         self.nutze_fallback = False
         self._letzter_frame_ts = 0.0
+        # Aufloesung, die tatsaechlich ankommt (Beleg statt Annahme: welcher
+        # Stream der Tapo wirklich gewaehlt ist, sieht man nur am Bild).
+        # Unter min_breite eine Warnung im Log; 0 = keine Pruefung. 1280
+        # erkennt den Unterstream (640x360), drängt aber nicht zu 2K: Fuer
+        # Kuh-Boxen bei imgsz 640 bringt 2K nichts und kostet Dekodierzeit
+        # (Befund ki-wache).
+        self.min_breite = int(cfg["stream"].get("min_breite", 1280) or 0)
+        self.aufloesung: tuple[int, int] | None = None
+
+    def _pruefe_aufloesung(self, frame: np.ndarray, quelle: str) -> None:
+        """Loggt jede neue Aufloesung genau einmal; wirft nie."""
+        try:
+            h, w = (int(v) for v in frame.shape[:2])
+        except Exception:  # noqa: BLE001 – kein Bild im erwarteten Format
+            return
+        if (w, h) == self.aufloesung:
+            return
+        self.aufloesung = (w, h)
+        if self.min_breite and w < self.min_breite:
+            log.warning(
+                "Bild von der Kamera nur %dx%d (%s) – erwartet mindestens %d px "
+                "Breite (stream.min_breite). Unterstream? Tapo: Hauptstream "
+                "nehmen (go2rtc „stallwache“ = stream1, nicht „stallwache_sd“), "
+                "Videoqualitaet in der Tapo-App pruefen (2K liefert stream1).",
+                w, h, quelle, self.min_breite,
+            )
+        else:
+            log.info("Bild von der Kamera: %dx%d (%s).", w, h, quelle)
 
     def _oeffne_live(self):
         """Laeuft im Greifer-Thread: Cloud-URL holen, Capture oeffnen."""
@@ -534,6 +562,7 @@ class StreamHandler:
         if self.fehler_in_folge:
             log.info("Stream wieder stabil.")
         self.fehler_in_folge = 0
+        self._pruefe_aufloesung(frame, "Snapshot" if self.nutze_fallback else "Datei")
         return frame
 
     def _frame_live(self) -> np.ndarray | None:
@@ -549,13 +578,17 @@ class StreamHandler:
             elif self.fehler_in_folge:
                 log.info("Stream wieder stabil.")
             self.fehler_in_folge = 0
+            self._pruefe_aufloesung(frame, "Livestream")
             return frame
         self.fehler_in_folge += 1
         if self.fallback_url and self.fehler_in_folge >= self.FEHLER_BIS_FALLBACK:
             if not self.nutze_fallback:
                 log.warning("RTSP instabil – wechsle auf Snapshot-Polling.")
                 self.nutze_fallback = True
-            return self._frame_snapshot()
+            frame = self._frame_snapshot()
+            if frame is not None:
+                self._pruefe_aufloesung(frame, "Snapshot")
+            return frame
         return None
 
 
@@ -647,6 +680,10 @@ class Lebenszeichen:
         self._zustand: tuple[str, bool] | None = None
         self._thread: threading.Thread | None = None
         self.fehler_in_folge = 0
+        # Von main() gesetzt (Analyse-Modus): Alarmwege, die das Modell nicht
+        # bedient. Die App sagt dann fuer die Kamera nie „OK"; leere Liste =
+        # alles scharf, None = nicht melden (Silent Mode).
+        self.nicht_scharf: list[str] | None = None
 
     @property
     def aktiv(self) -> bool:
@@ -678,6 +715,8 @@ class Lebenszeichen:
                     "bild": zustand[1],
                 },
             }
+            if analyse_aktiv and self.nicht_scharf is not None:
+                nutzlast["lebenszeichen"]["nicht_scharf"] = list(self.nicht_scharf)
             self._thread = threading.Thread(
                 target=self._sende, args=(nutzlast,), name="lebenszeichen", daemon=True
             )
@@ -777,6 +816,99 @@ class ObjektErkennung:
 OBJEKT_KLASSEN = ("amniotic_sac", "calf_legs")
 
 
+# Alarmwege des Agenten und was sie vom Modell brauchen. Ein Modell der
+# Brunst-Phase (nur Klasse kuh, Boxen) bedient nur den ersten — die App darf
+# dann fuer die Kalbung nie „OK" sagen (docs/brunst-zuerst-entscheidung.md).
+ALARMWEGE = {
+    "brunst": "Brunst (Aufsprung)",
+    "austreibung": "Austreibung (Fruchtblase/Kälberfüße)",
+    "kalbeverdacht": "Kalbeverdacht (Schwanzwinkel)",
+}
+
+
+def nicht_scharf(namen, task, klassen: dict, tier_klassen, freigegeben=None) -> list[str]:
+    """Alarmwege, die ein Modell mangels Klassen oder Keypoints NICHT bedient.
+
+    namen: ``model.names`` (Index -> Name), task: ``model.task`` (pose,
+    detect, …). Tiere: der in ``modell.klassen`` eingetragene Index muss im
+    Modell existieren, der Name ist frei (ein allgemeines Modell darf „cow"
+    heissen). Fruchtblase/Kaelberfuesse: Index UND Name muessen passen — bei
+    einem allgemeinen Modell stehen auf Index 1/2 „bicycle"/„car", das ist
+    keine Austreibungs-Erkennung. Die Erkennung selbst bleibt unveraendert
+    (Recall vor allem); nur „scharf" wird dann nicht behauptet. Ist
+    ``namen`` unbekannt (None), gilt nichts als scharf; ist ``task``
+    unbekannt, gilt der Kalbeverdacht nicht als scharf — im Zweifel weniger
+    behaupten (Befund ki-wache/qa-waechter).
+
+    freigegeben: ``modell.freigegeben`` aus config.yaml — die Alarmwege, deren
+    Abnahme bestanden ist (training/abnahme.py). Alles andere gilt als nicht
+    scharf, auch wenn das Modell die Klassen traegt (z. B. Namen aus
+    stall.yaml, aber nie eine Fruchtblase gelernt). None = keine
+    Einschraenkung (nur fuer Tests und Werkzeuge; der Agent selbst reicht
+    ``freigabe_aus_konfig`` durch). Nur Meldung: Erkannt und alarmiert wird
+    weiter alles, was das Modell findet.
+    """
+    fehlt = _nicht_scharf_laut_modell(namen, task, klassen, tier_klassen)
+    if freigegeben is not None:
+        # Im Zweifel weniger behaupten: „freigegeben: brunst" (ohne Klammern)
+        # gilt als [brunst], jeder andere Typ als „nichts freigegeben".
+        if isinstance(freigegeben, str):
+            freigegeben = [freigegeben]
+        elif not isinstance(freigegeben, (list, tuple, set)):
+            freigegeben = []
+        fehlt += [k for k in ALARMWEGE if k not in freigegeben and k not in fehlt]
+    return [k for k in ALARMWEGE if k in fehlt]
+
+
+def freigabe_aus_konfig(modell_cfg: dict) -> tuple[list, bool]:
+    """``modell.freigegeben`` fuer den Agenten: (Liste, fehlte). Fehlt der
+    Eintrag oder ist er leer, gilt nichts als freigegeben — die Freigabe ist
+    ausdruecklich (docs/brunst-zuerst-entscheidung.md). Den Typ prueft
+    ``nicht_scharf``."""
+    wert = (modell_cfg or {}).get("freigegeben")
+    if wert is None:
+        return [], True
+    return wert, False
+
+
+def _nicht_scharf_laut_modell(namen, task, klassen: dict, tier_klassen) -> list[str]:
+    if namen is None:
+        return list(ALARMWEGE)
+    if not isinstance(namen, dict):
+        namen = dict(enumerate(namen))
+    namen = {int(i): str(n) for i, n in namen.items()}
+
+    def im_modell(name: str, name_pruefen: bool = False) -> bool:
+        idx = klassen.get(name)
+        if idx is None or int(idx) not in namen:
+            return False
+        return not name_pruefen or namen[int(idx)].strip().lower() == name
+
+    tier = any(im_modell(t) for t in tier_klassen)
+    fehlt = []
+    if not tier:
+        fehlt.append("brunst")
+    if not all(im_modell(k, name_pruefen=True) for k in OBJEKT_KLASSEN):
+        fehlt.append("austreibung")
+    if not tier or task != "pose":
+        fehlt.append("kalbeverdacht")
+    return fehlt
+
+
+def umfang_text(fehlt: list[str]) -> str:
+    """„Scharf: … · NICHT scharf: …" fuer Start- und Tagesmeldung."""
+    scharf = [t for k, t in ALARMWEGE.items() if k not in fehlt]
+    teile = []
+    if scharf:
+        teile.append("Scharf: " + ", ".join(scharf))
+    if fehlt:
+        teile.append("NICHT scharf: " + ", ".join(ALARMWEGE[k] for k in fehlt if k in ALARMWEGE))
+    text = " · ".join(teile)
+    if "austreibung" in fehlt or "kalbeverdacht" in fehlt:
+        text += ". Kalbungen erkennt die KI damit nicht – bitte wie bisher selbst kontrollieren."
+    return text
+
+
 # Keypoints unter dieser Konfidenz gelten als verdeckt. Das ist die
 # Sichtbarkeitsgrenze von Ultralytics (setzt solche Punkte auf (0, 0)),
 # kein Fach-Schwellenwert – deshalb bewusst nicht konfigurierbar.
@@ -839,6 +971,8 @@ class InferenceEngine:
         self._roh_objekte: list[ObjektErkennung] | None = None
         self._merke_fehler = 0          # aufeinanderfolgende Fehlschlaege
         self._merke_traceback: float | None = None  # letzter voller Traceback
+        # Alarmwege, die dieses Modell nicht bedient (siehe nicht_scharf()).
+        self.nicht_scharf: list[str] = []
         pfad = (self.cfg.get("pfad") or "").strip()
         if pfad:
             if alte_cpu.alte_cpu_aktiv(self.cfg.get("alte_cpu", "auto")):
@@ -851,6 +985,25 @@ class InferenceEngine:
             # Vor dem ersten track() registrieren: Ultralytics haengt seine
             # Tracker-Callbacks erst dann an, dieser laeuft also davor.
             self.modell.add_callback("on_predict_postprocess_end", self._merke_objekte)
+            freigabe, fehlte = freigabe_aus_konfig(self.cfg)
+            if fehlte:
+                log.warning("modell.freigegeben fehlt – der Agent meldet keinen Alarmweg als "
+                            "scharf (Eintrag nach bestandener Abnahme setzen, z. B. [brunst]).")
+            try:
+                self.nicht_scharf = nicht_scharf(
+                    getattr(self.modell, "names", None),
+                    getattr(self.modell, "task", None),
+                    {k: v for k, v in self.cfg["klassen"].items()},
+                    self.tier_klassen,
+                    freigabe,
+                )
+            except Exception:  # noqa: BLE001 – der Umfang ist nur eine Meldung
+                # z. B. exportiertes Modell, dessen .names erst ein Predictor
+                # liefert: lieber „nichts scharf" melden als nicht starten.
+                log.exception("Modell-Umfang nicht bestimmbar – melde nichts als scharf")
+                self.nicht_scharf = list(ALARMWEGE)
+            if self.nicht_scharf:
+                log.warning("Modell-Umfang – %s", umfang_text(self.nicht_scharf))
 
     @property
     def aktiv(self) -> bool:
@@ -968,6 +1121,9 @@ class Alarm:
     sofort: bool = False
     # Austreibungs-Episode, zu der die Meldung gehoert (Fehlalarm-Feedback).
     episode: int | None = None
+    # Vom Landwirt bestaetigter Name zu kuh_id – nur Anzeige (Telegram-Kopf,
+    # Alarmbild); kuh_id bleibt die Kennung (docs/kuh-namen-spezifikation.md).
+    kuh_name: str | None = None
 
 
 # Austreibungs-Episode endet, wenn ein Bild OHNE Erkennung kommt und die
@@ -1237,12 +1393,10 @@ class LogicEngine:
             for b in kuehe:
                 if a.track_id >= b.track_id or a.track_id < 0 or b.track_id < 0:
                     continue
-                oben, unten = (a, b) if a.box[1] < b.box[1] else (b, a)
-                if self._iou(a.box, b.box) < 0.15:
+                lage = aufsprung_oben(a.box, b.box)
+                if lage is None:
                     continue
-                # "Oben" muss deutlich hoeher ansetzen -> Aufsprung statt Nebeneinander
-                if unten.box[1] - oben.box[1] < 0.2 * (unten.box[3] - unten.box[1]):
-                    continue
+                oben, unten = (a, b) if lage == 0 else (b, a)
                 paar = (oben.track_id, unten.track_id)
                 aktive.add(paar)
                 start = self.brunst_paare.setdefault(paar, jetzt)
@@ -1273,6 +1427,26 @@ class LogicEngine:
         fl_a = (a[2] - a[0]) * (a[3] - a[1])
         fl_b = (b[2] - b[0]) * (b[3] - b[1])
         return schnitt / (fl_a + fl_b - schnitt) if schnitt else 0.0
+
+
+# Aufsprung-Geometrie (Referenzwerte, Waechter: Agent ki-wache): Boxen
+# ueberlappen, und die obere setzt deutlich hoeher an als die untere.
+AUFSPRUNG_IOU = 0.15
+AUFSPRUNG_HOEHE = 0.2   # Anteil der Boxhoehe der unteren Kuh
+
+
+def aufsprung_oben(a: tuple, b: tuple) -> int | None:
+    """Liegen zwei Kuh-Boxen wie beim Aufsprung? 0 = a oben, 1 = b oben,
+    None = nein. Die Regel von LogicEngine._brunst; die Abnahme
+    (training/abnahme.py, Gate Ü) nutzt genau diese Funktion, nie eine Kopie."""
+    a_oben = a[1] < b[1]
+    oben, unten = (a, b) if a_oben else (b, a)
+    if LogicEngine._iou(a, b) < AUFSPRUNG_IOU:
+        return None
+    # "Oben" muss deutlich hoeher ansetzen -> Aufsprung statt Nebeneinander
+    if unten[1] - oben[1] < AUFSPRUNG_HOEHE * (unten[3] - unten[1]):
+        return None
+    return 0 if a_oben else 1
 
 
 # --------------------------------------------------------------------------
@@ -1503,6 +1677,9 @@ class FeedbackSchleife:
         # Von main() gesetzt: (typ, episode) eines als Fehlalarm markierten
         # Alarms an die LogicEngine (Austreibungs-Takt).
         self.bei_fehlalarm = None
+        # Von main() gesetzt: Kuh-Namen fuer die Befehle /kuh und /kuehe
+        # (docs/kuh-namen-spezifikation.md). None = Befehle aus.
+        self.namen: KuhNamen | None = None
 
     def registriere(self, alarm: Alarm, bilder: list[bytes]) -> dict | None:
         """Merkt die (unannotierten) Alarm-Bilder fuer spaeteres Feedback und
@@ -1554,7 +1731,7 @@ class FeedbackSchleife:
                 params={
                     "offset": self._offset,
                     "timeout": 0,
-                    "allowed_updates": '["callback_query"]',
+                    "allowed_updates": '["callback_query","message"]',
                 },
                 timeout=10,
             )
@@ -1592,7 +1769,7 @@ class FeedbackSchleife:
                 params={
                     "offset": offset,
                     "timeout": 0,
-                    "allowed_updates": '["callback_query"]',
+                    "allowed_updates": '["callback_query","message"]',
                 },
                 timeout=10,
             )
@@ -1619,6 +1796,12 @@ class FeedbackSchleife:
             if update_id < self._offset:
                 continue  # schon verarbeitet (z. B. Abruf nach Sperren-Freigabe)
             self._offset = update_id + 1
+            if u.get("message"):
+                try:
+                    self._befehl(u["message"])
+                except Exception as e:  # noqa: BLE001 – eine Nachricht kostet nie ein Analysebild
+                    log.warning("Telegram-Nachricht nicht lesbar: %s", type(e).__name__)
+                continue
             cq = u.get("callback_query")
             if not cq:
                 continue
@@ -1652,6 +1835,50 @@ class FeedbackSchleife:
                     self._netz(self._speichere_und_antworte, cq, fid, eintrag)
                     continue
             self._netz(self._antworte, cq, antwort)
+
+    def _befehl(self, msg: dict) -> None:
+        """Textbefehle /kuh und /kuehe (Kuh-Namen). Nur aus dem eingetragenen
+        Chat; alles andere bleibt still. Laeuft im Hauptthread (wie die
+        Knoepfe), geantwortet wird ueber den Versand-Thread."""
+        if self.namen is None:
+            return
+        if str((msg.get("chat") or {}).get("id", "")).strip() != self.chat:
+            return
+        teile = str(msg.get("text") or "").split()
+        if not teile:
+            return
+        befehl = teile[0].split("@", 1)[0].lower()
+        if befehl not in ("/kuh", "/kuehe", "/kühe"):
+            return
+        try:
+            antwort = self._kuh_befehl(befehl, teile[1:])
+        except Exception:  # noqa: BLE001 – ein Befehl stoppt nie die Analyse
+            log.exception("Befehl %s nicht verarbeitet", befehl)
+            antwort = "Befehl nicht verarbeitet (Log prüfen)."
+        self._netz(self._sende_text, antwort)
+
+    def _kuh_befehl(self, befehl: str, argumente: list[str]) -> str:
+        namen = self.namen
+        if befehl != "/kuh":
+            return namen.liste()
+        # Nur ASCII-Ziffern: int() nimmt sonst auch „١٢“ oder „1_2“ an.
+        if not argumente or not re.fullmatch(r"#?[0-9]{1,6}", argumente[0]):
+            return KuhNamen.HILFE
+        nr = int(argumente[0].lstrip("#"))
+        rest = " ".join(argumente[1:]).strip()
+        if not rest or rest == "-":
+            return namen.entferne(nr)
+        return namen.setze(nr, rest)
+
+    def _sende_text(self, text: str) -> None:
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{self.token}/sendMessage",
+                data={"chat_id": self.chat, "text": text},
+                timeout=10,
+            ).raise_for_status()
+        except requests.RequestException as e:
+            log.warning("Antwort auf Befehl nicht zugestellt: %s", e)
 
     def _speichere_und_antworte(
         self, cq: dict, fid: str, eintrag: tuple[str, list[bytes]] | None
@@ -1800,6 +2027,12 @@ class Notifier:
                 # nach NACHLIEFER_INTERVALL_S.
                 self._outbox_signal.put(None)
         self.feedback = FeedbackSchleife(cfg, kanal=self._tg_feedback)
+        # Von main() gesetzt: bestaetigte Kuh-Namen fuer die Anzeige
+        # (docs/kuh-namen-spezifikation.md). None = Texte ohne Namen.
+        self.namen: KuhNamen | None = None
+        # Von main() gesetzt (Analyse-Modus): Alarmwege, die das Modell nicht
+        # bedient – im Tagesbericht „nicht überwacht" statt einer Zahl.
+        self.nicht_scharf: list[str] = []
 
         # Optionaler MQTT-Zusatzausgang (Home Assistant & Co.); Ausfall darf
         # den Alarmweg nie beeintraechtigen.
@@ -1839,6 +2072,9 @@ class Notifier:
         self._zuletzt[schluessel] = jetzt
         self._zaehler[alarm.typ] += 1
         log.warning("ALARM [%s] %s: %s", alarm.typ, alarm.kuh_id or "-", alarm.nachricht)
+        # Ab hier die Anzeige-Fassung: Namen im Text, kuh_id unveraendert
+        # (Cooldown-Schluessel oben und Analytik haengen an ihr).
+        alarm = self._mit_namen(alarm)
 
         bild = self._annotiere(frame, alarm) if frame is not None else None
         serie: list[bytes] = []
@@ -1880,8 +2116,10 @@ class Notifier:
         self._dashboard(meldung)
         self._mqtt(meldung)
 
-    def digest_tick(self, analyse_aktiv: bool) -> None:
-        """Sendet einmal taeglich (digest_uhrzeit) einen kompakten Tagesbericht."""
+    def digest_tick(self, analyse_aktiv: bool, zusatz=None) -> None:
+        """Sendet einmal taeglich (digest_uhrzeit) einen kompakten Tagesbericht.
+        zusatz: Funktion -> weitere Zeilen (Modell-Umfang, Bildaufloesung);
+        laeuft nur beim Versand, ein Fehler darin kostet nur die Zeilen."""
         if not (self.digest_uhrzeit and self.tg_token and self.tg_chat):
             return
         heute = time.strftime("%Y-%m-%d")
@@ -1890,13 +2128,27 @@ class Notifier:
         self._digest_tag = heute
         stunden = (time.time() - self._start_ts) / 3600
         z = self._zaehler
+
+        def zahl(typ: str, weg: str):
+            # „Austreibung: 0" laese sich wie „keine Geburt" – bei einem Modell,
+            # das Geburten gar nicht sieht, waere das eine falsche Entwarnung.
+            if analyse_aktiv and weg in (self.nicht_scharf or ()):
+                return "nicht überwacht"
+            return z[typ]
+
         text = (
             "📋 Stallblick-Tagesbericht\n"
             f"Modus: {'Analyse' if analyse_aktiv else 'Silent Mode (Datensammlung)'}\n"
-            f"Kalbeverdacht: {z['kalbeverdacht']} · Austreibung: {z['austreibung']} · "
-            f"Brunstverdacht: {z['brunstverdacht']}\n"
+            f"Kalbeverdacht: {zahl('kalbeverdacht', 'kalbeverdacht')} · "
+            f"Austreibung: {zahl('austreibung', 'austreibung')} · "
+            f"Brunstverdacht: {zahl('brunstverdacht', 'brunst')}\n"
             f"Agent läuft seit {stunden:.1f} h · Kamera: {self.kamera}"
         )
+        try:
+            for zeile in (zusatz() if zusatz else []):
+                text += f"\n{zeile}"
+        except Exception:  # noqa: BLE001 – der Bericht geht trotzdem raus
+            log.exception("Tagesbericht: Zusatzzeilen nicht verfuegbar")
         fb = self.feedback.zaehler
         if fb["treffer"] or fb["fehlalarm"]:
             text += f"\nFeedback: ✅ {fb['treffer']} Treffer · ❌ {fb['fehlalarm']} Fehlalarm"
@@ -1930,6 +2182,35 @@ class Notifier:
             time.sleep(0.01)
         return ok
 
+    def _mit_namen(self, alarm: Alarm) -> Alarm:
+        """Kopie mit den bestaetigten Kuh-Namen im Text (nur Anzeige). Ein
+        Fehler hier kostet hoechstens den Namen, nie den Alarm."""
+        if self.namen is None:
+            return alarm
+        try:
+            return replace(
+                alarm,
+                nachricht=self.namen.ergaenze(alarm.nachricht),
+                kuh_name=self.namen.name_zu(alarm.kuh_id),
+            )
+        except Exception:  # noqa: BLE001 – der Alarm geht vor
+            log.exception("Kuh-Namen nicht ergaenzt – Alarm ohne Namen")
+            return alarm
+
+    @staticmethod
+    def beschriftung(alarm: Alarm) -> str:
+        """Bildschrift des Alarmbilds. Die OpenCV-Schrift kennt keine
+        Umlaute: ä -> ae usw., damit nie „B??rta“ im Bild steht."""
+        text = alarm.typ
+        if alarm.kuh_id:
+            text += f" {alarm.kuh_id}"
+            if alarm.kuh_name:
+                text += f" ({alarm.kuh_name})"
+        for umlaut, ersatz in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("Ä", "Ae"),
+                               ("Ö", "Oe"), ("Ü", "Ue"), ("ß", "ss")):
+            text = text.replace(umlaut, ersatz)
+        return text
+
     @staticmethod
     def _annotiere(frame: np.ndarray, alarm: Alarm) -> bytes:
         bild = frame.copy()
@@ -1938,7 +2219,7 @@ class Notifier:
             cv2.rectangle(bild, (x1, y1), (x2, y2), (0, 0, 255), 3)
             cv2.putText(
                 bild,
-                f"{alarm.typ}{' ' + alarm.kuh_id if alarm.kuh_id else ''}",
+                Notifier.beschriftung(alarm),
                 (x1, max(24, y1 - 8)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.8,
@@ -1961,6 +2242,8 @@ class Notifier:
         text = f"⚠️ {alarm.typ.upper()}"
         if alarm.kuh_id:
             text += f" – {alarm.kuh_id}"
+            if alarm.kuh_name:
+                text += f" ({alarm.kuh_name})"
         text += f"\n{alarm.nachricht}\nKamera: {self.kamera}"
         try:
             if bild and serie:
@@ -2373,6 +2656,23 @@ def pruefe_kamerabild(
     return defekt
 
 
+def tagesbericht_zusatz(stream: "StreamHandler", engine: "InferenceEngine") -> list[str]:
+    """Zeilen fuer den Tagesbericht: was scharf ist und welche Aufloesung
+    wirklich ankommt (Beleg fuer „2K gewaehlt?“)."""
+    zeilen: list[str] = []
+    if engine.aktiv:
+        zeilen.append(umfang_text(getattr(engine, "nicht_scharf", [])))
+    aufloesung = getattr(stream, "aufloesung", None)
+    if aufloesung:
+        w, h = aufloesung
+        mindest = getattr(stream, "min_breite", 0)
+        zeile = f"Bild: {w}×{h}"
+        if mindest and w < mindest:
+            zeile += f" ⚠️ unter {mindest} px – Unterstream? Hauptstream prüfen"
+        zeilen.append(zeile)
+    return zeilen
+
+
 _TRAININGSBILD_ZEIT = re.compile(r"\d{8}-\d{6}")
 
 
@@ -2389,6 +2689,131 @@ def trainingsbild_name(kamera: str, zeit: float | None = None) -> str:
     (training/datensatz.py) sie daraus liest.
     """
     return f"{trainingsbild_praefix(kamera)}_{time.strftime('%Y%m%d-%H%M%S', time.localtime(zeit))}.jpg"
+
+
+# --------------------------------------------------------------------------
+# Kuh-Namen: vom Landwirt bestaetigte Namen zu Tracker-Nummern (Stufe 1)
+# --------------------------------------------------------------------------
+
+class KuhNamen:
+    """Namen zu Tracker-Nummern, die der Landwirt per Telegram bestaetigt hat
+    (``/kuh 12 Berta``; docs/kuh-namen-spezifikation.md).
+
+    Die Nummer vergibt ByteTrack; sie ist keine Identitaet. Ein Name gilt
+    deshalb nur fuer die laufende Spur und liegt nur im Arbeitsspeicher:
+    Nach einem Neustart zaehlt der Tracker wieder ab 1, eine gespeicherte
+    Zuordnung hinge an einer anderen Kuh. Vergeben wird nur fuer Nummern,
+    die gerade im Bild sind, und jeder Name gehoert hoechstens einer Nummer.
+    Reine Anzeige: Schwellen, Cooldowns und die Kennung „Kuh #12“ im
+    Ereignis bleiben unberuehrt. Nur im Hauptthread benutzt (Analyse,
+    Befehle, Alarme), daher ohne Sperre.
+    """
+
+    SICHTBAR_S = 120            # /kuh nur fuer Nummern, die so kurz zuvor im Bild waren
+    VERGESSEN_S = 24 * 3600     # ungesehene Nummern (samt Name) fallen weg
+    MAX_EINTRAEGE = 200         # Obergrenze bei vielen ID-Wechseln, aelteste zuerst raus
+    NAME_MUSTER = re.compile(r"[A-Za-zÄÖÜäöüß0-9][A-Za-zÄÖÜäöüß0-9 .\-]{0,19}")
+    HILFE = ("So geht's: /kuh 12 Berta gibt Kuh #12 den Namen Berta · /kuh 12 - "
+             "entfernt ihn · /kuehe zeigt alle. Die Nummer steht am Kasten im Livebild.")
+    # Ganze Nummer (kein Rueckfall von #12 auf #1) und nicht schon benannt.
+    _KUH_NR = re.compile(r"Kuh #(\d+)(?!\d| \()")
+
+    def __init__(self) -> None:
+        self._gesehen: dict[int, float] = {}   # Nummer -> letzte Sichtung
+        self._namen: dict[int, str] = {}       # Nummer -> Name
+
+    def sehe(self, kuehe: list[KuhBeobachtung], jetzt: float | None = None) -> None:
+        """Nach jeder Analyse: Sichtungen merken, Altes vergessen."""
+        t = time.time() if jetzt is None else jetzt
+        for k in kuehe:
+            if k.track_id >= 0:
+                self._gesehen[k.track_id] = t
+        for nr in [n for n, z in self._gesehen.items() if t - z > self.VERGESSEN_S]:
+            self._vergiss(nr)
+        if len(self._gesehen) > self.MAX_EINTRAEGE:
+            for nr in sorted(self._gesehen, key=self._gesehen.get)[
+                : len(self._gesehen) - self.MAX_EINTRAEGE
+            ]:
+                self._vergiss(nr)
+
+    def _vergiss(self, nr: int) -> None:
+        self._gesehen.pop(nr, None)
+        self._namen.pop(nr, None)
+
+    @classmethod
+    def gueltiger_name(cls, roh: str) -> str | None:
+        """Bereinigter Name (Leerraum zusammengefasst) oder None."""
+        name = " ".join(str(roh).split())
+        return name if cls.NAME_MUSTER.fullmatch(name) else None
+
+    def name(self, nr: int) -> str | None:
+        return self._namen.get(nr)
+
+    def name_zu(self, kuh_id: str | None) -> str | None:
+        """Name zur Kennung „Kuh #12“ (wie Alarm.kuh_id) oder None."""
+        treffer = re.fullmatch(r"Kuh #(\d+)", kuh_id or "")
+        return self._namen.get(int(treffer.group(1))) if treffer else None
+
+    def ergaenze(self, text: str) -> str:
+        """„Kuh #12“ -> „Kuh #12 (Berta)“, wo ein Name bekannt ist; nie doppelt."""
+        if not self._namen:
+            return text
+
+        def ersetze(treffer: re.Match) -> str:
+            name = self._namen.get(int(treffer.group(1)))
+            return f"{treffer.group(0)} ({name})" if name else treffer.group(0)
+
+        return self._KUH_NR.sub(ersetze, text)
+
+    def setze(self, nr: int, roh: str, jetzt: float | None = None) -> str:
+        t = time.time() if jetzt is None else jetzt
+        name = self.gueltiger_name(roh)
+        if name is None:
+            return ("Name ungültig – erlaubt sind 1–20 Buchstaben, Ziffern, Leerzeichen, "
+                    "Punkt und Bindestrich. Beispiel: /kuh 12 Berta")
+        if not self._gesehen:
+            return ("Noch keine Kuh-Nummern – die KI läuft im Silent Mode oder sieht "
+                    "gerade keine Kuh.")
+        zuletzt = self._gesehen.get(nr)
+        if zuletzt is None or t - zuletzt > self.SICHTBAR_S:
+            return f"Kuh #{nr} ist gerade nicht im Bild – nichts geändert."
+        teile = []
+        alt_nr = next((n for n, v in self._namen.items()
+                       if v.casefold() == name.casefold() and n != nr), None)
+        if alt_nr is not None:
+            del self._namen[alt_nr]
+            teile.append(f"{name} war Kuh #{alt_nr} – jetzt Kuh #{nr}.")
+        alt_name = self._namen.get(nr)
+        self._namen[nr] = name
+        if alt_name and alt_name != name:
+            teile.append(f"Kuh #{nr} hieß {alt_name} – jetzt {name}.")
+        if not teile:
+            teile.append(f"Kuh #{nr} heißt jetzt {name}. Gilt, solange die KI die Kuh unter "
+                         "dieser Nummer verfolgt (bis zum Neustart des Agenten).")
+        return " ".join(teile)
+
+    def entferne(self, nr: int) -> str:
+        name = self._namen.pop(nr, None)
+        return (f"Name von Kuh #{nr} ({name}) entfernt." if name
+                else f"Kuh #{nr} hatte keinen Namen.")
+
+    def liste(self, jetzt: float | None = None) -> str:
+        t = time.time() if jetzt is None else jetzt
+        im_bild = sorted(n for n, z in self._gesehen.items() if t - z <= self.SICHTBAR_S)
+        zeilen = []
+        for nr in sorted(self._namen):
+            alter = t - self._gesehen.get(nr, t)
+            wo = "im Bild" if alter <= self.SICHTBAR_S else f"zuletzt vor {int(alter // 60)} min"
+            zeilen.append(f"Kuh #{nr} {self._namen[nr]} – {wo}")
+        ohne = [n for n in im_bild if n not in self._namen]
+        if not zeilen and not im_bild:
+            return ("Noch keine Kuh-Nummern – die KI läuft im Silent Mode oder sieht "
+                    "gerade keine Kuh.")
+        text = ("Namen (gelten bis zum Neustart des Agenten):\n" + "\n".join(zeilen)
+                if zeilen else "Noch keine Namen vergeben. Beispiel: /kuh 12 Berta")
+        if ohne:
+            text += "\nOhne Namen im Bild: " + ", ".join(f"#{n}" for n in ohne)
+        return text
 
 
 # --------------------------------------------------------------------------
@@ -2428,6 +2853,8 @@ class KiAnsicht:
         self.kamera = kamera
         self.alarm_ab = alarm_ab
         self._letzte_warnung: float | None = None
+        # Von main() gesetzt: bestaetigte Kuh-Namen (None = ohne Namen).
+        self.namen: KuhNamen | None = None
 
     @property
     def aktiv(self) -> bool:
@@ -2441,6 +2868,14 @@ class KiAnsicht:
             return [round(min(1.0, max(0.0, v / g)), 4)
                     for v, g in ((x1, breite), (y1, hoehe), (x2, breite), (y2, hoehe))]
 
+        def kuh(k: KuhBeobachtung) -> dict:
+            eintrag = {"id": k.track_id, "box": rel(k.box),
+                       "winkel": None if k.winkel_grad is None else round(k.winkel_grad, 1)}
+            name = self.namen.name(k.track_id) if self.namen is not None else None
+            if name:  # Feld nur mit Namen (docs/kuh-namen-spezifikation.md)
+                eintrag["name"] = name
+            return eintrag
+
         return {
             "v": 1,
             "kamera": self.kamera,
@@ -2448,11 +2883,7 @@ class KiAnsicht:
             "breite": breite,
             "hoehe": hoehe,
             "alarm_ab": self.alarm_ab,
-            "kuehe": [
-                {"id": k.track_id, "box": rel(k.box),
-                 "winkel": None if k.winkel_grad is None else round(k.winkel_grad, 1)}
-                for k in kuehe if k.track_id >= 0
-            ],
+            "kuehe": [kuh(k) for k in kuehe if k.track_id >= 0],
             "objekte": [
                 {"klasse": o.klasse, "box": rel(o.box),
                  "prozent": math.floor(o.konfidenz * 100 + 1e-9),
@@ -2513,6 +2944,10 @@ def main() -> None:
     notifier.feedback.archiv = archiv
     # Kaesten der letzten Analyse fuer das Livebild der Kachel (nur Analyse-Modus)
     ki_ansicht = KiAnsicht(cfg, notifier.kamera, logik.override_konf)
+    # Kuh-Namen per Telegram /kuh – nur im RAM, gelten bis zum Neustart
+    # (docs/kuh-namen-spezifikation.md).
+    namen = KuhNamen()
+    notifier.namen = notifier.feedback.namen = ki_ansicht.namen = namen
     # „❌ Fehlalarm" auf eine Austreibung -> naechste Erkennung meldet sofort.
     notifier.feedback.bei_fehlalarm = logik.fehlalarm_gemeldet
 
@@ -2531,7 +2966,12 @@ def main() -> None:
         )
 
     if engine.aktiv:
-        notifier.status("Edge-Agent gestartet – Analyse-Modus aktiv")
+        lebenszeichen.nicht_scharf = list(getattr(engine, "nicht_scharf", []))
+        notifier.nicht_scharf = list(lebenszeichen.nicht_scharf)
+        notifier.status(
+            "Edge-Agent gestartet – Analyse-Modus aktiv. "
+            + umfang_text(lebenszeichen.nicht_scharf)
+        )
     else:
         notifier.status("Edge-Agent gestartet (Silent Mode – Datensammlung)")
         ordner = Path(cfg["silent_mode"]["ordner"])
@@ -2542,7 +2982,7 @@ def main() -> None:
     while True:
         try:
             frame = stream.naechster_frame()
-            notifier.digest_tick(engine.aktiv)
+            notifier.digest_tick(engine.aktiv, lambda: tagesbericht_zusatz(stream, engine))
             notifier.feedback.tick()
             totmann_meldung = totmann.tick(frame is not None)
             if totmann_meldung:
@@ -2590,6 +3030,9 @@ def main() -> None:
             kuehe, objekte = engine.analysiere(frame)
             for alarm in logik.bewerte(kuehe, objekte):
                 notifier.melde(alarm, frame, verlauf=list(frame_puffer)[:-1])
+            # Erst nach den Alarmen: Ein Fehler in der reinen Anzeige (Namen,
+            # KI-Ansicht) darf nie einen Alarm dieses Bilds kosten.
+            namen.sehe(kuehe)
             # Erst nach den Alarmen: Kein Alarm wartet auf die KI-Ansicht.
             if ki_ansicht.aktiv:
                 ki_ansicht.schreibe(frame, kuehe, objekte, letztes_bild)
