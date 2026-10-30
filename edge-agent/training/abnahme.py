@@ -214,8 +214,8 @@ def bewerte(recall: dict, paare: list, sicht: tuple[int, int] = (0, 0),
 
 # --------------------------------------------------------------------------
 # Brunst-Phase (docs/brunst-zuerst-entscheidung.md): Modell nur mit Klasse
-# kuh. Werte nach der Fachpruefung durch ki-wache (29.10.2026); der
-# Betreiber bestaetigt sie. Austreibung und Kalbeverdacht sind NICHT Teil
+# kuh. Werte nach der Fachpruefung durch ki-wache; K, Ü und D vom Betreiber
+# bestaetigt (30.10.2026). Austreibung und Kalbeverdacht sind NICHT Teil
 # dieser Abnahme und bleiben nicht scharf (der Agent meldet das selbst).
 # --------------------------------------------------------------------------
 

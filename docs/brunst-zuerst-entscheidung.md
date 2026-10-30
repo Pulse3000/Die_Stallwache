@@ -4,7 +4,8 @@ Stand: 30.10.2026 · Entscheidung des Betreibers (29.10.2026): „Zuerst fangen
 wir mit der Brunsterkennung an und dem Aufsprungverhalten der Kühe, die
 Kalb-Überwachung und Kalb-Erkennung kommt erst danach.“
 **Status: im Repo umgesetzt (Trainingsweg, Abnahme, ehrliche Statusmeldung),
-fachlich geprüft (`ki-wache`, 30.10.2026). Am Gerät nichts scharf: Vor dem
+fachlich geprüft (`ki-wache`, 30.10.2026). Gate-Werte K, Ü und D vom
+Betreiber bestätigt (30.10.2026). Am Gerät nichts scharf: Vor dem
 Scharfschalten sind die Punkte in Abschnitt 9 offen.**
 
 ## 1. Grundsatz
@@ -137,17 +138,18 @@ Aufsprünge.
 | Höhenversatz | ≥ 20 % der Boxhöhe | ebenda |
 | Mindestdauer | `logik.brunst_min_dauer_s` = 4 s | Referenzwert |
 | Paar stumm nach Meldung | 1 h | ebenda |
-| Gate K Kuh-Recall | ≥ 90 % bei Konfidenz ≥ 0,5, n ≥ 100 | `ki-wache`; 0,5 = `new_track_thresh` (Test koppelt beide) |
+| Gate K Kuh-Recall | ≥ 90 % bei Konfidenz ≥ 0,5, n ≥ 100 | `ki-wache`, vom Betreiber bestätigt; 0,5 = `new_track_thresh` (Test koppelt beide) |
 | Gate K-Nacht | wie K, nur IR-Nachtbilder, n ≥ 30 | `ki-wache`, von Hand |
-| Gate Ü Aufsprung-Lage | beide Kühe erkannt **und** erkannte Lage wie beim Aufsprung, ≥ 90 %, n ≥ 20 Paare; Paare ab IoU 0,5 getrennt ausgewiesen | `ki-wache`; nutzt `aufsprung_oben` |
-| Gate D Doppelboxen | ≤ 2 % der Kühe mit zweiter Box (IoU ≥ 0,3) | `ki-wache` |
+| Gate Ü Aufsprung-Lage | beide Kühe erkannt **und** erkannte Lage wie beim Aufsprung, ≥ 90 %, n ≥ 20 Paare; Paare ab IoU 0,5 getrennt ausgewiesen | `ki-wache`, vom Betreiber bestätigt; nutzt `aufsprung_oben` |
+| Gate D Doppelboxen | ≤ 2 % der Kühe mit zweiter Box (IoU ≥ 0,3) | `ki-wache`, vom Betreiber bestätigt |
 | Gate E Ende zu Ende | ≥ 4 von 5 echten Aufsprung-Szenen (Video mit 1 Bild/s) ergeben einen Alarm mit der richtigen unteren Kuh | `ki-wache`, von Hand |
 
 Begründung der Stichproben: 27 von 30 belegen nur eine Rate ≥ 0,76
 (einseitige 95-%-Untergrenze). Bei 5 Paaren bestünde eine wahre Rate von 60 %
 das Gate in 34 % der Fälle, bei 20 Paaren in 5 %. Die NMS-Grenze von
-Ultralytics (0,7) bleibt; höher hieße mehr Doppelboxen. Die Werte bestätigt
-der Betreiber; bis dahin gelten sie.
+Ultralytics (0,7) bleibt; höher hieße mehr Doppelboxen. K, Ü und D hat der
+Betreiber am 30.10.2026 bestätigt. K-Nacht und E sind Vorschläge von
+`ki-wache` und noch nicht ausdrücklich bestätigt; bis dahin gelten sie.
 
 ## 5. Konfiguration (Stall-Rechner, Brunst-Phase)
 
