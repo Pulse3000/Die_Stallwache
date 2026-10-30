@@ -35,8 +35,8 @@ stream:
   kamera: stallwache
   # Mindestbreite des Kamerabilds. Der Agent loggt beim Verbinden, welche
   # Aufloesung WIRKLICH ankommt (und nennt sie im Tagesbericht); darunter
-  # eine Warnung. 1280 erkennt den Unterstream (Tapo stream2 = 640x360). Die
-  # Stallwache liefert ueber stream1 2560x1440 (gemessen 27.10.2026). Fuer
+  # eine Warnung. 1280 erkennt den Unterstream (Tapo stream2 = 640x360). Bilder
+  # der Stallwache vom 27.10.2026 (kuhwatch) haben 2560x1440. Fuer
   # Kuh-Boxen (Brunst-Phase, imgsz 640) bringt 2K nichts und kostet
   # Dekodierzeit auf alter Hardware – nicht hochsetzen. 0 = keine Pruefung.
   min_breite: 1280
@@ -68,7 +68,8 @@ modell:
   # kann. FEHLT der Eintrag, gilt nichts als scharf (Warnung beim Start);
   # die App sagt dann nie „OK“. Unterdrueckt keine Erkennung (Recall vor allem).
   # Brunst-Phase (Modell aus stall-brunst.yaml, docs/brunst-zuerst-entscheidung.md):
-  #   freigegeben: [brunst]     (erst nach Gate K, Ü, D, E; vorher [])
+  #   freigegeben: [brunst]     (erst nach allen Gates: K, K-Nacht, Ü, D, E, 3b, 4;
+  #                              vorher [])
   # Spaeter mit Kalbeueberwachung: [brunst, austreibung, kalbeverdacht]
   # modell.klassen NICHT kuerzen: Was das Modell kennt, meldet es selbst;
   # gekuerzte Klassen filterten in Phase 2 Fruchtblase/Fuesse vor der Logik weg.

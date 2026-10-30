@@ -10,12 +10,14 @@
  * laeuft dabei unveraendert im Browser.
  *
  *   node tests/e2e/hls-aufholen.mjs
+ *   LIB=pfad/zu/hls-live.ts node tests/e2e/hls-aufholen.mjs   # Gegenprobe mit anderer Fassung
  *
  * Braucht Chromium (CHROMIUM=/opt/pw-browsers/chromium), ffmpeg mit libx264
  * und playwright-core. Keine Webapp noetig. Gehoert nicht zu `npm test`.
- * Exit 0 = alte Einstellung haengt fest UND die neue holt auf UND die neue
- * friert bei schwankender Segment-Ladezeit nicht oefter ein als die alte
- * (Befund qa-waechter: Aufholen per 1,15-facher Geschwindigkeit tat das).
+ * Exit 0 = das Testmaterial reicht fuer jeden Lauf UND die alte Einstellung
+ * haengt fest UND die neue holt auf UND die neue friert bei schwankender
+ * Segment-Ladezeit nicht oefter ein als die alte (Befund qa-waechter:
+ * Aufholen per 1,15-facher Geschwindigkeit tat das).
  */
 
 import { execFileSync } from "node:child_process";
@@ -33,7 +35,7 @@ const HLS_JS = join(hier, "../../node_modules/hls.js/dist/hls.min.js");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Das echte Modul: Typen entfernen, `export` weglassen, als Skript laden.
-const libJs = stripTypeScriptTypes(readFileSync(join(hier, "../../lib/hls-live.ts"), "utf8"))
+const libJs = stripTypeScriptTypes(readFileSync(process.env.LIB ?? join(hier, "../../lib/hls-live.ts"), "utf8"))
   .replace(/^export /gm, "");
 
 const SEG_S = Number(process.env.SEG_S ?? 2);       // Segmentdauer (Cloud-HLS: 2..6 s)
@@ -52,9 +54,13 @@ execFileSync("ffmpeg", ["-loglevel", "error", "-y", "-f", "lavfi", "-i",
   "-hls_segment_filename", join(dir, "seg%03d.ts"), join(dir, "voll.m3u8")]);
 const segment = (n) => readFileSync(join(dir, `seg${String(n).padStart(3, "0")}.ts`));
 
-const start = Date.now();
+// Jeder Lauf startet die Live-Uhr neu. Mit einer gemeinsamen Uhr war das
+// Material in den spaeteren Laeufen erschoepft: Die Playlist wuchs nicht mehr,
+// und die Netz-Laeufe verglichen nur noch das Materialende (Befund qa-waechter M1).
+const uhr = { start: Date.now() };
+const MATERIAL_MS = (SEGMENTE - FENSTER) * SEG_S * 1000; // so lange waechst die Playlist
 function playlist() {
-  const ende = Math.min(SEGMENTE, FENSTER + Math.floor((Date.now() - start) / (SEG_S * 1000)));
+  const ende = Math.min(SEGMENTE, FENSTER + Math.floor((Date.now() - uhr.start) / (SEG_S * 1000)));
   const z = ["#EXTM3U", "#EXT-X-VERSION:3", `#EXT-X-TARGETDURATION:${SEG_S}`,
     `#EXT-X-MEDIA-SEQUENCE:${ende - FENSTER}`];
   for (let n = ende - FENSTER; n < ende; n++)
@@ -100,6 +106,7 @@ const abstand = (page) => page.evaluate(() => {
 async function messe(name, neu, mitPause, schwankung = 0) {
   netz.schwankung = schwankung;
   netz.saat = 1;
+  uhr.start = Date.now();
   const page = await browser.newPage();
   const fehler = [];
   page.on("pageerror", (e) => fehler.push(e.message));
@@ -148,6 +155,7 @@ async function messe(name, neu, mitPause, schwankung = 0) {
   }
   const seeks = (await page.evaluate(() => window.__seeks)) - seeksVorher;
   const standbilder = (await page.evaluate(() => window.__standbilder)) - standVorher;
+  const erschoepft = Date.now() - uhr.start > MATERIAL_MS;
   netz.schwankung = 0;
   await page.close();
   const max = (a) => Math.max(...a), letzte = danach.slice(-5);
@@ -155,8 +163,8 @@ async function messe(name, neu, mitPause, schwankung = 0) {
   console.log(`${name} Sprunggrenze ${grenze ?? "keine"} s · Abstand ruhig ${Math.min(...ruhig).toFixed(1)}..${max(ruhig).toFixed(1)} s · ` +
     `${mitPause ? "nach der Pause" : "weiter ruhig"}: Verlauf ${danach.map((w) => w.toFixed(0)).join(" ")} · ` +
     `Ende ${mittel.toFixed(1)} s · Spruenge ${seeks} · Standbilder ${standbilder}` +
-    `${fehler.length ? ` · Seitenfehler: ${fehler[0]}` : ""}`);
-  return { ruhigMax: max(ruhig), ende: mittel, seeks, standbilder, grenze };
+    `${erschoepft ? " · MATERIAL ERSCHOEPFT" : ""}${fehler.length ? ` · Seitenfehler: ${fehler[0]}` : ""}`);
+  return { ruhigMax: max(ruhig), ende: mittel, seeks, standbilder, grenze, erschoepft };
 }
 
 let ok = true;
@@ -168,19 +176,22 @@ try {
   const altWackel = await messe("ALT Netz ", false, false, SCHWANKUNG_MS);
   const neuWackel = await messe("NEU Netz ", true, false, SCHWANKUNG_MS);
 
-  // Aussagekraeftig nur, wenn die alte Einstellung das Problem wirklich zeigt.
+  // Aussagekraeftig nur, wenn jeder Lauf auf wachsender Playlist misst ...
+  const materialReicht = [alt, neu, still, altWackel, neuWackel].every((l) => !l.erschoepft);
+  // ... und die alte Einstellung das Problem wirklich zeigt.
   const altHaengt = alt.ende > alt.ruhigMax + PAUSE_S * 0.6;
   const neuHolt = neu.ende <= neu.grenze && neu.ende < alt.ende - PAUSE_S * 0.3;
   const neuRuhig = still.seeks === 0;
   const neuStabil = neuWackel.standbilder <= altWackel.standbilder;
   const pruefe = (b, t) => console.log(`${b ? "OK  " : "FEHL"} ${t}`);
   console.log("");
+  pruefe(materialReicht, "Testmaterial reicht fuer jeden Lauf (sonst misst ein Lauf nur das Materialende)");
   pruefe(altHaengt, "alt: Verzoegerung bleibt nach der Pause groesser (Problem nachgestellt)");
   pruefe(neuHolt, "neu: Player holt nach der Pause auf (Ende unter der Sprunggrenze und deutlich unter alt)");
   pruefe(neuRuhig, "neu: im ruhigen Betrieb kein Springen");
   pruefe(neuStabil, `neu: bei schwankender Ladezeit (0..${SCHWANKUNG_MS} ms) nicht oefter Standbild als alt ` +
     `(${neuWackel.standbilder} gegen ${altWackel.standbilder})`);
-  ok = altHaengt && neuHolt && neuRuhig && neuStabil;
+  ok = materialReicht && altHaengt && neuHolt && neuRuhig && neuStabil;
 } finally {
   await browser.close();
   server.close();

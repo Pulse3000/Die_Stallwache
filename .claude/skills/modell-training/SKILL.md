@@ -16,20 +16,25 @@ Der Betreiber hat entschieden: erst Brunst/Aufsprung, dann Kalbung
 (`docs/brunst-zuerst-entscheidung.md`). Für **v1** gilt deshalb:
 - Labeln nur `kuh` (Rechteck), Export „Ultralytics YOLO Detection“,
   Datensatz `training/stall-brunst.yaml`, Colab `PHASE = "brunst"`.
-- **Vorher die Kamera prüfen:** Laufbereich der besamungsfähigen Gruppe im
-  Bild, nichts vor dem Objektiv, Uhr richtig (Stichprobe 27.10.: Stallwache
-  zeigt vor allem Futtertisch, Kasten vor der Linse – Entscheidung §2).
+- **Vorher die Kamera wählen:** Laufbereich der besamungsfähigen Gruppe im
+  Bild – nicht die Stallwache, solange über ihr Livebild Kalbungen
+  kontrolliert werden –, nichts vor dem Objektiv, Uhr und Bildalter richtig
+  (Stichprobe 27.10.: Stallwache zeigt Futtertisch/Abkalbebereich, Kasten
+  vor der Linse, Uhr 53–57 min daneben – Entscheidung §2).
+- Frames aus Aufsprung-Videos mit Zeitstempel benennen
+  (`stallwache_20261102-031500_aufsprung_007.jpg`), sonst landen sie nie im
+  Val-Set und Gate Ü belegt nur stehende Kühe.
 - Abnahme `abnahme.py … --phase brunst` (Gate K Kuh-Recall n ≥ 100, Gate Ü
   Aufsprung-Lage n ≥ 20 mit der Regel des Agenten, Gate D Doppelboxen); von
   Hand K-Nacht, Gate E (echte Aufsprung-Videos in 1 Bild/s), 24 h ≤ 1
   falscher Brunstverdacht, `--nur-fps` am Stall-Rechner.
-- `config.yaml`: `freigegeben: [brunst]` erst nach allen Gates (vorher `[]`,
-  fehlend = nichts scharf); `klassen` NICHT kürzen. Der Agent meldet „NICHT
+- `config.yaml`: `freigegeben: [brunst]` erst nach allen Gates (K, K-Nacht,
+  Ü, D, E, 3b, 4; vorher `[]`, fehlend = nichts scharf); `klassen` NICHT kürzen. Der Agent meldet „NICHT
   scharf: Austreibung, Kalbeverdacht“, die App sagt kein „OK“ – das ist
   gewollt, nicht reparieren.
-- Brunst-Fehlalarme nie als „Background“ labeln (es sind echte Kühe):
-  Modellfehler korrekt umranden, Regelfehler nicht ins Training
-  (Entscheidung §8, Risiko 5).
+- Fehlalarm-Bilder nie als „Background“ labeln, wenn Kühe darauf sind: alle
+  echten Kühe umranden, Regelfehler nicht ins Training (Entscheidung §8,
+  Risiko 5; gilt in jeder Phase).
 - Phasen 2–3b unten (Keypoints, Fruchtblase/Kälberfüße, Gates 1/2/2b) gelten
   ab v2 für die Kalbeüberwachung.
 
@@ -123,9 +128,11 @@ Zellen in `edge-agent/training/colab_training.py` (Split, Training mit
 
 ## Phase 5 — Fehlalarm-Nachtraining (wiederkehrend)
 
-Falsch erkannte Bilder (aus den Telegram-Alben) zurück in CVAT als
-Negativ-Beispiele („Background") labeln, Datensatz erweitern, erneut
-trainieren, `best.pt` austauschen. Kein Schwellenwert-Drehen als Ersatz für
+Falsch erkannte Bilder (aus den Telegram-Alben) zurück in CVAT: alle echten
+Kühe korrekt umranden (ab Phase 2 mit Keypoints), nur die fälschlich
+erkannte Klasse bleibt ungelabelt; ein leeres Label („Background") nur für
+Bilder ganz ohne Tier. Regelfehler (Boxen stimmen, Verhalten harmlos) nicht
+ins Training. Datensatz erweitern, erneut trainieren, `best.pt` austauschen. Kein Schwellenwert-Drehen als Ersatz für
 Nachtraining — die Referenzwerte (45°/30 min/20 %, 0.80, IoU 0.15/4 s) sind
 fachlich begründet und bleiben stehen (Wächter: Agent `ki-wache`).
 

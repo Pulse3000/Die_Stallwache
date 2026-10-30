@@ -128,8 +128,11 @@ p.check("2: Text nennt scharf und NICHT scharf",
         text.startswith("Scharf: Brunst (Aufsprung)") and "NICHT scharf: Austreibung" in text
         and "Kalbeverdacht" in text)
 p.check("2: alles scharf -> kein NICHT", "NICHT" not in m.umfang_text([]))
-p.check("2: Kalbe-Wege nicht scharf -> Handlungsanweisung im Text",
-        text.endswith("Kalbungen erkennt die KI damit nicht – bitte wie bisher selbst kontrollieren."))
+p.check("2: Austreibung nicht scharf -> Handlungsanweisung zu Geburten",
+        text.endswith("Geburten erkennt die KI damit nicht – Kalbungen bitte wie bisher selbst kontrollieren."))
+nur_kv = m.umfang_text(["kalbeverdacht"])
+p.check("2: nur Kalbeverdacht nicht scharf -> Beobachtung vor dem Termin, Geburten werden gemeldet (ki-wache H4)",
+        "Wehenzeichen vorher nicht" in nur_kv and "Geburten erkennt die KI damit nicht" not in nur_kv)
 p.check("2: nur Brunst nicht scharf -> keine Kalbe-Anweisung",
         "Kalbungen" not in m.umfang_text(["brunst"]))
 
@@ -178,6 +181,15 @@ n5.digest_tick(True)
 bericht = tg[-1][0] if tg else ""
 p.check("5: Brunst-Phase -> Austreibung/Kalbeverdacht „nicht überwacht“, Brunst gezaehlt",
         "Kalbeverdacht: nicht überwacht · Austreibung: nicht überwacht · Brunstverdacht: 2" in bericht)
+n7 = m.Notifier({"telegram": {"token": "T", "chat_id": "1", "digest_uhrzeit": "00:00"},
+                 "stream": {"kamera": "stallwache"}})
+n7._tg.auftrag = lambda fn, *a, **kw: tg.append(a)
+n7.nicht_scharf = list(m.ALARMWEGE)          # z. B. freigegeben: [] vor der Abnahme
+n7._zaehler["brunstverdacht"] += 3
+n7.digest_tick(True)
+p.check("5: zugestellte Alarme eines nicht abgenommenen Wegs werden nie verschwiegen (ki-wache S4)",
+        "Brunstverdacht: 3 (nicht abgenommen – bitte am Bild prüfen)" in tg[-1][0]
+        and "Austreibung: nicht überwacht" in tg[-1][0])
 n6 = m.Notifier({"telegram": {"token": "T", "chat_id": "1", "digest_uhrzeit": "00:00"},
                  "stream": {"kamera": "stallwache"}})
 n6._tg.auftrag = lambda fn, *a, **kw: tg.append(a)

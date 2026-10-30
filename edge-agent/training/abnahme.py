@@ -34,10 +34,16 @@ docs/brunst-zuerst-entscheidung.md):
   Gate K  Kuh-Recall >= 90 % bei Konfidenz >= 0.5 (n >= 100).
   Gate Ü  Bei Kuh-Paaren in Aufsprung-Lage (Regel des Agenten,
           main.aufsprung_oben) erkennt das Modell BEIDE und die erkannten
-          Boxen liegen ebenso, in >= 90 % (n >= 20) - sonst schluckt die NMS
-          eine Box. Paare ab IoU 0,5 getrennt ausgewiesen.
+          Boxen liegen ebenso, in derselben Richtung (wer oben ist), in
+          >= 90 % (n >= 20) - sonst fehlt eine Box (unbekannte Haltung der
+          aufspringenden Kuh oder NMS) oder der Alarm naennte die falsche
+          Kuh. Paare ab IoU 0,5 und Paare aus Aufsprung-Videos (Dateiname
+          <kamera>_<JJJJMMTT-HHMMSS>_aufsprung_<nr>.jpg) getrennt ausgewiesen.
   Gate D  Hoechstens 2 % der Kuehe mit Doppelbox (loest sonst Aufsprung aus).
-  Von Hand: K nur Nachtbilder, E Ende zu Ende (Aufsprung-Videos mit 1 Bild/s).
+  Info    Phantom-Aufsprung-Lagen: erkannte Paare in Aufsprung-Lage ohne
+          gelabeltes Paar, mit Bildnamen zur Sichtpruefung.
+  Von Hand: K nur Nachtbilder, E Ende zu Ende (Aufsprung-Videos mit 1 Bild/s
+  auf Hardware, die Gate 4 besteht).
   Exit-Code wie oben (0 / 1 verfehlt / 2 nicht pruefbar).
 """
 
@@ -45,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import re
 import sys
 import time
 from pathlib import Path
@@ -227,6 +234,11 @@ UEBERLAPP_STICHPROBEN_MIN = 20  # bei n = 5 bestuende eine wahre Rate von 60 % i
 NMS_KRITISCH_IOU = 0.5       # ab hier droht die NMS (Grenze 0,7) eine Box zu verschlucken
 DOPPEL_IOU = 0.3             # zweite Box auf derselben Kuh
 DOPPEL_MAX = 0.02            # hoechstens 2 % der Kuehe mit Doppelbox
+# Einheitlich in Bericht, Entscheidung, config.example.yaml und Skill (Befund ki-wache S3).
+FREIGABE_REGEL = ("Erst wenn K, K-Nacht, Ü, D, E, 3b (24 h höchstens ein falscher Brunstverdacht) "
+                  "und 4 (mindestens 1 Bild/s am Stall-Rechner) bestanden sind: "
+                  "`modell.freigegeben: [brunst]`. Bis dahin darf das Modell laufen, aber mit "
+                  "`freigegeben: []`.")
 
 
 def kuh_recall(bilder, konf: float = KUH_KONFIDENZ, iou_min: float = IOU_MIN) -> tuple[int, int]:
@@ -239,24 +251,48 @@ def kuh_recall(bilder, konf: float = KUH_KONFIDENZ, iou_min: float = IOU_MIN) ->
     return n, treffer
 
 
-def ueberlapp_recall(bilder, konf: float = KUH_KONFIDENZ, iou_min: float = IOU_MIN) -> dict:
+# Frames aus Aufsprung-Videos: <kamera>_<JJJJMMTT-HHMMSS>_aufsprung_<nr>.jpg
+VIDEO_MUSTER = re.compile(r"(?:^|_)\d{8}-\d{6}_aufsprung_\d+\.\w+$", re.IGNORECASE)
+
+
+def aus_video(name) -> bool:
+    """Bild stammt aus einem echten Aufsprung-Video. Nur die volle
+    Namenskonvention zaehlt - sonst blaehten „kein_aufsprung_007.jpg“ & Co.
+    n_video auf und unterdrueckten die Ü-Warnungen (Befund qa-waechter L3)."""
+    return bool(name) and VIDEO_MUSTER.search(Path(str(name)).name) is not None
+
+
+def lage_erkannt(gt_a: tuple, gt_b: tuple, pred_a: tuple, pred_b: tuple, aufsprung_oben) -> bool:
+    """Treffer fuer Gate Ü: Die erkannten Boxen liegen wie ein Aufsprung UND
+    in derselben Richtung wie die gelabelten. Umgekehrt naennte der Alarm die
+    falsche Kuh als duldend (Befund ki-wache H1)."""
+    soll = aufsprung_oben(gt_a, gt_b)
+    return soll is not None and aufsprung_oben(pred_a, pred_b) == soll
+
+
+def ueberlapp_recall(bilder, konf: float = KUH_KONFIDENZ, iou_min: float = IOU_MIN,
+                     namen: list | None = None) -> dict:
     """Gelabelte Kuh-Paare, die wie ein Aufsprung liegen (exakt die Regel des
     Agenten: main.aufsprung_oben), und wie oft das Modell BEIDE erkennt UND
-    die erkannten Boxen die Regel ebenfalls erfuellen.
+    die erkannten Boxen ebenso liegen, in derselben Richtung.
 
-    Genau hier droht die Non-Maximum-Suppression eine der zwei Boxen zu
-    verschlucken - dann gibt es kein Paar und nie einen Brunstverdacht,
-    obwohl die Kuh-Erkennung insgesamt gut aussieht. Nebeneinander stehende
-    Kuehe zaehlen nicht (Befund ki-wache). Getrennt ausgewiesen: Paare ab
-    IoU 0,5, wo die NMS am ehesten zuschlaegt.
-    -> {"n", "treffer", "n_eng", "treffer_eng"}
+    Hier fehlt am ehesten eine Box: Die aufgerichtete Kuh ist eine Haltung,
+    die das Modell kaum gesehen hat, und die Non-Maximum-Suppression kann
+    eine von zwei stark ueberlappenden Boxen verschlucken - dann gibt es kein
+    Paar und nie einen Brunstverdacht, obwohl die Kuh-Erkennung insgesamt gut
+    aussieht. Nebeneinander stehende Kuehe zaehlen nicht. Getrennt
+    ausgewiesen: Paare ab IoU 0,5 (NMS) und Paare aus Aufsprung-Videos
+    (namen[i] nach VIDEO_MUSTER) - nur diese zeigen echte Aufspruenge; zwei
+    Kuehe hintereinander am Fressgitter erfuellen die Regel ebenfalls.
+    -> {"n", "treffer", "n_eng", "treffer_eng", "n_video", "treffer_video"}
     """
     aufsprung_oben = lade_agent().aufsprung_oben
-    e = {"n": 0, "treffer": 0, "n_eng": 0, "treffer_eng": 0}
-    for gt, pred in bilder:
+    e = {"n": 0, "treffer": 0, "n_eng": 0, "treffer_eng": 0, "n_video": 0, "treffer_video": 0}
+    for i, (gt, pred) in enumerate(bilder):
+        video = aus_video(namen[i] if namen and i < len(namen) else None)
         sicher = [o for o in pred if o["konf"] >= konf]
         zuordnung = dict(ordne_zu(gt, sicher, KUH, iou_min))
-        kuehe = [i for i, o in enumerate(gt) if o["klasse"] == KUH]
+        kuehe = [k for k, o in enumerate(gt) if o["klasse"] == KUH]
         for pos, a in enumerate(kuehe):
             for b in kuehe[pos + 1:]:
                 if aufsprung_oben(gt[a]["box"], gt[b]["box"]) is None:
@@ -264,11 +300,42 @@ def ueberlapp_recall(bilder, konf: float = KUH_KONFIDENZ, iou_min: float = IOU_M
                 eng = iou(gt[a]["box"], gt[b]["box"]) >= NMS_KRITISCH_IOU
                 e["n"] += 1
                 e["n_eng"] += eng
-                if a in zuordnung and b in zuordnung and aufsprung_oben(
-                        sicher[zuordnung[a]]["box"], sicher[zuordnung[b]]["box"]) is not None:
+                e["n_video"] += video
+                if a in zuordnung and b in zuordnung and lage_erkannt(
+                        gt[a]["box"], gt[b]["box"],
+                        sicher[zuordnung[a]]["box"], sicher[zuordnung[b]]["box"], aufsprung_oben):
                     e["treffer"] += 1
                     e["treffer_eng"] += eng
+                    e["treffer_video"] += video
     return e
+
+
+def phantom_lagen(bilder, konf: float = KUH_KONFIDENZ, iou_min: float = IOU_MIN,
+                  namen: list | None = None) -> tuple[int, list]:
+    """(anzahl, bilder): Paare sicherer Boxen in Aufsprung-Lage, denen kein
+    gelabeltes Paar in Aufsprung-Lage entspricht - jedes waere ein
+    moeglicher Brunst-Fehlalarm (Doppelbox, Teilbox, verrutschte Nachbarin).
+    Nur Information, kein Gate (Befund ki-wache S2); bilder = Namen bzw.
+    Nummern zur Sichtpruefung."""
+    aufsprung_oben = lade_agent().aufsprung_oben
+    anzahl, betroffen = 0, []
+    for i, (gt, pred) in enumerate(bilder):
+        sicher = [o for o in pred if o["konf"] >= konf and o["klasse"] == KUH]
+        zu_gt = {pi: gi for gi, pi in ordne_zu(gt, sicher, KUH, iou_min)}
+        hier = 0
+        for p in range(len(sicher)):
+            for q in range(p + 1, len(sicher)):
+                if aufsprung_oben(sicher[p]["box"], sicher[q]["box"]) is None:
+                    continue
+                ga, gb = zu_gt.get(p), zu_gt.get(q)
+                if ga is not None and gb is not None and aufsprung_oben(
+                        gt[ga]["box"], gt[gb]["box"]) is not None:
+                    continue
+                hier += 1
+        if hier:
+            anzahl += hier
+            betroffen.append(namen[i] if namen and i < len(namen) and namen[i] else f"Bild {i + 1}")
+    return anzahl, betroffen
 
 
 def doppelboxen(bilder, konf: float = KUH_KONFIDENZ, iou_min: float = IOU_MIN) -> tuple[int, int]:
@@ -294,7 +361,8 @@ def doppelboxen(bilder, konf: float = KUH_KONFIDENZ, iou_min: float = IOU_MIN) -
     return n, doppelt
 
 
-def bewerte_brunst(kuh: tuple[int, int], ueberlapp: dict, doppel: tuple[int, int] = (0, 0)) -> dict:
+def bewerte_brunst(kuh: tuple[int, int], ueberlapp: dict, doppel: tuple[int, int] = (0, 0),
+                   phantom: tuple[int, list] = (0, [])) -> dict:
     n_k, t_k = kuh
     if n_k < KUH_STICHPROBEN_MIN:
         gate_k = "nicht prüfbar"
@@ -313,7 +381,7 @@ def bewerte_brunst(kuh: tuple[int, int], ueberlapp: dict, doppel: tuple[int, int
     stati = (gate_k, gate_u, gate_d)
     code = 1 if "verfehlt" in stati else 2 if "nicht prüfbar" in stati else 0
     return {"gate_k": gate_k, "kuh": kuh, "gate_u": gate_u, "ueberlapp": ueberlapp,
-            "gate_d": gate_d, "doppel": doppel, "code": code}
+            "gate_d": gate_d, "doppel": doppel, "phantom": phantom, "code": code}
 
 
 def bericht_brunst(e: dict, modell: str, datensatz: str) -> str:
@@ -326,19 +394,39 @@ def bericht_brunst(e: dict, modell: str, datensatz: str) -> str:
          f"| K Kuh-Erkennung | Recall ≥ {KUH_RECALL_MIN:.0%} bei Konfidenz ≥ {KUH_KONFIDENZ} "
          f"(n ≥ {KUH_STICHPROBEN_MIN}) | {t_k}/{n_k} | {e['gate_k']} |",
          "| K-Nacht | wie K, nur IR-Nachtbilder (n ≥ 30) | von Hand (Val-Set nach Licht teilen) | offen |",
-         f"| Ü Aufsprung-Lage | beide Kühe erkannt und Lage wie beim Aufsprung in ≥ "
+         f"| Ü Aufsprung-Lage | beide Kühe erkannt und Lage wie beim Aufsprung, gleiche Richtung, in ≥ "
          f"{UEBERLAPP_RECALL_MIN:.0%} (n ≥ {UEBERLAPP_STICHPROBEN_MIN} Paare) | {u['treffer']}/{u['n']} "
-         f"(davon IoU ≥ {NMS_KRITISCH_IOU}: {u['treffer_eng']}/{u['n_eng']}) | {e['gate_u']} |",
+         f"(davon IoU ≥ {NMS_KRITISCH_IOU}: {u['treffer_eng']}/{u['n_eng']}; aus Aufsprung-Videos: "
+         f"{u.get('treffer_video', 0)}/{u.get('n_video', 0)}) | {e['gate_u']} |",
          f"| D Doppelboxen | ≤ {DOPPEL_MAX:.0%} der Kühe mit zweiter Box | {d}/{n_d} | {e['gate_d']} |",
          "| E Ende zu Ende | ≥ 4 von 5 echten Aufsprung-Szenen als Video mit 1 Bild/s "
-         "(`ffmpeg -i clip.mp4 -r 1 clip_1fps.mp4`) ergeben einen Alarm mit der richtigen unteren Kuh "
-         "| von Hand | offen |",
+         "(`ffmpeg -i clip.mp4 -r 1 clip_1fps.mp4`) ergeben einen Alarm mit der richtigen unteren Kuh – "
+         "auf Hardware, die Gate 4 besteht (sonst fällt E zu mild aus) | von Hand | offen |",
          "| 3b Fehlalarm-Budget | 24 h: ≤ 1 falscher Brunstverdacht | von Hand | offen |",
          "| 4 Laufzeit | ≥ 1 FPS auf der Zielhardware | `--nur-fps` dort | offen |",
          "", "Austreibung und Kalbeverdacht sind nicht Teil dieser Abnahme: NICHT scharf. "
          "Der Agent meldet das selbst, die App sagt für diese Kamera kein „OK“.",
-         "", "Erst wenn K, Ü, D und E bestanden sind: `modell.freigegeben: [brunst]`. "
-         "Bis dahin darf das Modell laufen, aber mit `freigegeben: []`."]
+         "", FREIGABE_REGEL]
+    anzahl, phantom_bilder = e.get("phantom", (0, []))
+    if anzahl:
+        z += ["", f"Info: {anzahl} Phantom-Aufsprung-Lage(n) – erkannte Paare in Aufsprung-Lage ohne "
+              f"gelabeltes Paar (mögliche Brunst-Fehlalarme). Zur Sichtprüfung: "
+              f"{', '.join(str(b) for b in phantom_bilder[:10])}"
+              f"{' …' if len(phantom_bilder) > 10 else ''}"]
+    if e["gate_u"] == "bestanden" and u.get("n_video", 0) == 0:
+        z += ["", "Gate Ü ist nur mit stehenden, hintereinander stehenden Kühen bestanden – ob das Modell "
+              "eine aufspringende Kuh erkennt, ist damit nicht belegt. Bilder aus echten Aufsprung-Videos "
+              "mit Zeitstempel im Namen labeln (z. B. `stallwache_20261102-031500_aufsprung_007.jpg`)."]
+    elif e["gate_u"] == "bestanden" and u.get("n_video", 0) < UEBERLAPP_STICHPROBEN_MIN:
+        z += ["", f"Nur {u['n_video']} Paare aus Aufsprung-Videos – für echte Aufsprünge aussagekräftig "
+              f"erst ab {UEBERLAPP_STICHPROBEN_MIN}."]
+    elif e["gate_u"] == "bestanden" and u.get("treffer_video", 0) / u["n_video"] < UEBERLAPP_RECALL_MIN:
+        # Befund qa-waechter L1: Ü kann allein dank stehender Paare bestehen.
+        tv = u.get("treffer_video", 0)
+        z += ["", f"Bei den Paaren aus Aufsprung-Videos nur {tv}/{u['n_video']} "
+              f"({tv / u['n_video']:.0%}, Soll {UEBERLAPP_RECALL_MIN:.0%}): Gate Ü besteht "
+              "dank stehender Paare, aufspringende Kühe erkennt das Modell zu oft nicht. Mehr "
+              "Aufsprung-Szenen labeln; Gate E entscheidet."]
     if e["gate_u"] == "nicht prüfbar":
         z += ["", "Zu wenige gelabelte Aufsprung-Lagen im Val-Set: Ob beim Aufsprung beide Kühe "
               "erkannt werden, ist unbelegt – Bilder aus echten Aufsprung-Videos labeln "
@@ -439,7 +527,7 @@ def _vorhersage(ergebnis) -> list[dict]:
     return pred
 
 
-def sammle(modell, datensatz: Path) -> list:
+def sammle(modell, datensatz: Path, namen: list | None = None) -> list:
     import cv2
 
     bilder = []
@@ -451,6 +539,8 @@ def sammle(modell, datensatz: Path) -> list:
         label = datensatz / "labels" / "val" / (bild.stem + ".txt")
         gt = lese_label(label.read_text(encoding="utf-8") if label.exists() else "", w, h)
         bilder.append((gt, _vorhersage(modell.predict(img, conf=0.25, verbose=False)[0])))
+        if namen is not None:
+            namen.append(bild.name)
     return bilder
 
 
@@ -491,8 +581,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if fps >= 1 else 1
 
     if args.phase == "brunst":
-        bilder = sammle(modell, datensatz)
-        ergebnis = bewerte_brunst(kuh_recall(bilder), ueberlapp_recall(bilder), doppelboxen(bilder))
+        namen: list[str] = []
+        bilder = sammle(modell, datensatz, namen)
+        ergebnis = bewerte_brunst(kuh_recall(bilder), ueberlapp_recall(bilder, namen=namen),
+                                  doppelboxen(bilder), phantom_lagen(bilder, namen=namen))
         text = bericht_brunst(ergebnis, args.modell, args.datensatz)
         print(text)
         if args.bericht:

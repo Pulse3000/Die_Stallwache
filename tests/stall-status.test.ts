@@ -463,7 +463,7 @@ test("24: Brunst-Phase — Modell ohne Kalbe-Klassen -> nie OK, Grund nennt, was
   assert.equal(s.kameras[0].datenlage.aktuell, false);
   assert.match(
     s.kameras[0].text,
-    /^Stallwache: UNBEKANNT – Austreibung \(Fruchtblase\/Kälberfüße\), Kalbeverdacht \(Schwanzwinkel\) nicht scharf – das Modell ist dafür nicht abgenommen; Kalbungen bitte wie bisher selbst kontrollieren\. Brunst \(Aufsprung\): keine offenen Meldungen in den letzten 12 h, Analyse läuft, letztes Lebenszeichen 03:58\./,
+    /^Stallwache: UNBEKANNT – Austreibung \(Fruchtblase\/Kälberfüße\), Kalbeverdacht \(Schwanzwinkel\) nicht scharf – das Modell erkennt das nicht oder ist dafür nicht abgenommen; Kalbungen bitte wie bisher selbst kontrollieren\. Brunst \(Aufsprung\): keine offenen Meldungen in den letzten 12 h, Analyse läuft, letztes Lebenszeichen 03:58\./,
   );
   assert.doesNotMatch(s.kameras[0].text, /Keine Aussage über die Tiere/);
 });
@@ -492,7 +492,7 @@ test("24d: Brunst-Phase — offener Brunstverdacht bleibt WARNUNG, mit Hinweis",
     { stallwache: frisch({ nichtScharf: ["austreibung", "kalbeverdacht"] }) },
   );
   assert.equal(s.stufe, "WARNUNG");
-  assert.match(s.kameras[0].text, /Achtung: .*nicht scharf – das Modell ist dafür nicht abgenommen/);
+  assert.match(s.kameras[0].text, /Achtung: .*nicht scharf – das Modell erkennt das nicht oder ist dafür nicht abgenommen/);
 });
 
 test("24e: Parser nicht_scharf — nur bekannte Alarmwege, alles andere -> null (nie „alles scharf“)", () => {
@@ -531,4 +531,12 @@ test("24g: beschaedigter KV-Eintrag (nichtScharf kein Array) -> UNBEKANNT statt 
     assert.equal(s.stufe, "UNBEKANNT", JSON.stringify(kaputt));
     assert.match(s.text, /Umfang des Modells unklar/);
   }
+});
+
+test("24h: nur Kalbeverdacht nicht scharf -> Beobachtung vor dem Termin, nicht „Kalbungen selbst kontrollieren“", () => {
+  const s = status([], { stallwache: frisch({ nichtScharf: ["kalbeverdacht"] }) });
+  assert.equal(s.stufe, "UNBEKANNT");
+  assert.match(s.kameras[0].text, /Kalbeverdacht \(Schwanzwinkel\) nicht scharf – .*; Kühe vor dem Termin bitte wie bisher beobachten\./);
+  assert.doesNotMatch(s.kameras[0].text, /Kalbungen bitte/);
+  assert.match(s.kameras[0].text, /Brunst \(Aufsprung\), Austreibung \(Fruchtblase\/Kälberfüße\): keine offenen Meldungen/);
 });

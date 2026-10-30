@@ -176,7 +176,9 @@ ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,heigh
 - Die Webapp bekommt über den Fernzugriff **bewusst** den SD-Stream
   (`FERN_QUELLE=stallwache_sd`, Datenvolumen am Handy). Das Livebild in der App
   ist also nicht das Bild, das der Agent analysiert.
-- **Stichprobe 27.10.2026 (Stallwache):** 2560×1440 kommt an. Schlechte
+- **Stichprobe 27.10.2026 (Stallwache, Bilder des alten kuhwatch):** Die
+  Bilder haben 2560×1440; für den Edge-Agenten belegt das erst seine
+  Logzeile. Schlechte
   Bildqualität hatte andere Ursachen: Ein weißer Kasten mit Kabel hängt vor
   der Linse und wird nachts vom IR-Licht grell angestrahlt, dazu
   Spinnweben; außerdem blockartige Bildfehler, vermutlich verlorene
@@ -201,11 +203,12 @@ Kalbeverdacht …“, die App sagt für die Kamera kein „OK“. Kurzfassung:
    (Gate K: Kuh-Recall, Gate Ü: beide Kühe in Aufsprung-Lage, Gate D:
    Doppelboxen; von Hand Gate E mit echten Aufsprung-Videos in 1 Bild/s).
 4. `config.yaml`: `modell.pfad: best_v1.pt`, `modell.freigegeben: [brunst]`
-   (vorher `[]`; `modell.klassen` nicht kürzen); dann
-   `ANALYSE=1 docker compose up -d --build`.
+   erst nach allen Gates (K, K-Nacht, Ü, D, E, 3b, 4), vorher `[]`;
+   `modell.klassen` nicht kürzen. Dann `ANALYSE=1 docker compose up -d --build`.
 
-Vorher die Kamera prüfen: Laufbereich der besamungsfähigen Gruppe im Bild,
-nichts vor dem Objektiv (Abschnitt 2 und 9 der Entscheidung).
+Vorher die Kamera wählen: Laufbereich der besamungsfähigen Gruppe im Bild –
+nicht die Stallwache, solange über ihr Livebild Kalbungen kontrolliert
+werden –, nichts vor dem Objektiv (Abschnitt 2 und 9 der Entscheidung).
 
 Der Abschnitt unten beschreibt den vollen Weg (Pose, Fruchtblase,
 Kälberfüße) für die Kalbeüberwachung danach.
@@ -281,8 +284,11 @@ Scharfschalten → Beobachten → wieder Sammeln.** Werkzeuge in `training/`.
    `docs/metriken.md` mit Praxiswerten füllen.
 10. **Nachtrainieren** bei > 2 Fehlalarmen/Woche desselben Typs, neuer
     Kamera/Umbau, Saisonwechsel oder der ersten aufgezeichneten Geburt.
-    Fehlalarm-Bilder (Ein-Tipp-Feedback) zurück in CVAT als Negativ-
-    Beispiele.
+    Fehlalarm-Bilder (Ein-Tipp-Feedback) zurück in CVAT, dort **alle echten
+    Kühe umranden**; leer bleiben nur Bilder ganz ohne Tier. Ein Bild mit
+    nicht umrandeten Kühen lehrt „hier ist keine Kuh“. Regelfehler (Boxen
+    stimmen, Verhalten harmlos) gehören nicht ins Training (Skill
+    `fehlalarm-triage`).
 
 ---
 

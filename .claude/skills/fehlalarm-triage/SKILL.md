@@ -47,18 +47,23 @@ Nachtrainieren (Skill `modell-training`, Phase 5), wenn EINE Bedingung erfüllt:
 - > 2 Fehlalarme/Nacht über eine Woche, ODER
 - ein systematisches Muster (z. B. immer bei IR-Nacht) erklärbar und belegbar.
 
-Ablauf: Fehlalarm-Frames in CVAT als „Background"/Negativ labeln → Datensatz
-erweitern → Colab-Training → neues `best.pt` → 48 h beobachten →
-`docs/metriken.md` aktualisieren.
+Ablauf: Fehlalarm-Frames in CVAT labeln → Datensatz erweitern →
+Colab-Training → neues `best.pt` → 48 h beobachten → `docs/metriken.md`
+aktualisieren.
 
-**Ausnahme Brunst-Phase (Modell nur `kuh`, `docs/brunst-zuerst-entscheidung.md`):**
-Brunst-Fehlalarme zeigen echte Kühe – NIE als „Background“ labeln, sonst
-lernt das Modell, dass überlappende Kühe kein Objekt sind (Gate Ü bricht
-ein). Trennen:
-- **Modellfehler** (Geisterbox, Doppelbox, Kalb als Kuh): jede Kuh korrekt
-  umranden, als schweres Beispiel ins Training.
-- **Regelfehler** (Boxen stimmen, war aber kein Aufsprung): nicht ins
-  Training – Nachtraining hilft hier nicht; Befund an `ki-wache`.
+**Wie labeln (gilt in jeder Phase, Befund `ki-wache` 30.10.2026):** Ein Bild
+ohne Label behandelt das Training als Hintergrund. Ein Fehlalarm-Bild mit
+nicht umrandeten Kühen lehrt also „hier ist keine Kuh“ – in der
+Brunst-Phase bricht dann Gate Ü ein.
+- In jedem Fehlalarm-Bild **alle echten Kühe korrekt umranden** (ab Phase 2
+  mit Keypoints); nur die fälschlich erkannte Klasse (z. B. eine
+  „Fruchtblase“, die eine Pfütze war) bleibt ungelabelt.
+- Leeres Label („Background“) **nur** für Bilder ganz ohne Tier.
+- **Modellfehler** (Geisterbox, Doppelbox, Kalb als Kuh): korrekt umranden,
+  als schweres Beispiel ins Training.
+- **Regelfehler** (Boxen stimmen, das Verhalten war harmlos, z. B. kein
+  Aufsprung): nicht als Negativ ins Training – Nachtraining hilft hier
+  nicht; Befund an `ki-wache`.
 
 ## 4. Sonderfall Austreibung
 
