@@ -325,6 +325,27 @@ def test_fehler_im_protokoll_aendert_den_befund_nicht():
     assert wd.defekt and wd.ausfaelle == 0
 
 
+def test_fehler_im_protokoll_wird_einmal_gewarnt():
+    """Stille Degradation: Fehlen die Diagnose-Zeilen, steht das einmal im Log."""
+    import freeze_watchdog
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 3}}, "stallwache", analyse_aktiv=False)
+    logger = logging.getLogger("stallblick-agent")
+    h, alt_level = _Protokoll(), logger.level
+    h.setLevel(logging.WARNING)
+    logger.addHandler(h)
+    logger.setLevel(logging.INFO)
+    echt = freeze_watchdog.kennzahlen
+    freeze_watchdog.kennzahlen = lambda *a, **k: 1 / 0
+    try:
+        lauf(wd, [streifenbild() for _ in range(5)])
+    finally:
+        freeze_watchdog.kennzahlen = echt
+        logger.removeHandler(h)
+        logger.setLevel(alt_level)
+    warnungen = [z for z in h.zeilen if "nicht berechenbar" in z]
+    assert len(warnungen) == 1, h.zeilen
+
+
 def test_meldetext_silent_mode_nennt_trainingsbilder():
     """Im Silent Mode gibt es keine Analyse – die Meldung sagt, was wirklich passiert."""
     wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 2}}, "stallwache", analyse_aktiv=False)

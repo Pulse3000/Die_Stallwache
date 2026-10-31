@@ -344,7 +344,9 @@ Watchdog (`stream.kamera`; die Futterwache als eigene Agent-Instanz mit eigener
 **Diagnose ohne Bilder** („Bilder bleiben auf dem Hof“, 19.10.2026): Kam
 nachts „Bild gestört (Streifen)“, obwohl das Livebild in Ordnung aussieht,
 liefert dieser Befehl je Trainingsbild nur Kennzahlen, kein Bild. Im Container
-liegt der Code in `/app`, `aufnahmen` ist `/daten/aufnahmen`:
+liegt der Code in `/app`, `aufnahmen` ist `/daten/aufnahmen`. Die Befehle
+gelten für die Kamera `stallwache`. Für eine weitere Kamera heißt der Container
+`stallwache-agent-<kamera>`, z. B. `stallwache-agent-futterwache`.
 
 ```bash
 docker exec stallwache-agent-stallwache python /app/freeze_watchdog.py diagnose aufnahmen > diagnose.txt

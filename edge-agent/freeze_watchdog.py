@@ -56,6 +56,7 @@ class FreezeWatchdog:
     analyse: bool = True               # False = Silent Mode: Meldung nennt Trainingsbilder statt Analyse
     _offen: bool = False               # Störung gemeldet, Entwarnung noch nicht
     _sauber: int = 0                   # saubere Bilder in Folge seit dem letzten Defekt
+    _protokoll_fehler: int = 0         # Fehler beim Berechnen der Streifen-Kennzahlen
 
     @staticmethod
     def _grau(frame: np.ndarray) -> np.ndarray:
@@ -157,14 +158,18 @@ class FreezeWatchdog:
         """Silent Mode: Kennzahlen jedes Streifen-Befunds ins Log, gerechnet auf
         dem Bild vor dem Speichern. Gesperrte Bilder landen nicht in
         aufnahmen/; ohne diese Zeile gäbe es für sie keine Zahlen. Nur Zahlen,
-        kein Bild. Ein Fehler hier ändert nie den Zustand des Watchdogs."""
+        kein Bild. Ein Fehler hier ändert nie den Zustand des Watchdogs; der
+        erste wird als Warnung gemeldet (sonst fehlten die Zeilen still)."""
         try:
             k = kennzahlen(frame, self)
             werte = " ".join(f"{n}={k[n]}" for n in DIAGNOSE_SPALTEN if n != "streifen")
             log.info("Streifen-Kennzahlen %s (%s): %s", self.kamera,
                      "gesperrt" if gesperrt else "gespeichert", werte)
         except Exception:  # noqa: BLE001
-            log.debug("Streifen-Kennzahlen nicht berechenbar", exc_info=True)
+            self._protokoll_fehler += 1
+            (log.warning if self._protokoll_fehler == 1 else log.debug)(
+                "Streifen-Kennzahlen (%s) nicht berechenbar – Befund unverändert, "
+                "nur die Diagnose-Zeile fehlt", self.kamera, exc_info=True)
 
     def _event(self, nachricht: str) -> dict:
         return {"typ": "info", "kuhId": None, "kamera": self.kamera,
@@ -239,17 +244,19 @@ def _diagnose(pfade: list[str]) -> int:
         q = Path(p)
         dateien += sorted(q.glob("*.jpg")) if q.is_dir() else [q]
     print("datei;" + ";".join(DIAGNOSE_SPALTEN))
-    treffer = 0
+    treffer = unlesbar = 0
     for d in dateien:
         bild = cv2.imread(str(d))
         if bild is None:
             print(f"{d.name};nicht lesbar")
+            unlesbar += 1
             continue
         k = kennzahlen(bild)
         treffer += k["streifen"]
         k["streifen"] = "ja" if k["streifen"] else "nein"
         print(f"{d.name};" + ";".join(str(k[n]) for n in DIAGNOSE_SPALTEN))
-    print(f"# {len(dateien)} Bilder, davon {treffer} als Streifen eingestuft")
+    print(f"# {len(dateien) - unlesbar} Bilder geprüft, davon {treffer} als Streifen "
+          f"eingestuft; {unlesbar} nicht lesbar")
     return 0
 
 
