@@ -107,13 +107,16 @@ class FreezeWatchdog:
             else:
                 self._gleich = 0
             self._letztes = g
-            self._streifen = self._streifen + 1 if self._hat_streifen(g) else 0
+            streifen = self._hat_streifen(g)
+            self._streifen = self._streifen + 1 if streifen else 0
 
             grund = None
             if self._gleich >= self.frames_bis_alarm:
                 grund = "Bild eingefroren"
             elif self._streifen >= self.frames_bis_alarm:
                 grund = "Bild gestört (Streifen)"
+            if streifen and not self.analyse:
+                self._protokolliere(frame, gesperrt=grund is not None)
 
             if grund:
                 self._sauber = 0
@@ -150,9 +153,28 @@ class FreezeWatchdog:
                               self.kamera)
         return None
 
+    def _protokolliere(self, frame: np.ndarray, gesperrt: bool) -> None:
+        """Silent Mode: Kennzahlen jedes Streifen-Befunds ins Log, gerechnet auf
+        dem Bild vor dem Speichern. Gesperrte Bilder landen nicht in
+        aufnahmen/; ohne diese Zeile gäbe es für sie keine Zahlen. Nur Zahlen,
+        kein Bild. Ein Fehler hier ändert nie den Zustand des Watchdogs."""
+        try:
+            k = kennzahlen(frame, self)
+            werte = " ".join(f"{n}={k[n]}" for n in DIAGNOSE_SPALTEN if n != "streifen")
+            log.info("Streifen-Kennzahlen %s (%s): %s", self.kamera,
+                     "gesperrt" if gesperrt else "gespeichert", werte)
+        except Exception:  # noqa: BLE001
+            log.debug("Streifen-Kennzahlen nicht berechenbar", exc_info=True)
+
     def _event(self, nachricht: str) -> dict:
         return {"typ": "info", "kuhId": None, "kamera": self.kamera,
                 "nachricht": nachricht, "konfidenz": None}
+
+
+DIAGNOSE_SPALTEN = (
+    "band_anteil", "spalten_streuung", "spalten_sprung", "helligkeit", "streifen",
+    "band_von", "band_bis", "zeilen_diff", "zeilen_diff_bild", "breite", "farbe",
+)
 
 
 def kennzahlen(frame: np.ndarray, wd: FreezeWatchdog | None = None) -> dict:
@@ -168,7 +190,10 @@ def kennzahlen(frame: np.ndarray, wd: FreezeWatchdog | None = None) -> dict:
     spalten_sprung: mittlerer Sprung von Spalte zu Spalte im Band (glatter
     Verlauf klein, Dekoder-Streifen groß); band_von/band_bis: Lage des Bandes
     (0 = Oberkante, 1 = Unterkante); zeilen_diff: mittlere Zeilen-Differenz im
-    Band (flach unter 1.0; exakt wiederholte Zeilen nahe 0)."""
+    Band (flach unter 1.0; exakt wiederholte Zeilen nahe 0); zeilen_diff_bild:
+    Median der Zeilen-Differenz über das ganze Bild (Abstand eines sauberen
+    Bildes zur Schwelle 1.0); breite: Bildbreite in Pixeln (bestimmt die
+    Verkleinerung); farbe: mittlere Abweichung der Farbkanäle (IR-Nacht nahe 0)."""
     wd = wd or FreezeWatchdog("diagnose")
     g = wd._grau(frame)
     n = max(1, len(g) - 1)
@@ -176,6 +201,11 @@ def kennzahlen(frame: np.ndarray, wd: FreezeWatchdog | None = None) -> dict:
     a, b = streifen or max(wd._flache_baender(g), key=lambda ab: ab[1] - ab[0], default=(0, 0))
     zeilen = g[a:b + 1]
     leer = b <= a
+    farbe = 0.0
+    if frame.ndim == 3 and frame.shape[2] >= 3:
+        s = max(1, frame.shape[1] // 160)
+        k = frame[::s, ::s, :3].astype(np.float32)
+        farbe = float((np.abs(k[..., 0] - k[..., 1]) + np.abs(k[..., 1] - k[..., 2])).mean() / 2)
     return {
         "band_anteil": round((b - a) / n, 3),
         "spalten_streuung": 0.0 if leer else round(float(zeilen.std(axis=1).mean()), 2),
@@ -185,6 +215,10 @@ def kennzahlen(frame: np.ndarray, wd: FreezeWatchdog | None = None) -> dict:
         "band_von": round(a / n, 3),
         "band_bis": round(b / n, 3),
         "zeilen_diff": 0.0 if leer else round(float(np.abs(np.diff(zeilen, axis=0)).mean()), 2),
+        "zeilen_diff_bild": round(float(np.median(np.abs(np.diff(g, axis=0)).mean(axis=1))), 2)
+        if len(g) > 1 else 0.0,
+        "breite": int(frame.shape[1]),
+        "farbe": round(farbe, 1),
     }
 
 
@@ -198,8 +232,7 @@ def _diagnose(pfade: list[str]) -> int:
     for p in pfade:
         q = Path(p)
         dateien += sorted(q.glob("*.jpg")) if q.is_dir() else [q]
-    print("datei;band_anteil;spalten_streuung;spalten_sprung;helligkeit;streifen;"
-          "band_von;band_bis;zeilen_diff")
+    print("datei;" + ";".join(DIAGNOSE_SPALTEN))
     treffer = 0
     for d in dateien:
         bild = cv2.imread(str(d))
@@ -208,9 +241,8 @@ def _diagnose(pfade: list[str]) -> int:
             continue
         k = kennzahlen(bild)
         treffer += k["streifen"]
-        print(f"{d.name};{k['band_anteil']};{k['spalten_streuung']};{k['spalten_sprung']};"
-              f"{k['helligkeit']};{'ja' if k['streifen'] else 'nein'};"
-              f"{k['band_von']};{k['band_bis']};{k['zeilen_diff']}")
+        k["streifen"] = "ja" if k["streifen"] else "nein"
+        print(f"{d.name};" + ";".join(str(k[n]) for n in DIAGNOSE_SPALTEN))
     print(f"# {len(dateien)} Bilder, davon {treffer} als Streifen eingestuft")
     return 0
 

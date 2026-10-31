@@ -8,6 +8,7 @@ Braucht echtes numpy (Teil von requirements.txt). Beides geht:
     pytest -q edge-agent/tests/test_freeze_watchdog.py
 """
 
+import logging
 import sys
 from pathlib import Path
 
@@ -231,6 +232,87 @@ def test_kennzahlen_beschreiben_das_ausloesende_band():
     assert k["streifen"] is True
     assert k["spalten_streuung"] >= 5, k
     assert k["band_von"] > 0.75 and k["band_bis"] == 1.0, k
+
+
+def test_bekannte_luecke_gleichmaessige_fuellung_gilt_nicht_als_streifen():
+    """Bewusster Tausch, kein Versehen: Füllt der Dekoder den Rest des Bildes
+    mit einem festen Wert (grau 128), sieht das aus wie eine gleichmäßige
+    dunkle Decke und wird NICHT gemeldet. Das alte Kriterium meldete es, ließ
+    dafür aber nachts die IR-Bilder ausfallen (B9). Offen in docs/roadmap.md.
+    Ändert ein neues Kriterium dieses Verhalten, muss dieser Test bewusst
+    angepasst werden."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+
+    def halb_grau():
+        bild = lebendig()
+        bild[H // 2:] = 128
+        return bild
+
+    assert lauf(wd, [halb_grau() for _ in range(8)]) == []
+
+
+def test_kennzahlen_spalten_und_zusatzwerte():
+    from freeze_watchdog import DIAGNOSE_SPALTEN, kennzahlen
+    k = kennzahlen(glatte_nacht())
+    assert tuple(k) == DIAGNOSE_SPALTEN
+    assert k["breite"] == B and k["farbe"] == 0.0             # IR-Nacht: Kanäle gleich
+    assert 1.0 < k["zeilen_diff_bild"] < 3, k                  # Sigma 2: über der Schwelle
+    assert kennzahlen(lebendig())["farbe"] > 5
+
+
+class _Protokoll(logging.Handler):
+    def __init__(self):
+        super().__init__(logging.DEBUG)
+        self.zeilen: list[str] = []
+
+    def emit(self, record):
+        self.zeilen.append(record.getMessage())
+
+
+def _mit_protokoll(fn):
+    logger = logging.getLogger("stallblick-agent")
+    h, alt = _Protokoll(), logger.level
+    logger.addHandler(h)
+    logger.setLevel(logging.INFO)
+    try:
+        fn()
+    finally:
+        logger.removeHandler(h)
+        logger.setLevel(alt)
+    return [z for z in h.zeilen if z.startswith("Streifen-Kennzahlen")]
+
+
+def test_silent_mode_protokolliert_kennzahlen_auch_gesperrter_bilder():
+    """Gesperrte Bilder landen nicht in aufnahmen/. Ihre Zahlen stehen im Log."""
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 3}}, "stallwache", analyse_aktiv=False)
+    zeilen = _mit_protokoll(lambda: lauf(wd, [verschmiert(glatte_nacht()) for _ in range(5)]
+                                         + [glatte_nacht()]))
+    assert len(zeilen) == 5, zeilen                           # je Streifen-Befund eine Zeile
+    assert ["gesperrt" in z for z in zeilen] == [False, False, True, True, True], zeilen
+    assert "band_bis=1.0" in zeilen[0] and "zeilen_diff=0.0" in zeilen[0], zeilen[0]
+
+
+def test_analyse_modus_protokolliert_keine_kennzahlen():
+    """Bei ~1 FPS wären das 3600 Zeilen je Stunde."""
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 3}}, "stallwache", analyse_aktiv=True)
+    assert _mit_protokoll(lambda: lauf(wd, [streifenbild() for _ in range(5)])) == []
+
+
+def test_fehler_im_protokoll_aendert_den_befund_nicht():
+    import freeze_watchdog
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 3}}, "stallwache", analyse_aktiv=False)
+    echt = freeze_watchdog.kennzahlen
+
+    def kaputt(*a, **k):
+        raise RuntimeError("Protokoll kaputt")
+
+    freeze_watchdog.kennzahlen = kaputt
+    try:
+        ev = lauf(wd, [streifenbild() for _ in range(5)])
+    finally:
+        freeze_watchdog.kennzahlen = echt
+    assert len(ev) == 1 and "Streifen" in ev[0][1]["nachricht"], ev
+    assert wd.defekt and wd.ausfaelle == 0
 
 
 def test_meldetext_silent_mode_nennt_trainingsbilder():

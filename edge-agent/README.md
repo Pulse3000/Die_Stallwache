@@ -323,6 +323,10 @@ Watchdog (`stream.kamera`; die Futterwache als eigene Agent-Instanz mit eigener
   geprüft. Streifen nur, wenn sich die Spalten im Band unterscheiden
   (Streuung ≥ 5). Ein gleichmäßiges Band (dunkle Decke nachts, überstrahlte
   Wand) ist kein Defekt.
+  **Bewusster Tausch:** Füllt der Dekoder einen Bildteil mit einem festen Wert
+  (z. B. grau), wird das deshalb ebenfalls nicht gemeldet. Das alte Kriterium
+  meldete es, ließ dafür aber nachts die IR-Bilder ausfallen (B9)
+  (`test_bekannte_luecke_gleichmaessige_fuellung_gilt_nicht_als_streifen`).
   **Offen:** Ein sehr rauscharmes Nachtband mit Helligkeitsverlauf, Vignette,
   Licht-/Schattenkante oder Pfosten kann noch als Streifen gelten. Über ein
   anderes Kriterium wird erst mit gemessenen Kennzahlen vom Hof entschieden
@@ -347,27 +351,48 @@ docker exec stallwache-agent-stallwache python /app/freeze_watchdog.py diagnose 
 ```
 
 Spalten: `band_anteil`, `spalten_streuung`, `spalten_sprung`, `helligkeit`,
-`streifen`, `band_von`, `band_bis`, `zeilen_diff`. Beschrieben wird das Band,
-das den Befund trägt (bei „Streifen“ das auslösende, sonst das längste flache).
-`band_von`/`band_bis` geben die Lage an (0 = oben, 1 = unten). `zeilen_diff`
-zeigt, wie nah das Band an der Flach-Schwelle 1,0 liegt; exakt wiederholte
-Zeilen liegen nahe 0. Zwei Grenzen:
+`streifen`, `band_von`, `band_bis`, `zeilen_diff`, `zeilen_diff_bild`,
+`breite`, `farbe`. Beschrieben wird das Band, das den Befund trägt (bei
+„Streifen“ das auslösende, sonst das längste flache). `band_von`/`band_bis`
+geben die Lage an (0 = oben, 1 = unten). `zeilen_diff` zeigt, wie nah das Band
+an der Flach-Schwelle 1,0 liegt; exakt wiederholte Zeilen liegen nahe 0.
+`zeilen_diff_bild` ist der Median über das ganze Bild, also der Abstand eines
+sauberen Bildes zur Schwelle. `farbe` liegt bei IR-Nacht nahe 0.
 
-1. Gesperrte Bilder werden nicht gespeichert. Je Störung liegen nur die
-   ersten `frames_bis_alarm − 1` Streifen-Bilder in `aufnahmen/`, danach eine
-   Lücke bis zur Entwarnung. Die Zeiten der Meldungen stehen im Log:
-   `docker logs stallwache-agent-stallwache 2>&1 | grep -E "Streifen|eingefroren|wieder in Ordnung"`.
-2. Die Diagnose rechnet auf den gespeicherten JPEGs, der Watchdog auf dem
-   Bild vor dem Speichern. Synthetisch gemessen (OpenCV 4.10, Standardqualität)
-   liegt `zeilen_diff` im JPEG bei 2560×1440 um 3–7 % höher, bei 640×360 um
-   bis zu 17 % niedriger. Nahe der Schwelle 1,0 kann die Spalte `streifen`
-   deshalb vom Urteil im Betrieb abweichen. Maßgeblich sind die Zahlen.
-
-Die IR-Bilanz (Beschluss B9) läuft auf dem Host. `training/` ist nicht im
-Image, `datensatz.py` braucht nur die Standardbibliothek:
+Im Silent Mode schreibt der Watchdog zusätzlich zu **jedem** Streifen-Befund
+eine Zeile `Streifen-Kennzahlen stallwache (gespeichert|gesperrt): …` ins Log.
+Gerechnet wird auf dem Bild vor dem Speichern, also auch für gesperrte Bilder.
+Die Zeilen enthalten nur Zahlen. Im Analyse-Modus gibt es sie nicht (bei
+~1 FPS wären das 3600 Zeilen je Stunde).
 
 ```bash
-python3 edge-agent/training/datensatz.py bilanz edge-agent/daten/stallwache/aufnahmen
+docker logs -t stallwache-agent-stallwache 2>&1 | grep -E "Streifen|eingefroren|wieder in Ordnung" > meldungen.txt
+```
+
+Grenzen:
+
+1. Gesperrte Bilder werden nicht gespeichert. Bei einer Störung liegen die
+   ersten `frames_bis_alarm − 1` Streifen-Bilder in `aufnahmen/`. Danach fehlt
+   jedes Bild bis zum ersten sauberen, und das wird sofort gespeichert. Die
+   Entwarnung kommt erst `frames_bis_alarm` Bilder später. Nach einem Rückfall
+   werden wieder bis zu `frames_bis_alarm − 1` Streifen-Bilder gespeichert. Den
+   Verlust zeigen die Lücken in den Zeitstempeln der Dateinamen, die Zahlen
+   der gesperrten Bilder stehen im Log.
+2. Das Log geht verloren, wenn der Container neu erstellt wird (Update,
+   `docker compose up` mit neuem Image). Vorher sichern. Das Log zeigt nur
+   die Uhrzeit, deshalb `docker logs -t`.
+3. Die Diagnose rechnet auf den gespeicherten JPEGs, der Watchdog auf dem
+   Bild vor dem Speichern. Synthetisch gemessen (OpenCV 4.10, Standardqualität)
+   liegt `zeilen_diff` im JPEG bei 2560×1440 um 3–7 % höher, bei 640×360 um
+   bis zu 18 % niedriger. Liegt `zeilen_diff` zwischen etwa 0,8 und 1,2, ist
+   die Spalte `streifen` der Diagnose deshalb nicht verlässlich. Die Log-Zeilen
+   haben diese Grenze nicht.
+
+Die IR-Bilanz (Beschluss B9) braucht OpenCV. `training/` ist nicht im Image,
+deshalb das Skript per stdin in den Container geben:
+
+```bash
+docker exec -i stallwache-agent-stallwache python - bilanz aufnahmen < edge-agent/training/datensatz.py
 ```
 
 ## Logiktests
