@@ -8,6 +8,7 @@ Braucht echtes numpy (Teil von requirements.txt). Beides geht:
     pytest -q edge-agent/tests/test_freeze_watchdog.py
 """
 
+import logging
 import sys
 from pathlib import Path
 
@@ -58,7 +59,8 @@ def test_lebendiges_bild_nie_alarm():
 def test_eingefroren_genau_ein_ereignis_und_eine_erholung():
     wd = FreezeWatchdog("stallwache", frames_bis_alarm=5)
     fest = lebendig()
-    frames = [lebendig(), lebendig()] + [fest.copy() for _ in range(20)] + [lebendig(), lebendig()]
+    # Entwarnung erst nach 5 sauberen Bildern in Folge (Hysterese gegen Flattern)
+    frames = [lebendig(), lebendig()] + [fest.copy() for _ in range(20)] + [lebendig() for _ in range(5)]
     ev = lauf(wd, frames)
     assert len(ev) == 2, ev
     (i_ein, e_ein), (i_aus, e_aus) = ev
@@ -68,7 +70,7 @@ def test_eingefroren_genau_ein_ereignis_und_eine_erholung():
     assert "wieder in Ordnung" in e_aus["nachricht"]
     # frames[2] ist der erste "feste"; 5 identische Folgebilder -> Alarm bei Index 2+5
     assert i_ein == 2 + 5
-    assert i_aus == 22
+    assert i_aus == 22 + 4                    # 5. sauberes Bild
 
 
 def test_defekt_gilt_genau_waehrend_des_ausfalls():
@@ -83,6 +85,29 @@ def test_defekt_gilt_genau_waehrend_des_ausfalls():
     assert zustand[9] is False
 
 
+def test_flattern_gibt_eine_meldung_und_eine_entwarnung():
+    """Grenzfall Nacht: Defekt und sauberes Bild wechseln sich ab. Frueher kam
+    bei jedem Wechsel eine Meldung (bis zu 35 je Nacht). Jetzt: eine Meldung,
+    eine Entwarnung erst nach frames_bis_alarm sauberen Bildern in Folge."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+    fest = lebendig()
+    frames = [lebendig()] + [fest.copy() for _ in range(4)]          # Defekt ab Bild 4
+    for _ in range(6):                                              # flattern
+        frames += [lebendig()] + [fest.copy() for _ in range(4)]
+    frames += [lebendig() for _ in range(3)]                         # stabil
+    zustand, ev = [], []
+    for i, f in enumerate(frames):
+        e = wd.pruefe(f, jetzt=1_000_000.0 + i * 120)
+        zustand.append(wd.defekt)
+        if e:
+            ev.append(e["nachricht"])
+    assert len(ev) == 2, ev
+    assert "eingefroren" in ev[0] and "wieder in Ordnung" in ev[1]
+    assert zustand[-1] is False
+    # Ein sauberes Bild gibt die Sammlung sofort frei (nichts wird laenger gesperrt)
+    assert zustand[5] is False
+
+
 def test_unter_schwelle_kein_alarm():
     wd = FreezeWatchdog("stallwache", frames_bis_alarm=5)
     fest = lebendig()
@@ -92,7 +117,7 @@ def test_unter_schwelle_kein_alarm():
 
 def test_streifen_genau_ein_ereignis():
     wd = FreezeWatchdog("stallwache", frames_bis_alarm=4)
-    frames = [lebendig()] + [streifenbild() for _ in range(15)] + [lebendig()]
+    frames = [lebendig()] + [streifenbild() for _ in range(15)] + [lebendig() for _ in range(4)]
     ev = lauf(wd, frames)
     assert len(ev) == 2, ev
     assert "Streifen" in ev[0][1]["nachricht"]
@@ -104,6 +129,247 @@ def test_einfarbige_wand_ist_kein_streifenfehler():
     wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
     dunkel = lambda: np.full((H, B, 3), 12, np.uint8) + RNG.integers(0, 40, (H, B, 3), dtype=np.uint8)  # noqa: E731
     assert lauf(wd, [dunkel() for _ in range(10)]) == []
+
+
+def mit_band(oben: bool, anteil: float, wert: int) -> np.ndarray:
+    """Lebendiges Bild mit gleichmaessigem, bildbreitem Band (dunkle Decke
+    ausserhalb der IR-Reichweite, ueberstrahlte Wand, Privatsphaere-Maske)."""
+    bild = lebendig()
+    h = int(H * anteil)
+    zeilen = slice(0, h) if oben else slice(H - h, H)
+    bild[zeilen] = np.clip(wert + RNG.normal(0, 0.3, (h, B, 3)), 0, 255).astype(np.uint8)
+    return bild
+
+
+def test_dunkles_band_mit_lebendigem_rest_ist_kein_streifenfehler():
+    """IR-Nacht: Decke oben dunkel, Rest lebt -> kein Defekt (sonst fehlen
+    nachts alle Trainingsbilder, Beschluss B9)."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+    assert lauf(wd, [mit_band(True, 0.25, 6) for _ in range(10)]) == []
+    assert not wd.defekt
+
+
+def test_helles_band_unten_ist_kein_streifenfehler():
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+    assert lauf(wd, [mit_band(False, 0.20, 250) for _ in range(10)]) == []
+
+
+def test_streifen_nur_im_unteren_drittel_wird_erkannt():
+    """Echte Dekoder-Korruption in einem Teilbereich bleibt ein Defekt."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+
+    def teilstreifen():
+        bild = lebendig()
+        h = int(H * 0.30)
+        bild[H - h:] = streifenbild()[H - h:]
+        return bild
+
+    ev = lauf(wd, [teilstreifen() for _ in range(6)])
+    assert len(ev) == 1 and "Streifen" in ev[0][1]["nachricht"], ev
+
+
+def test_streifen_neben_dunklem_band_wird_erkannt():
+    """Ein gleichmaessiges Band darf echte Streifen daneben nicht verdecken."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+
+    def beides():
+        bild = mit_band(True, 0.25, 6)
+        h = int(H * 0.30)
+        bild[H - h:] = streifenbild()[H - h:]
+        return bild
+
+    ev = lauf(wd, [beides() for _ in range(6)])
+    assert len(ev) == 1 and "Streifen" in ev[0][1]["nachricht"], ev
+
+
+def glatte_nacht() -> np.ndarray:
+    """IR-Nachtbild ohne Kanten: Vignette quer, Verlauf längs, Sensorrauschen
+    (Sigma 2 Grauwerte). Räumlich glatt – der Sprung von Spalte zu Spalte
+    bleibt klein."""
+    x = np.sin(np.pi * np.arange(B) / B)[None, :]
+    y = np.linspace(0, 10, H)[:, None]
+    g = 15 + 35 * x + y + RNG.normal(0, 2, (H, B))
+    return np.repeat(np.clip(g, 0, 255)[:, :, None], 3, axis=2).astype(np.uint8)
+
+
+def verschmiert(bild: np.ndarray, ab: float = 0.55) -> np.ndarray:
+    """Dekoder-Fehler: ab Zeile `ab` wird die letzte gute Zeile nach unten wiederholt."""
+    bild = bild.copy()
+    z = int(H * ab)
+    bild[z:] = bild[z - 1]
+    return bild
+
+
+def test_glatte_nacht_ist_kein_streifenfehler():
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+    assert lauf(wd, [glatte_nacht() for _ in range(10)]) == []
+
+
+def test_verschmieren_einer_glatten_nachtzeile_wird_erkannt():
+    """Echter Defekt in einem räumlich glatten Nachtbild. Ein Kriterium, das
+    nur den Sprung von Spalte zu Spalte misst (Vorschlag aus der Prüfung zu
+    #85), übersähe ihn: der Sprung liegt hier unter 5."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+    ev = lauf(wd, [glatte_nacht()] + [verschmiert(glatte_nacht()) for _ in range(6)])
+    assert len(ev) == 1 and "Streifen" in ev[0][1]["nachricht"], ev
+    assert ev[0][0] == 3                      # drittes defektes Bild in Folge
+
+    from freeze_watchdog import kennzahlen
+    k = kennzahlen(verschmiert(glatte_nacht()))
+    assert k["streifen"] is True
+    assert k["spalten_sprung"] < 5 <= k["spalten_streuung"], k
+    assert k["band_bis"] == 1.0 and k["zeilen_diff"] == 0.0, k
+
+
+def test_kennzahlen_beschreiben_das_ausloesende_band():
+    """Neben einem längeren gleichmäßigen Band müssen die Zahlen zum Streifen
+    gehören, nicht zum längsten Band – sonst widersprechen sie dem Befund."""
+    from freeze_watchdog import kennzahlen
+    bild = mit_band(True, 0.40, 6)
+    h = int(H * 0.20)
+    bild[H - h:] = streifenbild()[H - h:]
+    k = kennzahlen(bild)
+    assert k["streifen"] is True
+    assert k["spalten_streuung"] >= 5, k
+    assert k["band_von"] > 0.75 and k["band_bis"] == 1.0, k
+
+
+def test_bekannte_luecke_gleichmaessige_fuellung_gilt_nicht_als_streifen():
+    """Bewusster Tausch, kein Versehen: Füllt der Dekoder den Rest des Bildes
+    mit einem festen Wert (grau 128), sieht das aus wie eine gleichmäßige
+    dunkle Decke und wird NICHT gemeldet. Das alte Kriterium meldete es, ließ
+    dafür aber nachts die IR-Bilder ausfallen (B9). Offen in docs/roadmap.md.
+    Ändert ein neues Kriterium dieses Verhalten, muss dieser Test bewusst
+    angepasst werden."""
+    wd = FreezeWatchdog("stallwache", frames_bis_alarm=3)
+
+    def halb_grau():
+        bild = lebendig()
+        bild[H // 2:] = 128
+        return bild
+
+    assert lauf(wd, [halb_grau() for _ in range(8)]) == []
+
+
+def test_kennzahlen_spalten_und_zusatzwerte():
+    from freeze_watchdog import DIAGNOSE_SPALTEN, kennzahlen
+    k = kennzahlen(glatte_nacht())
+    assert tuple(k) == DIAGNOSE_SPALTEN
+    assert k["breite"] == B and k["farbe"] == 0.0             # IR-Nacht: Kanäle gleich
+    assert 1.0 < k["zeilen_diff_min"] < 3, k                   # Sigma 2: über der Schwelle
+    assert kennzahlen(lebendig())["farbe"] > 4.0               # Tag nach datensatz.py
+
+
+def test_zeilen_diff_min_zeigt_ruhiges_teilband():
+    """Ein ruhiges Band über einem lebendigen Rest muss in den Zahlen sichtbar
+    sein, auch wenn es nicht als Streifen gilt (Abstand zur Schwelle 1.0)."""
+    from freeze_watchdog import kennzahlen
+    k_band = kennzahlen(mit_band(True, 0.25, 6))
+    k_rest = kennzahlen(lebendig())
+    assert k_band["streifen"] is False
+    assert k_band["zeilen_diff_min"] < 1.0 < 10 < k_rest["zeilen_diff_min"], (k_band, k_rest)
+
+
+class _Protokoll(logging.Handler):
+    def __init__(self):
+        super().__init__(logging.DEBUG)
+        self.zeilen: list[str] = []
+
+    def emit(self, record):
+        self.zeilen.append(record.getMessage())
+
+
+def _mit_protokoll(fn):
+    logger = logging.getLogger("stallblick-agent")
+    h, alt = _Protokoll(), logger.level
+    logger.addHandler(h)
+    logger.setLevel(logging.INFO)
+    try:
+        fn()
+    finally:
+        logger.removeHandler(h)
+        logger.setLevel(alt)
+    return [z for z in h.zeilen if z.startswith("Streifen-Kennzahlen")]
+
+
+def test_silent_mode_protokolliert_kennzahlen_auch_gesperrter_bilder():
+    """Gesperrte Bilder landen nicht in aufnahmen/. Ihre Zahlen stehen im Log."""
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 3}}, "stallwache", analyse_aktiv=False)
+    zeilen = _mit_protokoll(lambda: lauf(wd, [verschmiert(glatte_nacht()) for _ in range(5)]
+                                         + [glatte_nacht()]))
+    assert len(zeilen) == 5, zeilen                           # je Streifen-Befund eine Zeile
+    assert ["gesperrt" in z for z in zeilen] == [False, False, True, True, True], zeilen
+    assert "band_bis=1.0" in zeilen[0] and "zeilen_diff=0.0" in zeilen[0], zeilen[0]
+
+
+def test_analyse_modus_protokolliert_keine_kennzahlen():
+    """Bei ~1 FPS wären das 3600 Zeilen je Stunde."""
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 3}}, "stallwache", analyse_aktiv=True)
+    assert _mit_protokoll(lambda: lauf(wd, [streifenbild() for _ in range(5)])) == []
+
+
+def test_fehler_im_protokoll_aendert_den_befund_nicht():
+    import freeze_watchdog
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 3}}, "stallwache", analyse_aktiv=False)
+    echt = freeze_watchdog.kennzahlen
+
+    def kaputt(*a, **k):
+        raise RuntimeError("Protokoll kaputt")
+
+    freeze_watchdog.kennzahlen = kaputt
+    try:
+        ev = lauf(wd, [streifenbild() for _ in range(5)])
+    finally:
+        freeze_watchdog.kennzahlen = echt
+    assert len(ev) == 1 and "Streifen" in ev[0][1]["nachricht"], ev
+    assert wd.defekt and wd.ausfaelle == 0
+
+
+def test_fehler_im_protokoll_wird_einmal_gewarnt():
+    """Stille Degradation: Fehlen die Diagnose-Zeilen, steht das einmal im Log."""
+    import freeze_watchdog
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 3}}, "stallwache", analyse_aktiv=False)
+    logger = logging.getLogger("stallblick-agent")
+    h, alt_level = _Protokoll(), logger.level
+    h.setLevel(logging.WARNING)
+    logger.addHandler(h)
+    logger.setLevel(logging.INFO)
+    echt = freeze_watchdog.kennzahlen
+    freeze_watchdog.kennzahlen = lambda *a, **k: 1 / 0
+    try:
+        lauf(wd, [streifenbild() for _ in range(5)])
+    finally:
+        freeze_watchdog.kennzahlen = echt
+        logger.removeHandler(h)
+        logger.setLevel(alt_level)
+    warnungen = [z for z in h.zeilen if "nicht berechenbar" in z]
+    assert len(warnungen) == 1, h.zeilen
+
+
+def test_meldetext_silent_mode_nennt_trainingsbilder():
+    """Im Silent Mode gibt es keine Analyse – die Meldung sagt, was wirklich passiert."""
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 2}}, "stallwache", analyse_aktiv=False)
+    fest = lebendig()
+    ev = lauf(wd, [fest.copy() for _ in range(4)])
+    text = ev[0][1]["nachricht"]
+    assert "keine Trainingsbilder" in text and "Analyse" not in text, text
+
+
+def test_meldetext_analyse_modus_unveraendert():
+    wd = baue_watchdog({"watchdog": {"frames_bis_alarm": 2}}, "stallwache", analyse_aktiv=True)
+    fest = lebendig()
+    ev = lauf(wd, [fest.copy() for _ in range(4)])
+    assert "Analyse ausgesetzt" in ev[0][1]["nachricht"]
+
+
+def test_kennzahlen_nur_zahlen_und_passend_zum_befund():
+    from freeze_watchdog import kennzahlen
+    k_band = kennzahlen(mit_band(True, 0.25, 6))
+    assert k_band["streifen"] is False and k_band["band_anteil"] >= 0.2
+    assert k_band["spalten_streuung"] < 5
+    k_str = kennzahlen(streifenbild())
+    assert k_str["streifen"] is True and k_str["band_anteil"] > 0.9 and k_str["spalten_sprung"] > 5
+    assert all(isinstance(v, (int, float, bool)) for v in k_str.values())   # keine Bilddaten
 
 
 def test_aufloesungswechsel_ist_kein_einfrieren():
