@@ -351,13 +351,14 @@ docker exec stallwache-agent-stallwache python /app/freeze_watchdog.py diagnose 
 ```
 
 Spalten: `band_anteil`, `spalten_streuung`, `spalten_sprung`, `helligkeit`,
-`streifen`, `band_von`, `band_bis`, `zeilen_diff`, `zeilen_diff_bild`,
+`streifen`, `band_von`, `band_bis`, `zeilen_diff`, `zeilen_diff_min`,
 `breite`, `farbe`. Beschrieben wird das Band, das den Befund trägt (bei
 „Streifen“ das auslösende, sonst das längste flache). `band_von`/`band_bis`
 geben die Lage an (0 = oben, 1 = unten). `zeilen_diff` zeigt, wie nah das Band
 an der Flach-Schwelle 1,0 liegt; exakt wiederholte Zeilen liegen nahe 0.
-`zeilen_diff_bild` ist der Median über das ganze Bild, also der Abstand eines
-sauberen Bildes zur Schwelle. `farbe` liegt bei IR-Nacht nahe 0.
+`zeilen_diff_min` ist das kleinste Mittel über ein Fenster von 15 % Bildhöhe:
+Es zeigt, wie knapp das ruhigste Band eines sauberen Bildes an der Schwelle
+liegt. `farbe` rechnet wie `datensatz.py`; IR-Nacht liegt bei ≤ 4,0.
 
 Im Silent Mode schreibt der Watchdog zusätzlich zu **jedem** Streifen-Befund
 eine Zeile `Streifen-Kennzahlen stallwache (gespeichert|gesperrt): …` ins Log.

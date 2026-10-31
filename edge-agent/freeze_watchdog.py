@@ -173,7 +173,7 @@ class FreezeWatchdog:
 
 DIAGNOSE_SPALTEN = (
     "band_anteil", "spalten_streuung", "spalten_sprung", "helligkeit", "streifen",
-    "band_von", "band_bis", "zeilen_diff", "zeilen_diff_bild", "breite", "farbe",
+    "band_von", "band_bis", "zeilen_diff", "zeilen_diff_min", "breite", "farbe",
 )
 
 
@@ -190,10 +190,12 @@ def kennzahlen(frame: np.ndarray, wd: FreezeWatchdog | None = None) -> dict:
     spalten_sprung: mittlerer Sprung von Spalte zu Spalte im Band (glatter
     Verlauf klein, Dekoder-Streifen groß); band_von/band_bis: Lage des Bandes
     (0 = Oberkante, 1 = Unterkante); zeilen_diff: mittlere Zeilen-Differenz im
-    Band (flach unter 1.0; exakt wiederholte Zeilen nahe 0); zeilen_diff_bild:
-    Median der Zeilen-Differenz über das ganze Bild (Abstand eines sauberen
-    Bildes zur Schwelle 1.0); breite: Bildbreite in Pixeln (bestimmt die
-    Verkleinerung); farbe: mittlere Abweichung der Farbkanäle (IR-Nacht nahe 0)."""
+    Band (flach unter 1.0; exakt wiederholte Zeilen nahe 0); zeilen_diff_min:
+    kleinstes Mittel der Zeilen-Differenz über ein Fenster in Mindesthöhe
+    (15 %) – wie nah das ruhigste Band an der Schwelle 1.0 liegt, auch wenn es
+    nicht als flach gilt; breite: Bildbreite in Pixeln (bestimmt die
+    Verkleinerung); farbe: Farbigkeit wie in training/datensatz.py (max − min
+    der Kanäle, IR-Nacht ≤ 4.0)."""
     wd = wd or FreezeWatchdog("diagnose")
     g = wd._grau(frame)
     n = max(1, len(g) - 1)
@@ -201,11 +203,16 @@ def kennzahlen(frame: np.ndarray, wd: FreezeWatchdog | None = None) -> dict:
     a, b = streifen or max(wd._flache_baender(g), key=lambda ab: ab[1] - ab[0], default=(0, 0))
     zeilen = g[a:b + 1]
     leer = b <= a
+    d = np.abs(np.diff(g, axis=0)).mean(axis=1)              # je Zeilenpaar
+    fenster = max(1, int(np.ceil(wd.streifen_anteil * n)))
+    zeilen_diff_min = 0.0
+    if len(d) >= fenster:
+        summe = np.concatenate(([0.0], np.cumsum(d)))
+        zeilen_diff_min = float(((summe[fenster:] - summe[:-fenster]) / fenster).min())
     farbe = 0.0
     if frame.ndim == 3 and frame.shape[2] >= 3:
-        s = max(1, frame.shape[1] // 160)
-        k = frame[::s, ::s, :3].astype(np.float32)
-        farbe = float((np.abs(k[..., 0] - k[..., 1]) + np.abs(k[..., 1] - k[..., 2])).mean() / 2)
+        k = frame[::8, ::8, :3].astype(np.float32)          # wie datensatz.kennwerte
+        farbe = float((k.max(axis=2) - k.min(axis=2)).mean())
     return {
         "band_anteil": round((b - a) / n, 3),
         "spalten_streuung": 0.0 if leer else round(float(zeilen.std(axis=1).mean()), 2),
@@ -215,8 +222,7 @@ def kennzahlen(frame: np.ndarray, wd: FreezeWatchdog | None = None) -> dict:
         "band_von": round(a / n, 3),
         "band_bis": round(b / n, 3),
         "zeilen_diff": 0.0 if leer else round(float(np.abs(np.diff(zeilen, axis=0)).mean()), 2),
-        "zeilen_diff_bild": round(float(np.median(np.abs(np.diff(g, axis=0)).mean(axis=1))), 2)
-        if len(g) > 1 else 0.0,
+        "zeilen_diff_min": round(zeilen_diff_min, 2),
         "breite": int(frame.shape[1]),
         "farbe": round(farbe, 1),
     }

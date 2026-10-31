@@ -256,8 +256,18 @@ def test_kennzahlen_spalten_und_zusatzwerte():
     k = kennzahlen(glatte_nacht())
     assert tuple(k) == DIAGNOSE_SPALTEN
     assert k["breite"] == B and k["farbe"] == 0.0             # IR-Nacht: Kanäle gleich
-    assert 1.0 < k["zeilen_diff_bild"] < 3, k                  # Sigma 2: über der Schwelle
-    assert kennzahlen(lebendig())["farbe"] > 5
+    assert 1.0 < k["zeilen_diff_min"] < 3, k                   # Sigma 2: über der Schwelle
+    assert kennzahlen(lebendig())["farbe"] > 4.0               # Tag nach datensatz.py
+
+
+def test_zeilen_diff_min_zeigt_ruhiges_teilband():
+    """Ein ruhiges Band über einem lebendigen Rest muss in den Zahlen sichtbar
+    sein, auch wenn es nicht als Streifen gilt (Abstand zur Schwelle 1.0)."""
+    from freeze_watchdog import kennzahlen
+    k_band = kennzahlen(mit_band(True, 0.25, 6))
+    k_rest = kennzahlen(lebendig())
+    assert k_band["streifen"] is False
+    assert k_band["zeilen_diff_min"] < 1.0 < 10 < k_rest["zeilen_diff_min"], (k_band, k_rest)
 
 
 class _Protokoll(logging.Handler):
