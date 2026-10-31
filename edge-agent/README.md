@@ -358,8 +358,10 @@ Zeilen liegen nahe 0. Zwei Grenzen:
    Lücke bis zur Entwarnung. Die Zeiten der Meldungen stehen im Log:
    `docker logs stallwache-agent-stallwache 2>&1 | grep -E "Streifen|eingefroren|wieder in Ordnung"`.
 2. Die Diagnose rechnet auf den gespeicherten JPEGs, der Watchdog auf dem
-   Bild vor dem Speichern. JPEG glättet das Rauschen, die Diagnose stuft also
-   eher mehr als Streifen ein.
+   Bild vor dem Speichern. Synthetisch gemessen (OpenCV 4.10, Standardqualität)
+   liegt `zeilen_diff` im JPEG bei 2560×1440 um 3–7 % höher, bei 640×360 um
+   bis zu 17 % niedriger. Nahe der Schwelle 1,0 kann die Spalte `streifen`
+   deshalb vom Urteil im Betrieb abweichen. Maßgeblich sind die Zahlen.
 
 Die IR-Bilanz (Beschluss B9) läuft auf dem Host. `training/` ist nicht im
 Image, `datensatz.py` braucht nur die Standardbibliothek:
