@@ -312,10 +312,23 @@ Watchdog (`stream.kamera`; die Futterwache als eigene Agent-Instanz mit eigener
 `config.yaml`).
 
 * **Eine** Meldung beim Eintritt in den Fehlerzustand (Telegram + Dashboard
-  `info`), **eine** bei Erholung – kein Spam dazwischen.
+  `info`), **eine** bei Erholung – kein Spam dazwischen. Die Entwarnung kommt
+  erst nach `frames_bis_alarm` sauberen Bildern in Folge; ein Rückfall vorher
+  gehört zur selben Störung. Im Silent Mode nennt die Meldung, was wirklich
+  ausfällt: die Trainingsbilder.
 * Solange die Kamera defekt ist: **keine Trainingsbilder, keine Analyse**
   (ein eingefrorenes Bild würde alte Befunde „weiterzählen"; im Datensatz wäre
-  es Müll).
+  es Müll). Ein sauberes Bild gibt beides sofort wieder frei.
+* **Streifen:** Jedes vertikal flache Band ab 15 % Bildhöhe wird für sich
+  geprüft. Streifen nur, wenn sich die Spalten im Band unterscheiden
+  (Streuung ≥ 5). Ein gleichmäßiges Band (dunkle Decke nachts, überstrahlte
+  Wand) ist kein Defekt.
+  **Offen:** Ein sehr rauscharmes Nachtband mit Helligkeitsverlauf, Vignette,
+  Licht-/Schattenkante oder Pfosten kann noch als Streifen gelten. Über ein
+  anderes Kriterium wird erst mit gemessenen Kennzahlen vom Hof entschieden
+  (`docs/roadmap.md`). Der naheliegende Ersatz „Sprung von Spalte zu Spalte“
+  übersähe Verschmieren in glatten Nachtbildern
+  (`test_verschmieren_einer_glatten_nachtzeile_wird_erkannt`).
 * Schwelle `watchdog.frames_bis_alarm`: leer = **Silent Mode 5** (geprüft wird
   jedes gespeicherte Trainingsbild, also 5 × `silent_mode.intervall_sekunden`)
   bzw. **Analyse-Modus 300** (jeder Frame bei ~1 FPS ≈ 5 min).
@@ -323,6 +336,37 @@ Watchdog (`stream.kamera`; die Futterwache als eigene Agent-Instanz mit eigener
 * **Fail-open:** Ein Fehler im Watchdog oder beim Senden setzt die Analyse nie
   aus. Erkennungsschwellen (45°/20 %/30 min/0.80/IoU 0.15/4 s) und Cooldown
   bleiben unberührt.
+
+**Diagnose ohne Bilder** („Bilder bleiben auf dem Hof“, 19.10.2026): Kam
+nachts „Bild gestört (Streifen)“, obwohl das Livebild in Ordnung aussieht,
+liefert dieser Befehl je Trainingsbild nur Kennzahlen, kein Bild. Im Container
+liegt der Code in `/app`, `aufnahmen` ist `/daten/aufnahmen`:
+
+```bash
+docker exec stallwache-agent-stallwache python /app/freeze_watchdog.py diagnose aufnahmen > diagnose.txt
+```
+
+Spalten: `band_anteil`, `spalten_streuung`, `spalten_sprung`, `helligkeit`,
+`streifen`, `band_von`, `band_bis`, `zeilen_diff`. Beschrieben wird das Band,
+das den Befund trägt (bei „Streifen“ das auslösende, sonst das längste flache).
+`band_von`/`band_bis` geben die Lage an (0 = oben, 1 = unten). `zeilen_diff`
+zeigt, wie nah das Band an der Flach-Schwelle 1,0 liegt; exakt wiederholte
+Zeilen liegen nahe 0. Zwei Grenzen:
+
+1. Gesperrte Bilder werden nicht gespeichert. Je Störung liegen nur die
+   ersten `frames_bis_alarm − 1` Streifen-Bilder in `aufnahmen/`, danach eine
+   Lücke bis zur Entwarnung. Die Zeiten der Meldungen stehen im Log:
+   `docker logs stallwache-agent-stallwache 2>&1 | grep -E "Streifen|eingefroren|wieder in Ordnung"`.
+2. Die Diagnose rechnet auf den gespeicherten JPEGs, der Watchdog auf dem
+   Bild vor dem Speichern. JPEG glättet das Rauschen, die Diagnose stuft also
+   eher mehr als Streifen ein.
+
+Die IR-Bilanz (Beschluss B9) läuft auf dem Host. `training/` ist nicht im
+Image, `datensatz.py` braucht nur die Standardbibliothek:
+
+```bash
+python3 edge-agent/training/datensatz.py bilanz edge-agent/daten/stallwache/aufnahmen
+```
 
 ## Logiktests
 
