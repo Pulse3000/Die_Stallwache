@@ -17,8 +17,44 @@ __pycache__/
 *.pyc
 edge-agent/config.yaml
 edge-agent/aufnahmen/
+edge-agent/main.py.vor-*
 
 # Termux-Bridge (heruntergeladene Binaries + Logs, nie committen)
 bridge/termux/go2rtc
 bridge/termux/cloudflared
 bridge/termux/logs/
+
+# --- Daten, Archive, Binaries, Secrets (ergaenzt 10.11.2026; nie committen) ---
+# Zugangsdaten (Kamera-/Tuya-Schluessel, Tokens) und Sicherungskopien
+go2rtc/go2rtc.yaml
+*.bak
+# Archive und Modellgewichte
+*.zip
+*.7z
+*.skill
+*.onnx
+*.pt
+*.engine
+# Laufzeitdaten, Logs, PIDs
+*.db
+*.db-journal
+*.log
+*.log.*
+*.pid
+/data/
+/logs/
+# Bild-, Label- und Referenzdaten (bleiben lokal auf dem Hof)
+/KuhBilder/
+/brunst_referenz/
+/Projekt Stall/
+edge-agent/label-runde-1/
+edge-agent/daten/
+edge-agent/modelle/
+# Binaries, Abhaengigkeiten, Umgebungen
+/go2rtc/go2rtc
+kuhwatch/wheels/
+.venv*/
+# Arbeitsverzeichnisse von Agenten
+.claude/worktrees/
+# Versehentlich erzeugte Befehlsausgabe (Systemlog), kein Projektinhalt
+/bridge/udo journalctl*

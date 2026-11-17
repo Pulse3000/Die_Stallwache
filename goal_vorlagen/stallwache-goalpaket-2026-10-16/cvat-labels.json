@@ -1,0 +1,16 @@
+[
+  {
+    "name": "kuh",
+    "type": "skeleton",
+    "color": "#2f6b3a",
+    "attributes": [],
+    "sublabels": [
+      {"name": "spine_end", "type": "points", "color": "#e6c229", "attributes": []},
+      {"name": "tail_base", "type": "points", "color": "#d1495b", "attributes": []},
+      {"name": "tail_tip", "type": "points", "color": "#00798c", "attributes": []}
+    ],
+    "svg": "<line x1=\"20\" y1=\"40\" x2=\"75\" y2=\"40\" stroke=\"black\" data-type=\"edge\" data-node-from=\"1\" stroke-width=\"0.5\" data-node-to=\"2\"></line><line x1=\"75\" y1=\"40\" x2=\"80\" y2=\"80\" stroke=\"black\" data-type=\"edge\" data-node-from=\"2\" stroke-width=\"0.5\" data-node-to=\"3\"></line><circle r=\"1.5\" stroke=\"black\" fill=\"#b3b3b3\" cx=\"20\" cy=\"40\" stroke-width=\"0.1\" data-type=\"element node\" data-element-id=\"1\" data-node-id=\"1\" data-label-name=\"spine_end\"></circle><circle r=\"1.5\" stroke=\"black\" fill=\"#b3b3b3\" cx=\"75\" cy=\"40\" stroke-width=\"0.1\" data-type=\"element node\" data-element-id=\"2\" data-node-id=\"2\" data-label-name=\"tail_base\"></circle><circle r=\"1.5\" stroke=\"black\" fill=\"#b3b3b3\" cx=\"80\" cy=\"80\" stroke-width=\"0.1\" data-type=\"element node\" data-element-id=\"3\" data-node-id=\"3\" data-label-name=\"tail_tip\"></circle>"
+  },
+  {"name": "amniotic_sac", "type": "rectangle", "color": "#7b2cbf", "attributes": []},
+  {"name": "calf_legs", "type": "rectangle", "color": "#f77f00", "attributes": []}
+]

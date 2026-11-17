@@ -45,6 +45,7 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 
 | Prio | Entscheidung | Nächster Schritt |
 | --- | --- | --- |
+| 🔄 P1 | **ONNX-Laufzeit + Bildqualitäts-Gate + Kamerapräfix (B19–B21)** — Edge-Inferenz mit ONNX Runtime und der Dekodierung der Abnahme-Gates, ByteTrack nur für Kühe, Defektbilder aus dem Schwanzwinkel-Fenster, Silent-Mode-Dateien `<kamera>_<UTC>.jpg` | **Gebaut** in `edge-agent/main.py` (Spezifikation [`onnx-laufzeit-spezifikation.md`](./onnx-laufzeit-spezifikation.md)), Review: qa-waechter Freigabe, ki-wache einverstanden (10.11.), Suite grün. **Nicht scharfschalten** vor §6 der Spezifikation: Gate D mit `cpus: 1` nicht bestanden (0,94–0,99 FPS; 2 Kerne 1,64 FPS), Austreibung hängt noch am 15-min-Cooldown, Kalbeverdacht urteilt ab 20 Bildern, Versand synchron. Danach: Laufzeit im Container, Gates B/B2 mit `best_v1.onnx` |
 | 🔄 P1 | **Ereignis-Persistenz** — KV-Adapter fertig implementiert (Upstash-REST ohne Zusatzpaket, In-Memory-Fallback, Store-Ausfall blockiert Ingest nie); **aktiviert sich selbst**, sobald der Betreiber einen Vercel-KV-/Upstash-Store verknüpft (`KV_REST_API_URL`/`KV_REST_API_TOKEN` erscheinen dann automatisch) | `lib/events.ts`; letzter Schritt: Betreiber legt den Store im Vercel-Dashboard an (Storage → Create → Upstash Redis, Projekt verknüpfen) |
 | 🔄 P1 | **Quittierungs-getriebene Nacht-Eskalation mit lokalem Weckkanal** — bleibt ein dringender Alarm N Minuten unquittiert: Push wiederholen (+5) → zweiter Empfänger (+10) → **lokaler Weckton per MQTT (+15), Gerät im Wohnhaus**. Marktbefund August 2026: *niemand* eskaliert auf ausbleibende Reaktion; der Autodialer mit Funk-Summer ist der ehrlichste Vergleichsmaßstab für den Nacht-Alarm | **Implementierungsreif spezifiziert** in [`eskalationskette-spezifikation.md`](./eskalationskette-spezifikation.md) (Stufenzeiten aus dem geburtshilflichen Zeitbudget, MQTT-Vertrag mit vier Ausschaltwegen, Neustart-Sicherheit, 21 Abnahmekriterien; Entwurf: Agent `ki-wache`, Stufenlogik in 27 Simulationen belegt). **Reihenfolge: KV-Store verknüpfen → Stufen 1–2 scharf → 7 Nächte Fehlalarmrate messen → Weckton scharf.** Ohne Ereignis-Persistenz (Zeile darüber) meldet eine andere Serverless-Instanz „ID unbekannt" und die Kette eskaliert trotz Quittierung — deshalb bleibt `weckruf.aktiv: false`, bis der Store steht |
 | ⏳ P1 | **Weckkanal-Einkaufsliste in die README** — Zwischenstecker mit geräteseitiger Abschaltzeit (Shelly Gen2 `toggle_after`, ab 17,79 €) + **tieffrequentes** Weckgerät oder Vibrationskissen (6–30 €) + lokaler Quittierungs-Taster (~18 €), zusammen ~66 € einmalig | Zwei Befunde aus der Weckkanal-Recherche machen das zur P1: Ein 3100-Hz-Piepser weckt viele Menschen **selbst bei 95 dB(A) am Kopfkissen nicht** (520 Hz ist 4–12× wirksamer), und ein Weckton ohne physischen Stopp-Taster wird beim ersten Fehlalarm abgeklemmt. Ohne die Festlegung ist die Weckton-Stufe ein Versprechen an Hardware, die vielleicht nicht weckt. Begründung: `wettbewerbsanalyse.md` §1d |
@@ -63,6 +64,19 @@ Legende: ✅ erledigt · 🔄 teilweise · ⏳ offen · 🔒 blockiert (Vorausse
 | 🔒 P3 | **Nacht-Ruhefenster + veröffentlichte Alarmqualität** — „weckt" gegen „kann warten" als explizite Klassen; Fehlalarme pro Nacht sichtbar in App und `metriken.md`. Kein Hersteller veröffentlicht diese Zahl, CowManagers Snooze ist der einzige Anti-Müdigkeits-Mechanismus am Markt | Die Dringlichkeitsklassen bestehen bereits (Austreibung vs. Rest); die **Kennzahl** setzt das erste Modell und laufende Fehlalarm-Triage voraus |
 | 🔒 P3 | Lahmheits-Frühwarnung (Rückenlinien-Winkel) — **implementierungsreif spezifiziert** in [`lahmheit-spezifikation.md`](./lahmheit-spezifikation.md) (Hinweis statt Alarm, Tages-Median 170°/174°-Hysterese, Kalbe-Sperre, Kamera-Kalibrierprobe; Entwurf: Agent `ki-wache`) | Keypoint `spine_mid` im 2. Training; eigene Validierung (≥ 3 bestätigte Fälle); stabiler Kalbe-/Brunst-Betrieb |
 
+## Entschieden — Beschlüsse B18–B22 (01.11.2026)
+
+Vom Landwirt an Claude delegiert („you choose“), am 05.11.2026 mit „fahre fort“ zur Umsetzung freigegeben.
+Wortlaut und Begründung: `edge-agent/aufnahmen/_training_v1/ENTSCHEIDUNGEN_B18-B22.md` und `ENTSCHEIDUNGEN.md` im Projekt.
+
+| Nr | Beschluss | Status |
+| --- | --- | --- |
+| B18 | Labeln lokal mit dem Stall-Labeler, CVAT-1.1-XML als Austauschformat, app.cvat.ai verworfen | ✅ `_training_v1/labeler/` |
+| B19 | Edge-Inferenz mit ONNX Runtime, Dekodierung = `abnahme_gates.dekodiere_pose`, ByteTrack nur Klasse `kuh` | 🔄 [`onnx-laufzeit-spezifikation.md`](./onnx-laufzeit-spezifikation.md) |
+| B20 | Bildqualitäts-Gate: Defektbilder (> 0.04) nicht ins Schwanzwinkel-Fenster, Austreibung läuft weiter, Info bei > 50 % in 10 min | 🔄 dito |
+| B21 | Silent-Mode-Name `<kamera>_<YYYYmmdd-HHMMSS>.jpg` (UTC), Split nach Stalltag, Annotationsschema v2, Abnahme am ONNX | ✅ Training · 🔄 Kamerapräfix |
+| B22 | Colab nur vorübergehend: Datensatz-ZIP nach dem Lauf löschen, keine Bilder in der Laufsicherung | ✅ Notebook |
+
 ## Bewusst NICHT auf der Roadmap
 
 Aus [`vision.md`](./vision.md) — schützt den Differenzierer: keine
@@ -73,7 +87,7 @@ Zusatz-Hardware), keine Cloud-Videoanalyse, kein Abo, kein Hardware-Verkauf.
 
 **Modell-Erstinbetriebnahme** (geführte Prozedur: Skill `modell-training`,
 Details `edge-agent/README.md`): Silent Mode →
-CVAT-Labeling → Colab-Training → `best.pt` → Analyse-Modus. Erst danach werden
+Stall-Labeler (B18) → Colab-Training → `best_v1.onnx` (B19) → Analyse-Modus. Erst danach werden
 die Metriken (`metriken.md`) gefüllt und die modellabhängigen Features (Brunst-
 Fusion, Lahmheit) sinnvoll — deshalb ist alles Modellabhängige bewusst blockiert
 statt halb gebaut.

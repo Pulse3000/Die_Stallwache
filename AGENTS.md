@@ -64,3 +64,12 @@ einem laufenden Dev-Server stoert dessen Zustand — danach
 Erwartung ohne Zugangsdaten: fuenf Bereiche rendern (`/`, `/alarme`,
 `/steuerung`, `/analytik`, `/einstellungen`), 0 von 4 Kameras online,
 `/api/events` liefert Demo-Daten, `/api/tuya/geraete` → 503.
+
+## Grenzen dieser Session (B19–B21, 05.–10.11.2026)
+
+* Edge-Agent laeuft jetzt nur mit `.onnx` (B19); Tests mit `python3 edge-agent/tests/alle_tests.py`
+  (Rueckgabewert 77 = uebersprungen, weil Abhaengigkeit oder Daten fehlen). Spezifikation:
+  `docs/onnx-laufzeit-spezifikation.md`.
+* Nicht im Container gemessen (kein Docker-Zugriff aus der Sitzung); Gate D mit `cpus: 1` nicht
+  bestanden. Vor dem Scharfschalten offen: `docs/onnx-laufzeit-spezifikation.md` §6.
+* Sicherungen ohne Git-Historie: `edge-agent/main.py.vor-b19`, `edge-agent/main.py.vor-review`.

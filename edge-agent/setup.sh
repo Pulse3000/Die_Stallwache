@@ -41,7 +41,7 @@ if [ "${STALLBLICK_SETUP_OHNE_INSTALL:-0}" != "1" ]; then
   info "Basis-Pakete installieren (Silent Mode: sammeln von Trainingsbildern) …"
   pip install --quiet "opencv-python>=4.9,<5" "numpy>=1.26,<3" "requests>=2.31,<3" "PyYAML>=6.0,<7"
   echo
-  warn "Der Analyse-Modus (YOLO) braucht zusaetzlich ultralytics/torch (mehrere GB)."
+  warn "Der Analyse-Modus braucht zusaetzlich onnxruntime + ultralytics/torch fuer ByteTrack (mehrere GB)."
   warn "Er wird erst nach dem Modell-Training relevant (Skill modell-training)."
   read -r -p "  Analyse-Pakete jetzt mitinstallieren? [j/N]: " ANALYSE
   if [ "${ANALYSE:-n}" = "j" ] || [ "${ANALYSE:-n}" = "J" ]; then

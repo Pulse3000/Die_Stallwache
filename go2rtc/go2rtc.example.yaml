@@ -1,0 +1,29 @@
+# Vorlage fuer go2rtc.yaml (die echte Datei enthaelt Zugangsdaten und ist nicht im Repo).
+# Kopieren nach go2rtc.yaml und Platzhalter ersetzen.
+api:
+  listen: ":127.0.0.1:1984"
+  local_auth: true
+  origin: "https://stallwache.vercel.app/"
+  allow_paths:               # alles andere (Config-Editor, Stream anlegen, exec) gesperrt
+    - /api/ws
+    - /api/webrtc
+    - /api/frame.jpeg
+    - /api/streams
+    - /stream.html
+    - /video-rtc.js
+    - /video-stream.js
+rtsp:
+  listen: ":8554"
+streams:
+  tuya_cam1:
+    - tuya://ZUGANGSDATEN
+  tuya_cam2:
+    - tuya://ZUGANGSDATEN
+  tuya_cam3:
+    - tuya://ZUGANGSDATEN
+  stallwache:
+    - rtsp://BENUTZER:PASSWORT@192.168.178.177:554/stream1
+  stallwache_sd:
+    - rtsp://BENUTZER:PASSWORT@192.168.178.177:554/stream2
+  zrdz         :
+    - rtsp://192.168.178.121:8554/stallwache  

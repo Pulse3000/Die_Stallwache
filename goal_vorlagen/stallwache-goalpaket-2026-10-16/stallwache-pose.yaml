@@ -1,0 +1,20 @@
+# Datensatz-Vertrag Stallwache v1 (Ultralytics YOLOv8-Pose)
+# Die Keypoint-Reihenfolge ist Vertrag: CVAT-Skelett = diese Datei = Edge-Adapter
+# (erkennung.Konfig.keypoint_namen). Änderung nur per Beschluss (B15).
+#   Index 0 = spine_end  (Definition gem. B15)
+#   Index 1 = tail_base  (Schwanzansatz)
+#   Index 2 = tail_tip   (Schwanzspitze; verdeckt -> sichtbar=0, nie raten)
+# Box-Klassen ohne Keypoints (amniotic_sac, calf_legs) tragen im Pose-Format
+# Null-Keypoints mit Sichtbarkeit 0. Split nur nach Stall-Tagen (tools/datensatz_inventur.py).
+
+path: ../datensatz          # anpassen: Wurzel mit images/ und labels/
+train: images/train
+val: images/val
+
+kpt_shape: [3, 3]           # 3 Keypoints je Objekt: x, y, Sichtbarkeit
+flip_idx: [0, 1, 2]         # alle Punkte auf der Mittellinie -> beim Spiegeln nichts tauschen
+
+names:
+  0: kuh
+  1: amniotic_sac
+  2: calf_legs

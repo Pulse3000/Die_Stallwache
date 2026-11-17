@@ -13,6 +13,23 @@ import types
 from pathlib import Path
 
 MAIN_PY = Path(__file__).resolve().parent.parent / "main.py"
+UEBERSPRUNGEN = 77  # Rueckgabewert: Test konnte mangels Abhaengigkeit nicht laufen
+
+
+def braucht(*module: str) -> None:
+    """Beendet den Test mit 77 (= uebersprungen), wenn eine schwere
+    Abhaengigkeit fehlt (numpy, cv2, onnxruntime, ultralytics). alle_tests.py
+    weist das getrennt aus - ein fehlendes Paket wird nie als gruen getarnt.
+    Importiert die Module echt, damit lade_main() sie nicht stubbt."""
+    fehlend = []
+    for name in module:
+        try:
+            importlib.import_module(name)
+        except Exception:  # noqa: BLE001 - auch kaputte Installationen zaehlen als fehlend
+            fehlend.append(name)
+    if fehlend:
+        print(f"UEBERSPRUNGEN: {', '.join(fehlend)} fehlt")
+        sys.exit(UEBERSPRUNGEN)
 
 
 def lade_main(mit_requests_stub: bool = False):

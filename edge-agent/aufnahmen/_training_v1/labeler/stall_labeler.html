@@ -1,0 +1,907 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:">
+<title>Stall-Labeler</title>
+<!--
+  Stall-Labeler v1 — lokales Labeling-Werkzeug der Stallwache (Beschluss B18).
+  Eine Datei, keine Abhängigkeiten, kein Netz: Bilder werden direkt aus dem Task-ZIP gelesen und verlassen
+  den Rechner nie. Gespeichert wird im Browser (Autosave) und per Export als "CVAT for images 1.1"-XML —
+  dasselbe Format, das cvat_zu_yolo_pose.py verarbeitet. Je Kuh gehören Box und 3 Keypoints zu EINEM Objekt
+  (Export mit gemeinsamer group_id), geprüfte Bilder tragen den Tag "geprueft".
+-->
+<style>
+  :root { --bg:#14171a; --panel:#1d2126; --linie:#2e343b; --text:#e6e6e6; --leise:#9aa3ad; --akzent:#f2a93b;
+          --kuh:#4caf50; --sac:#ba68c8; --legs:#ff9800; --p0:#42a5f5; --p1:#ffee58; --p2:#ef5350; --gut:#66bb6a; --warn:#ef5350; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:14px/1.4 system-ui, sans-serif; }
+  body { display:grid; grid-template-rows:auto 1fr auto; height:100vh; overflow:hidden; }
+  header { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:6px 10px; background:var(--panel); border-bottom:1px solid var(--linie); }
+  header .titel { font-weight:600; color:var(--akzent); margin-right:6px; }
+  button, label.knopf { background:#2a3037; color:var(--text); border:1px solid #3a424b; border-radius:6px; padding:5px 10px; cursor:pointer; font:inherit; }
+  button:hover, label.knopf:hover { border-color:var(--akzent); }
+  button.haupt { background:#3b2f17; border-color:var(--akzent); }
+  input[type=file] { display:none; }
+  .info { color:var(--leise); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  main { display:grid; grid-template-columns:1fr 290px; min-height:0; }
+  #buehne { position:relative; overflow:hidden; background:#0b0d0f; cursor:crosshair; }
+  #buehne canvas { position:absolute; left:0; top:0; }
+  #leer { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; color:var(--leise); padding:24px; }
+  aside { background:var(--panel); border-left:1px solid var(--linie); overflow:auto; padding:10px; display:flex; flex-direction:column; gap:10px; }
+  aside h3 { margin:4px 0; font-size:13px; color:var(--leise); text-transform:uppercase; letter-spacing:.04em; }
+  .objekt { border:1px solid var(--linie); border-radius:6px; padding:6px 8px; cursor:pointer; display:flex; justify-content:space-between; gap:6px; align-items:center; }
+  .objekt.gewaehlt { border-color:var(--akzent); background:#262b31; }
+  .punkte span { display:inline-block; width:18px; text-align:center; font-weight:700; }
+  .status { padding:6px 8px; border-radius:6px; border:1px solid var(--linie); }
+  .status.geprueft { border-color:var(--gut); color:var(--gut); }
+  .tasten { color:var(--leise); font-size:12.5px; }
+  .tasten kbd { background:#2a3037; border:1px solid #3a424b; border-bottom-width:2px; border-radius:4px; padding:0 4px; font:12px ui-monospace, monospace; color:var(--text); }
+  footer { display:flex; gap:14px; align-items:center; padding:4px 10px; background:var(--panel); border-top:1px solid var(--linie); color:var(--leise); font-size:12.5px; }
+  #fortschritt { flex:1; height:6px; background:#2a3037; border-radius:3px; overflow:hidden; }
+  #fortschritt div { height:100%; background:var(--gut); width:0; }
+  #meldung { color:var(--akzent); }
+  #meldung.fehler { color:var(--warn); }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:10; }
+  .modal.offen { display:flex; }
+  .modal > div { background:var(--panel); border:1px solid var(--linie); border-radius:10px; padding:16px 18px; max-width:640px; max-height:85vh; overflow:auto; }
+  .modal h2 { margin:0 0 8px; font-size:17px; color:var(--akzent); }
+  .modal table { border-collapse:collapse; width:100%; font-size:13px; }
+  .modal td { padding:3px 6px; border-bottom:1px solid var(--linie); vertical-align:top; }
+  .modal .knoepfe { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="titel">Stall-Labeler</span>
+  <label class="knopf" title="Task-ZIP aus _cvat_v1 öffnen (z. B. train_01.zip)">1 · Paket öffnen <input id="zipWahl" type="file" accept=".zip"></label>
+  <label class="knopf" title="Vorannotation oder früheren Export laden (CVAT-1.1-XML)">2 · Vorschläge/Stand laden <input id="xmlWahl" type="file" accept=".xml"></label>
+  <button id="exportKnopf" class="haupt" title="Strg+S">Export (CVAT-XML)</button>
+  <button id="boostKnopf" title="B">Nacht-Boost</button>
+  <button id="hilfeKnopf" title="H">Hilfe</button>
+  <span id="kopf" class="info"></span>
+</header>
+<main>
+  <div id="buehne">
+    <canvas id="bild"></canvas>
+    <canvas id="ebene"></canvas>
+    <div id="leer"><div><b>Kein Paket geladen.</b><br><br>1 · Task-ZIP öffnen (z. B. <code>_cvat_v1/train_01.zip</code>)<br>
+      2 · Vorschläge laden (<code>_cvat_v1/vorannotation/train_01_vorannotation.xml</code>)<br><br>
+      Die Bilder werden nur hier im Browser gelesen — nichts wird hochgeladen.</div></div>
+  </div>
+  <aside>
+    <div><h3>Bild</h3><div id="bildInfo" class="info">—</div></div>
+    <div id="status" class="status">nicht geprüft</div>
+    <div><h3>Objekte</h3><div id="liste"></div></div>
+    <div class="tasten">
+      <h3>Tasten</h3>
+      <kbd>N</kbd> Kuh-Box ziehen · <kbd>F</kbd> Fruchtblase · <kbd>K</kbd> Kälberfüße<br>
+      <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Punkt an Maus: spine_end · tail_base · tail_tip<br>
+      <kbd>⇧</kbd>+<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Punkt <i>verdeckt</i> (Position eindeutig)<br>
+      <kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd> Punkt <i>nicht sichtbar</i> (entfernen, nie raten)<br>
+      <kbd>Enter</kbd> geprüft &amp; weiter · <kbd>⇧</kbd>+<kbd>Enter</kbd> zurücknehmen · <kbd>U</kbd> nächstes ungeprüftes<br>
+      <kbd>←</kbd><kbd>→</kbd> Bild · <kbd>Tab</kbd> Objekt · <kbd>Entf</kbd> löschen<br>
+      Rad = Zoom · rechte Maus/<kbd>Leertaste</kbd>+Ziehen = Verschieben · <kbd>0</kbd> einpassen<br>
+      <kbd>B</kbd> Nacht-Boost · <kbd>Strg</kbd>+<kbd>Z</kbd> rückgängig · <kbd>Strg</kbd>+<kbd>S</kbd> Export
+    </div>
+  </aside>
+</main>
+<footer>
+  <span id="zaehler">0 / 0 geprüft</span>
+  <div id="fortschritt"><div></div></div>
+  <span id="meldung"></span>
+</footer>
+
+<div id="modal" class="modal"><div id="modalInhalt"></div></div>
+
+<script>
+"use strict";
+// ============================================================================ Konstanten
+const VERSION = "stall_labeler v1";
+const KLASSEN = { kuh: "#4caf50", amniotic_sac: "#ba68c8", calf_legs: "#ff9800" };
+const KLASSEN_NAME = { kuh: "Kuh", amniotic_sac: "Fruchtblase", calf_legs: "Kälberfüße" };
+const KP_NAMEN = ["spine_end", "tail_base", "tail_tip"];
+const KP_KURZ = ["S", "T", "Q"];
+const KP_FARBEN = ["#42a5f5", "#ffee58", "#ef5350"];
+const SPEICHER_PRAEFIX = "stall-labeler:v1:";
+const GRIFF = 7;          // Greif-Radius in Bildschirm-Pixeln
+const MAX_RUECK = 60;
+
+// ============================================================================ Zustand
+const S = {
+  task: null, zip: null, eintraege: [], namen: [], index: 0,
+  bilder: {},              // name -> { w, h, objekte: [...], geprueft: bool }
+  bitmap: null, bitmapName: null, cache: new Map(),
+  view: { s: 1, tx: 0, ty: 0 }, maus: null, gewaehlt: -1,
+  modus: null,             // null | {art:"zeichnen", klasse}
+  drag: null, leertaste: false, boost: false,
+  rueck: {}, naechsteId: 1, ungespeichert: false, seitExport: 0,
+  tab: Math.random().toString(36).slice(2), rev: 0, gesperrt: false,
+};
+
+const $ = (id) => document.getElementById(id);
+const buehne = $("buehne"), cvBild = $("bild"), cvEbene = $("ebene");
+const ctxBild = cvBild.getContext("2d"), ctx = cvEbene.getContext("2d");
+
+function meldung(text, fehler = false) {
+  const m = $("meldung");
+  m.textContent = text;
+  m.className = fehler ? "fehler" : "";
+}
+
+// ============================================================================ ZIP (STORED und DEFLATE)
+async function leseZip(file) {
+  const tailLen = Math.min(file.size, 65536 + 22);
+  const tail = new DataView(await file.slice(file.size - tailLen).arrayBuffer());
+  let eocd = -1;
+  for (let i = tail.byteLength - 22; i >= 0; i--) {
+    if (tail.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("Keine ZIP-Datei (Endsignatur fehlt).");
+  const anzahl = tail.getUint16(eocd + 10, true);
+  const cdGroesse = tail.getUint32(eocd + 12, true);
+  const cdOffset = tail.getUint32(eocd + 16, true);
+  if (cdOffset === 0xFFFFFFFF || anzahl === 0xFFFF) throw new Error("ZIP64 wird nicht unterstützt.");
+  const cd = new DataView(await file.slice(cdOffset, cdOffset + cdGroesse).arrayBuffer());
+  const dec = new TextDecoder();
+  const liste = [];
+  let p = 0;
+  for (let k = 0; k < anzahl; k++) {
+    if (cd.getUint32(p, true) !== 0x02014b50) throw new Error("ZIP-Zentralverzeichnis beschädigt.");
+    const methode = cd.getUint16(p + 10, true);
+    const csize = cd.getUint32(p + 20, true);
+    const nlen = cd.getUint16(p + 28, true), xlen = cd.getUint16(p + 30, true), clen = cd.getUint16(p + 32, true);
+    const lho = cd.getUint32(p + 42, true);
+    const name = dec.decode(new Uint8Array(cd.buffer, cd.byteOffset + p + 46, nlen));
+    if (/\.(jpe?g|png)$/i.test(name) && !name.endsWith("/")) liste.push({ name: name.split("/").pop(), methode, csize, lho });
+    p += 46 + nlen + xlen + clen;
+  }
+  for (const e of liste) {
+    const lh = new DataView(await file.slice(e.lho, e.lho + 30).arrayBuffer());
+    if (lh.getUint32(0, true) !== 0x04034b50) throw new Error("Lokaler ZIP-Header beschädigt: " + e.name);
+    e.start = e.lho + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+    if (e.methode !== 0 && e.methode !== 8) throw new Error("Nicht unterstützte ZIP-Kompression bei " + e.name);
+  }
+  liste.sort((a, b) => a.name.localeCompare(b.name));
+  return liste;
+}
+
+async function eintragBlob(e) {
+  const roh = S.zip.slice(e.start, e.start + e.csize);
+  const typ = /\.png$/i.test(e.name) ? "image/png" : "image/jpeg";
+  if (e.methode === 0) return new Blob([roh], { type: typ });
+  const strom = roh.stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Blob([await new Response(strom).arrayBuffer()], { type: typ });
+}
+
+async function jpegGroesse(blob) {
+  const b = new DataView(await blob.slice(0, Math.min(blob.size, 262144)).arrayBuffer());
+  let p = 2;
+  while (p + 9 < b.byteLength) {
+    if (b.getUint8(p) !== 0xFF) { p++; continue; }
+    const m = b.getUint8(p + 1);
+    const len = b.getUint16(p + 2);
+    if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) {
+      return { h: b.getUint16(p + 5), w: b.getUint16(p + 7) };
+    }
+    p += 2 + len;
+  }
+  return null;
+}
+
+// ============================================================================ Bilder laden
+async function ladeBitmap(name) {
+  if (S.cache.has(name)) return S.cache.get(name);
+  const e = S.eintraege.find((x) => x.name === name);
+  const versprechen = (async () => {
+    const blob = await eintragBlob(e);
+    return await createImageBitmap(blob);
+  })();
+  S.cache.set(name, versprechen);
+  // Cache klein halten (aktuelles, vorheriges, nächstes)
+  const behalten = new Set([S.namen[S.index - 1], S.namen[S.index], S.namen[S.index + 1], name]);
+  for (const [k, v] of S.cache) {
+    if (!behalten.has(k)) { v.then((bm) => bm.close && bm.close()).catch(() => {}); S.cache.delete(k); }
+  }
+  return versprechen;
+}
+
+async function zeigeBild(index) {
+  if (!S.namen.length) return;
+  S.index = Math.max(0, Math.min(S.namen.length - 1, index));
+  const name = S.namen[S.index];
+  S.gewaehlt = -1; S.modus = null; S.drag = null;
+  if (S.task && !S.gesperrt) speichern();          // Position merken (Fortsetzen nach Neustart)
+  meldung("lade " + name + " …");
+  try {
+    const bm = await ladeBitmap(name);
+    if (S.namen[S.index] !== name) return;   // inzwischen weitergeblättert
+    S.bitmap = bm; S.bitmapName = name;
+    const b = bildDaten(name);
+    if (!b.w) { b.w = bm.width; b.h = bm.height; }
+    else if (b.w !== bm.width || b.h !== bm.height) {
+      skaliereBild(b, bm.width / b.w, bm.height / b.h);
+      b.w = bm.width; b.h = bm.height;
+    }
+    einpassen();
+    meldung("");
+    if (S.namen[S.index + 1]) ladeBitmap(S.namen[S.index + 1]).catch(() => {});
+  } catch (err) {
+    meldung("Bild nicht lesbar: " + name + " (" + err.message + ")", true);
+  }
+  zeichneAlles();
+}
+
+function skaliereBild(b, fx, fy) {
+  for (const o of b.objekte) {
+    o.box = [o.box[0] * fx, o.box[1] * fy, o.box[2] * fx, o.box[3] * fy];
+    if (o.kp) for (const p of o.kp) if (p) { p.x *= fx; p.y *= fy; }
+  }
+}
+
+function bildDaten(name) {
+  if (!S.bilder[name]) S.bilder[name] = { w: 0, h: 0, objekte: [], geprueft: false };
+  return S.bilder[name];
+}
+const aktuell = () => (S.namen.length ? bildDaten(S.namen[S.index]) : null);
+
+// ============================================================================ Ansicht
+function groesseAnpassen() {
+  const r = buehne.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  for (const c of [cvBild, cvEbene]) {
+    c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
+    c.style.width = r.width + "px"; c.style.height = r.height + "px";
+  }
+  zeichneAlles();
+}
+
+function einpassen() {
+  const b = aktuell();
+  if (!b || !b.w) return;
+  const r = buehne.getBoundingClientRect();
+  const s = Math.min(r.width / b.w, r.height / b.h);
+  S.view = { s, tx: (r.width - b.w * s) / 2, ty: (r.height - b.h * s) / 2 };
+}
+const zuSchirm = (x, y) => [x * S.view.s + S.view.tx, y * S.view.s + S.view.ty];
+const zuBild = (sx, sy) => [(sx - S.view.tx) / S.view.s, (sy - S.view.ty) / S.view.s];
+
+function mausPos(ev) {
+  const r = buehne.getBoundingClientRect();
+  return [ev.clientX - r.left, ev.clientY - r.top];
+}
+
+// ============================================================================ Zeichnen
+function zeichneAlles() {
+  const dpr = window.devicePixelRatio || 1;
+  ctxBild.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctxBild.clearRect(0, 0, cvBild.width, cvBild.height);
+  ctx.clearRect(0, 0, cvEbene.width, cvEbene.height);
+  cvBild.style.filter = S.boost ? "brightness(1.7) contrast(1.35)" : "none";
+  $("leer").style.display = S.namen.length ? "none" : "flex";
+  const b = aktuell();
+  if (b && S.bitmap && S.bitmapName === S.namen[S.index]) {
+    ctxBild.imageSmoothingEnabled = S.view.s < 2;
+    ctxBild.drawImage(S.bitmap, S.view.tx, S.view.ty, b.w * S.view.s, b.h * S.view.s);
+    b.objekte.forEach((o, i) => zeichneObjekt(o, i, i === S.gewaehlt));
+  }
+  if (S.drag && S.drag.art === "zeichnen") {
+    const [x1, y1] = zuSchirm(S.drag.x0, S.drag.y0), [x2, y2] = zuSchirm(S.drag.x1, S.drag.y1);
+    ctx.setLineDash([6, 4]); ctx.strokeStyle = KLASSEN[S.drag.klasse]; ctx.lineWidth = 2;
+    ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+    ctx.setLineDash([]);
+  }
+  if (S.modus && S.modus.art === "zeichnen" && S.maus) {
+    const [sx, sy] = zuSchirm(S.maus[0], S.maus[1]);
+    ctx.strokeStyle = KLASSEN[S.modus.klasse]; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, cvEbene.height); ctx.moveTo(0, sy); ctx.lineTo(cvEbene.width, sy); ctx.stroke();
+  }
+  aktualisiereSeitenleiste();
+}
+
+function zeichneObjekt(o, i, gewaehlt) {
+  const [x1, y1] = zuSchirm(o.box[0], o.box[1]), [x2, y2] = zuSchirm(o.box[2], o.box[3]);
+  const farbe = KLASSEN[o.klasse];
+  ctx.lineWidth = gewaehlt ? 3 : 2;
+  ctx.strokeStyle = farbe;
+  ctx.setLineDash(o.quelle === "auto" ? [7, 5] : []);
+  ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+  ctx.setLineDash([]);
+  ctx.font = "bold 13px system-ui"; ctx.fillStyle = farbe;
+  const text = "#" + (i + 1) + " " + KLASSEN_NAME[o.klasse] + (o.quelle === "auto" ? " (Vorschlag)" : "");
+  ctx.fillText(text, x1 + 4, Math.max(14, y1 - 5));
+  if (gewaehlt) {
+    ctx.fillStyle = farbe;
+    for (const [hx, hy] of [[x1, y1], [x2, y1], [x1, y2], [x2, y2]]) ctx.fillRect(hx - 4, hy - 4, 8, 8);
+  }
+  if (o.klasse !== "kuh" || !o.kp) return;
+  const pts = o.kp.map((p) => (p && p.v > 0 ? zuSchirm(p.x, p.y) : null));
+  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,.75)";
+  for (let k = 0; k < 2; k++) {
+    if (pts[k] && pts[k + 1]) { ctx.beginPath(); ctx.moveTo(...pts[k]); ctx.lineTo(...pts[k + 1]); ctx.stroke(); }
+  }
+  o.kp.forEach((p, k) => {
+    if (!p || p.v === 0) return;
+    const [sx, sy] = pts[k];
+    ctx.beginPath(); ctx.arc(sx, sy, gewaehlt ? 6 : 5, 0, Math.PI * 2);
+    if (p.v === 2) { ctx.fillStyle = KP_FARBEN[k]; ctx.fill(); ctx.strokeStyle = "#000"; ctx.lineWidth = 1; ctx.stroke(); }
+    else { ctx.strokeStyle = KP_FARBEN[k]; ctx.lineWidth = 3; ctx.stroke(); }
+    ctx.fillStyle = "#fff"; ctx.font = "bold 11px system-ui"; ctx.fillText(KP_KURZ[k], sx + 7, sy - 6);
+  });
+}
+
+function aktualisiereSeitenleiste() {
+  const b = aktuell();
+  const name = S.namen[S.index] || "";
+  $("kopf").textContent = S.task ? `${S.task} · Bild ${S.index + 1}/${S.namen.length} · ${name}` : "";
+  $("bildInfo").textContent = name ? `${name} · Ortszeit ${ortszeit(name)}` : "—";
+  const st = $("status");
+  if (b) { st.textContent = b.geprueft ? "✓ geprüft (⇧+Enter oder Klick = zurücknehmen)" : "nicht geprüft (Enter = geprüft & weiter)"; st.className = "status" + (b.geprueft ? " geprueft" : ""); }
+  const liste = $("liste");
+  liste.innerHTML = "";
+  if (b) b.objekte.forEach((o, i) => {
+    const d = document.createElement("div");
+    d.className = "objekt" + (i === S.gewaehlt ? " gewaehlt" : "");
+    let punkte = "";
+    if (o.klasse === "kuh") {
+      punkte = '<span class="punkte">' + KP_KURZ.map((k, j) => {
+        const p = o.kp && o.kp[j];
+        const zeichen = !p || p.v === 0 ? "·" : (p.v === 1 ? "◌" : "●");
+        return `<span style="color:${KP_FARBEN[j]}" title="${KP_NAMEN[j]}">${zeichen}</span>`;
+      }).join("") + "</span>";
+    }
+    d.innerHTML = `<span>#${i + 1} ${KLASSEN_NAME[o.klasse]}${o.quelle === "auto" ? ' <i style="color:#9aa3ad">Vorschlag</i>' : ""}</span>${punkte}`;
+    d.onclick = () => { S.gewaehlt = i; zeichneAlles(); };
+    liste.appendChild(d);
+  });
+  const gepr = S.namen.filter((n) => S.bilder[n] && S.bilder[n].geprueft).length;
+  $("zaehler").textContent = `${gepr} / ${S.namen.length} geprüft` + (S.seitExport >= 25 ? ` · ${S.seitExport} seit letztem Export – bitte exportieren` : "");
+  $("fortschritt").firstElementChild.style.width = S.namen.length ? (100 * gepr / S.namen.length) + "%" : "0";
+}
+
+function ortszeit(name) {
+  const m = /(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/.exec(name);
+  if (!m) return "?";
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]));
+  return d.toLocaleString("de-DE", { timeZone: "Europe/Berlin", dateStyle: "short", timeStyle: "short" });
+}
+
+// ============================================================================ Bearbeiten
+function gesperrt() {
+  if (!S.gesperrt) return false;
+  meldung("Dieser Tab ist gesperrt – das Paket wird in einem anderen Tab bearbeitet.", true);
+  return true;
+}
+function merkeRueck() {
+  const name = S.namen[S.index];
+  const stapel = (S.rueck[name] = S.rueck[name] || []);
+  stapel.push(JSON.stringify(aktuell()));
+  if (stapel.length > MAX_RUECK) stapel.shift();
+}
+function rueckgaengig() {
+  if (gesperrt()) return;
+  const name = S.namen[S.index];
+  const stapel = S.rueck[name];
+  if (!stapel || !stapel.length) return meldung("nichts rückgängig zu machen");
+  S.bilder[name] = JSON.parse(stapel.pop());
+  S.gewaehlt = -1; geaendert(); zeichneAlles();
+}
+function geaendert(zaehltAlsArbeit = true) {
+  S.ungespeichert = true;
+  if (zaehltAlsArbeit) {
+    const b = aktuell();
+    if (b) for (const o of b.objekte) if (o.quelle === "auto" && o.bearbeitet) o.quelle = "manual";
+  }
+  planeSpeichern();
+}
+
+function objektBei(x, y) {
+  const b = aktuell();
+  let bester = -1, flaeche = Infinity;
+  b.objekte.forEach((o, i) => {
+    if (x >= o.box[0] && x <= o.box[2] && y >= o.box[1] && y <= o.box[3]) {
+      const f = (o.box[2] - o.box[0]) * (o.box[3] - o.box[1]);
+      if (f < flaeche) { flaeche = f; bester = i; }
+    }
+  });
+  return bester;
+}
+
+function griffBei(sx, sy) {
+  const b = aktuell();
+  if (!b) return null;
+  // 1) Keypoints (gewähltes Objekt zuerst)
+  const reihen = S.gewaehlt >= 0 ? [S.gewaehlt, ...b.objekte.keys()] : [...b.objekte.keys()];
+  for (const i of reihen) {
+    const o = b.objekte[i];
+    if (!o || o.klasse !== "kuh" || !o.kp) continue;
+    for (let k = 0; k < 3; k++) {
+      const p = o.kp[k];
+      if (!p || p.v === 0) continue;
+      const [px, py] = zuSchirm(p.x, p.y);
+      if (Math.hypot(px - sx, py - sy) <= GRIFF + 2) return { art: "punkt", i, k };
+    }
+  }
+  // 2) Ecken und Kanten des gewählten Objekts
+  if (S.gewaehlt >= 0 && b.objekte[S.gewaehlt]) {
+    const o = b.objekte[S.gewaehlt];
+    const [x1, y1] = zuSchirm(o.box[0], o.box[1]), [x2, y2] = zuSchirm(o.box[2], o.box[3]);
+    const nahX1 = Math.abs(sx - x1) <= GRIFF, nahX2 = Math.abs(sx - x2) <= GRIFF;
+    const nahY1 = Math.abs(sy - y1) <= GRIFF, nahY2 = Math.abs(sy - y2) <= GRIFF;
+    const inX = sx >= x1 - GRIFF && sx <= x2 + GRIFF, inY = sy >= y1 - GRIFF && sy <= y2 + GRIFF;
+    const kanten = { l: nahX1 && inY, r: nahX2 && inY, o: nahY1 && inX, u: nahY2 && inX };
+    if (kanten.l || kanten.r || kanten.o || kanten.u) return { art: "kante", i: S.gewaehlt, kanten };
+  }
+  return null;
+}
+
+function setzePunkt(k, v) {
+  const b = aktuell();
+  if (!b || !S.maus || gesperrt()) return;
+  let i = S.gewaehlt;
+  if (i < 0 || !b.objekte[i] || b.objekte[i].klasse !== "kuh") {
+    i = objektBei(S.maus[0], S.maus[1]);
+    if (i < 0 || b.objekte[i].klasse !== "kuh") return meldung("Erst eine Kuh-Box wählen oder zeichnen (N).", true);
+    S.gewaehlt = i;
+  }
+  const [x, y] = S.maus;
+  if (x < 0 || y < 0 || x > b.w || y > b.h) return meldung("Punkt außerhalb des Bildes.", true);
+  merkeRueck();
+  const o = b.objekte[i];
+  o.kp = o.kp || [null, null, null];
+  o.kp[k] = { x, y, v };
+  o.bearbeitet = true;
+  meldung(`${KP_NAMEN[k]} ${v === 1 ? "(verdeckt) " : ""}gesetzt`);
+  geaendert(); zeichneAlles();
+}
+
+function entfernePunkt(k) {
+  if (gesperrt()) return;
+  const b = aktuell();
+  const o = b && b.objekte[S.gewaehlt];
+  if (!o || o.klasse !== "kuh") return meldung("Erst eine Kuh wählen.", true);
+  merkeRueck();
+  o.kp = o.kp || [null, null, null];
+  o.kp[k] = null;
+  o.bearbeitet = true;
+  meldung(`${KP_NAMEN[k]}: nicht sichtbar`);
+  geaendert(); zeichneAlles();
+}
+
+function loescheObjekt() {
+  const b = aktuell();
+  if (!b || S.gewaehlt < 0 || gesperrt()) return;
+  merkeRueck();
+  b.objekte.splice(S.gewaehlt, 1);
+  S.gewaehlt = -1;
+  geaendert(); zeichneAlles();
+}
+
+function bildSichtbar() { return S.bitmap && S.bitmapName === S.namen[S.index]; }
+function setzeGeprueft(weiter) {
+  const b = aktuell();
+  if (!b || gesperrt()) return;
+  if (!bildSichtbar()) return meldung("Bild lädt noch – erst ansehen, dann abhaken.", true);
+  if (!b.geprueft) {
+    merkeRueck();
+    b.geprueft = true;
+    for (const o of b.objekte) if (o.quelle === "auto") o.quelle = "manual";   // vom Menschen gesehen = bestätigt
+    S.seitExport++;
+    geaendert(false);
+  }
+  if (weiter && S.index < S.namen.length - 1) zeigeBild(S.index + 1); else zeichneAlles();
+}
+function nimmPruefungZurueck() {
+  const b = aktuell();
+  if (!b || !b.geprueft || gesperrt()) return;
+  merkeRueck();
+  b.geprueft = false;
+  geaendert(false); meldung("Prüfung zurückgenommen"); zeichneAlles();
+}
+
+function naechstesUngeprueft() {
+  for (let d = 1; d <= S.namen.length; d++) {
+    const i = (S.index + d) % S.namen.length;
+    if (!bildDaten(S.namen[i]).geprueft) return zeigeBild(i);
+  }
+  meldung("Alle Bilder dieses Pakets sind geprüft.");
+}
+
+// ============================================================================ Maus
+buehne.addEventListener("contextmenu", (ev) => ev.preventDefault());
+buehne.addEventListener("mousedown", (ev) => {
+  const b = aktuell();
+  if (!b || !b.w) return;
+  const [sx, sy] = mausPos(ev);
+  const [x, y] = zuBild(sx, sy);
+  if (ev.button === 1 || ev.button === 2 || (ev.button === 0 && S.leertaste)) {
+    S.drag = { art: "schieben", sx, sy, tx: S.view.tx, ty: S.view.ty };
+    return;
+  }
+  if (ev.button !== 0) return;
+  if (S.gesperrt) { gesperrt(); return; }
+  if (S.modus && S.modus.art === "zeichnen") {
+    S.drag = { art: "zeichnen", klasse: S.modus.klasse, x0: x, y0: y, x1: x, y1: y };
+    return;
+  }
+  const g = griffBei(sx, sy);
+  if (g) {
+    merkeRueck();
+    S.gewaehlt = g.i;
+    S.drag = g;
+    zeichneAlles();
+    return;
+  }
+  const i = objektBei(x, y);
+  S.gewaehlt = i;
+  if (i >= 0) { merkeRueck(); S.drag = { art: "bewegen", i, x0: x, y0: y, box0: b.objekte[i].box.slice(), kp0: JSON.stringify(b.objekte[i].kp || null), bewegt: false }; }
+  zeichneAlles();
+});
+
+window.addEventListener("mousemove", (ev) => {
+  const b = aktuell();
+  if (!b || !b.w) return;
+  const [sx, sy] = mausPos(ev);
+  const [x, y] = zuBild(sx, sy);
+  S.maus = [x, y];
+  const d = S.drag;
+  if (!d) { if (S.modus) zeichneAlles(); return; }
+  const cx = Math.max(0, Math.min(b.w, x)), cy = Math.max(0, Math.min(b.h, y));
+  if (d.art === "schieben") { S.view.tx = d.tx + (sx - d.sx); S.view.ty = d.ty + (sy - d.sy); }
+  else if (d.art === "zeichnen") { d.x1 = cx; d.y1 = cy; }
+  else if (d.art === "punkt") {
+    const o = b.objekte[d.i]; o.kp[d.k].x = cx; o.kp[d.k].y = cy; o.bearbeitet = true;
+  } else if (d.art === "kante") {
+    const o = b.objekte[d.i];
+    if (d.kanten.l) o.box[0] = Math.min(cx, o.box[2] - 2);
+    if (d.kanten.r) o.box[2] = Math.max(cx, o.box[0] + 2);
+    if (d.kanten.o) o.box[1] = Math.min(cy, o.box[3] - 2);
+    if (d.kanten.u) o.box[3] = Math.max(cy, o.box[1] + 2);
+    o.bearbeitet = true;
+  } else if (d.art === "bewegen") {
+    const dx = x - d.x0, dy = y - d.y0;
+    if (!d.bewegt && Math.hypot(dx * S.view.s, dy * S.view.s) < 4) return;
+    d.bewegt = true;
+    const o = b.objekte[d.i];
+    const bw = d.box0[2] - d.box0[0], bh = d.box0[3] - d.box0[1];
+    const nx = Math.max(0, Math.min(b.w - bw, d.box0[0] + dx)), ny = Math.max(0, Math.min(b.h - bh, d.box0[1] + dy));
+    const vx = nx - d.box0[0], vy = ny - d.box0[1];
+    o.box = [nx, ny, nx + bw, ny + bh];
+    const kp0 = JSON.parse(d.kp0);
+    if (kp0) o.kp = kp0.map((p) => (p ? { x: p.x + vx, y: p.y + vy, v: p.v } : null));
+    o.bearbeitet = true;
+  }
+  zeichneAlles();
+});
+
+window.addEventListener("mouseup", () => {
+  const d = S.drag;
+  S.drag = null;
+  if (!d) return;
+  const b = aktuell();
+  if (d.art === "zeichnen") {
+    const x1 = Math.min(d.x0, d.x1), x2 = Math.max(d.x0, d.x1), y1 = Math.min(d.y0, d.y1), y2 = Math.max(d.y0, d.y1);
+    if ((x2 - x1) * S.view.s >= 5 && (y2 - y1) * S.view.s >= 5) {
+      merkeRueck();
+      const o = { id: S.naechsteId++, klasse: d.klasse, box: [x1, y1, x2, y2], quelle: "manual", kp: d.klasse === "kuh" ? [null, null, null] : null };
+      b.objekte.push(o);
+      S.gewaehlt = b.objekte.length - 1;
+      geaendert();
+      meldung(KLASSEN_NAME[d.klasse] + "-Box angelegt" + (d.klasse === "kuh" ? " — jetzt 1/2/3 an den Punkten drücken" : ""));
+    }
+    S.modus = null;
+  } else if (d.art === "bewegen" && !d.bewegt) {
+    const st = S.rueck[S.namen[S.index]]; if (st) st.pop();   // nur ausgewählt, nichts geändert
+  } else if (d.art !== "schieben") {
+    geaendert();
+  }
+  zeichneAlles();
+});
+
+buehne.addEventListener("wheel", (ev) => {
+  ev.preventDefault();
+  const b = aktuell();
+  if (!b || !b.w) return;
+  const [sx, sy] = mausPos(ev);
+  const [x, y] = zuBild(sx, sy);
+  const r = buehne.getBoundingClientRect();
+  const sMin = Math.min(r.width / b.w, r.height / b.h) * 0.5;
+  const s = Math.max(sMin, Math.min(12, S.view.s * (ev.deltaY < 0 ? 1.2 : 1 / 1.2)));
+  S.view = { s, tx: sx - x * s, ty: sy - y * s };
+  zeichneAlles();
+}, { passive: false });
+
+// ============================================================================ Tastatur
+window.addEventListener("keydown", (ev) => {
+  if (ev.target && /INPUT|TEXTAREA|SELECT/.test(ev.target.tagName)) return;
+  if (ev.target && ev.target.tagName === "BUTTON" && !$("modal").contains(ev.target)) { ev.target.blur(); if (/Enter|Space|NumpadEnter/.test(ev.code)) ev.preventDefault(); }
+  if ($("modal").classList.contains("offen")) { if (ev.key === "Escape") schliesseModal(); return; }
+  const code = ev.code;
+  if (code === "Space") { S.leertaste = true; ev.preventDefault(); return; }
+  if ((ev.ctrlKey || ev.metaKey) && code === "KeyS") { ev.preventDefault(); exportiere(); return; }
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key || "").toLowerCase() === "z") { ev.preventDefault(); rueckgaengig(); return; }
+  if (code === "KeyH" || code === "F1") { ev.preventDefault(); zeigeHilfe(); return; }
+  if (!S.namen.length) return;
+  const ziffer = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2 }[code];
+  if (ziffer !== undefined) { ev.preventDefault(); setzePunkt(ziffer, ev.shiftKey ? 1 : 2); return; }
+  const unsichtbar = { KeyQ: 0, KeyW: 1, KeyE: 2 }[code];
+  if (unsichtbar !== undefined) { ev.preventDefault(); entfernePunkt(unsichtbar); return; }
+  switch (code) {
+    case "ArrowRight": case "KeyD": ev.preventDefault(); zeigeBild(S.index + 1); break;
+    case "ArrowLeft": case "KeyA": ev.preventDefault(); zeigeBild(S.index - 1); break;
+    case "Enter": case "NumpadEnter":
+      ev.preventDefault();
+      if (ev.repeat) break;                         // gehaltene Taste hakt keine ungesehenen Bilder ab
+      if (ev.shiftKey) nimmPruefungZurueck(); else setzeGeprueft(true);
+      break;
+    case "KeyU": naechstesUngeprueft(); break;
+    case "KeyN": S.modus = { art: "zeichnen", klasse: "kuh" }; meldung("Kuh-Box ziehen …"); zeichneAlles(); break;
+    case "KeyF": S.modus = { art: "zeichnen", klasse: "amniotic_sac" }; meldung("Fruchtblasen-Box ziehen …"); zeichneAlles(); break;
+    case "KeyK": S.modus = { art: "zeichnen", klasse: "calf_legs" }; meldung("Kälberfüße-Box ziehen …"); zeichneAlles(); break;
+    case "Escape": S.modus = null; S.gewaehlt = -1; meldung(""); zeichneAlles(); break;
+    case "Delete": case "Backspace": ev.preventDefault(); loescheObjekt(); break;
+    case "Tab": {
+      ev.preventDefault();
+      const n = aktuell().objekte.length;
+      if (n) { S.gewaehlt = ((S.gewaehlt < 0 ? -1 : S.gewaehlt) + (ev.shiftKey ? n - 1 : 1)) % n; zeichneAlles(); }
+      break;
+    }
+    case "KeyB": S.boost = !S.boost; zeichneAlles(); break;
+    case "Digit0": case "Numpad0": einpassen(); zeichneAlles(); break;
+  }
+});
+window.addEventListener("keyup", (ev) => { if (ev.code === "Space") S.leertaste = false; });
+
+// ============================================================================ Speichern (Browser)
+let speicherTimer = null;
+function planeSpeichern() {
+  // sofort speichern (wenige ms): kein Zeitfenster, in dem ein zweiter Tab einen veralteten Stand liest
+  speichern();
+}
+function speichern() {
+  if (!S.task || S.gesperrt) return false;
+  try {
+    const alt = ladeGespeichert(S.task);
+    if (alt && (alt.rev || 0) > S.rev && alt.tab !== S.tab) { sperren(); return false; }
+    S.rev = Math.max(S.rev, (alt && alt.rev) || 0) + 1;
+    const daten = { version: 1, task: S.task, bilder: S.bilder, index: S.index, seitExport: S.seitExport,
+                    naechsteId: S.naechsteId, rev: S.rev, tab: S.tab };
+    localStorage.setItem(SPEICHER_PRAEFIX + S.task, JSON.stringify(daten));
+    S.ungespeichert = false;
+    return true;
+  } catch (err) {
+    meldung("Speichern im Browser nicht möglich – bitte regelmäßig exportieren (" + err.message + ")", true);
+    return false;
+  }
+}
+function ladeGespeichert(task) {
+  try {
+    const roh = localStorage.getItem(SPEICHER_PRAEFIX + task);
+    return roh ? JSON.parse(roh) : null;
+  } catch (err) { return null; }
+}
+window.addEventListener("beforeunload", () => { if (S.ungespeichert) speichern(); });
+window.addEventListener("storage", (ev) => {
+  if (!S.task || ev.key !== SPEICHER_PRAEFIX + S.task || !ev.newValue) return;
+  try { if (JSON.parse(ev.newValue).tab !== S.tab) sperren(); } catch (err) { /* ignorieren */ }
+});
+function sperren() {
+  if (S.gesperrt) return;
+  S.gesperrt = true;
+  clearTimeout(speicherTimer);
+  oeffneModal(`<h2>Paket in anderem Tab geöffnet</h2><p>Das Paket <b></b> wird in einem anderen Tab oder Fenster
+    weiterbearbeitet. Dieser Tab ist jetzt gesperrt, damit dort nichts überschrieben wird.</p>
+    <p>Falls hier noch Ungesichertes steht: „Verstanden“, dann <b>Export</b> (Strg+S) – danach diesen Tab schließen.</p>
+    <div class="knoepfe"><button id="mOk" class="haupt">Verstanden</button></div>`);
+  $("modalInhalt").querySelector("b").textContent = S.task;
+  $("mOk").onclick = schliesseModal;
+  meldung("Gesperrt: Paket wird in einem anderen Tab bearbeitet.", true);
+}
+
+// ============================================================================ XML-Import
+function leseCvatXml(text) {
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  if (doc.querySelector("parsererror")) throw new Error("XML nicht lesbar.");
+  const ergebnis = {};
+  for (const im of doc.querySelectorAll("image")) {
+    const name = (im.getAttribute("name") || "").split("/").pop();
+    if (!name) continue;
+    const b = { w: Math.round(+im.getAttribute("width") || 0), h: Math.round(+im.getAttribute("height") || 0), objekte: [], geprueft: false };
+    const gruppen = {};
+    for (const el of im.children) {
+      const lab = el.getAttribute("label");
+      if (el.tagName === "tag" && lab === "geprueft") b.geprueft = true;
+      if (el.tagName === "box" && KLASSEN[lab] && el.getAttribute("outside") !== "1") {
+        const o = { id: S.naechsteId++, klasse: lab, quelle: el.getAttribute("source") === "auto" ? "auto" : "manual",
+                    box: ["xtl", "ytl", "xbr", "ybr"].map((a) => +el.getAttribute(a)), kp: lab === "kuh" ? [null, null, null] : null };
+        b.objekte.push(o);
+        const g = el.getAttribute("group_id");
+        if (g && lab === "kuh") gruppen[g] = o;
+      }
+    }
+    for (const el of im.children) {
+      if (el.tagName !== "skeleton" || el.getAttribute("label") !== "kuh_pose") continue;
+      const kp = [null, null, null];
+      for (const p of el.querySelectorAll("points")) {
+        const k = KP_NAMEN.indexOf(p.getAttribute("label"));
+        if (k < 0 || p.getAttribute("outside") === "1") continue;
+        const [x, y] = (p.getAttribute("points") || "").split(";")[0].split(",").map(Number);
+        kp[k] = { x, y, v: p.getAttribute("occluded") === "1" ? 1 : 2 };
+      }
+      const g = el.getAttribute("group_id");
+      let ziel = g ? gruppen[g] : null;
+      if (!ziel) {   // ohne Gruppe: kleinste Kuh-Box, die alle Punkte enthält
+        const pts = kp.filter(Boolean);
+        let fl = Infinity;
+        for (const o of b.objekte) {
+          if (o.klasse !== "kuh") continue;
+          if (pts.every((p) => p.x >= o.box[0] && p.x <= o.box[2] && p.y >= o.box[1] && p.y <= o.box[3])) {
+            const f = (o.box[2] - o.box[0]) * (o.box[3] - o.box[1]);
+            if (f < fl) { fl = f; ziel = o; }
+          }
+        }
+      }
+      if (ziel) ziel.kp = kp;
+    }
+    ergebnis[name] = b;
+  }
+  return ergebnis;
+}
+
+async function importiereXml(file) {
+  if (!S.task) return meldung("Erst das Paket (ZIP) öffnen.", true);
+  if (gesperrt()) return;
+  let daten;
+  try { daten = leseCvatXml(await file.text()); }
+  catch (err) { return meldung("Import fehlgeschlagen: " + err.message, true); }
+  const passend = Object.keys(daten).filter((n) => S.namen.includes(n));
+  if (!passend.length) return meldung("Die XML-Datei passt nicht zu diesem Paket (keine gemeinsamen Bildnamen).", true);
+  const belegt = passend.filter((n) => S.bilder[n] && (S.bilder[n].objekte.length || S.bilder[n].geprueft));
+  const uebernehmen = (alles) => {
+    let n = 0;
+    for (const name of passend) {
+      if (!alles && belegt.includes(name)) continue;
+      S.bilder[name] = daten[name];
+      n++;
+    }
+    S.rueck = {};
+    geaendert(false); speichern();
+    meldung(`${n} Bilder aus ${file.name} übernommen` + (passend.length < Object.keys(daten).length ? ` (${Object.keys(daten).length - passend.length} gehören nicht zu diesem Paket)` : ""));
+    zeigeBild(S.index);
+  };
+  if (!belegt.length) return uebernehmen(true);
+  oeffneModal(`<h2>Vorhandene Arbeit</h2><p>${belegt.length} Bilder dieses Pakets haben schon Labels oder sind geprüft.</p>
+    <p>„Alles ersetzen“ exportiert vorher den aktuellen Stand als Sicherung (Download).</p>
+    <div class="knoepfe"><button id="mLeer" class="haupt">Nur leere Bilder füllen</button><button id="mAlles">Alles ersetzen</button><button id="mAbbr">Abbrechen</button></div>`);
+  $("mLeer").onclick = () => { schliesseModal(); uebernehmen(false); };
+  $("mAlles").onclick = async () => { schliesseModal(); await exportiere("_sicherung"); uebernehmen(true); };
+  $("mAbbr").onclick = schliesseModal;
+}
+
+// ============================================================================ Export
+const r2 = (v) => (Math.round(v * 100) / 100).toFixed(2);
+async function exportiere(zusatz) {
+  if (!S.task) return meldung("Kein Paket geladen.", true);
+  zusatz = typeof zusatz === "string" ? zusatz : "";
+  meldung("Export wird erstellt …");
+  for (const name of S.namen) {   // Bildgröße für noch nie geöffnete Bilder aus dem JPEG-Kopf
+    const b = bildDaten(name);
+    if (!b.w) {
+      const e = S.eintraege.find((x) => x.name === name);
+      const g = await jpegGroesse(await eintragBlob(e));
+      if (g) { b.w = g.w; b.h = g.h; }
+    }
+  }
+  const z = ['<?xml version="1.0" encoding="utf-8"?>', "<annotations>", "  <version>1.1</version>",
+    `  <meta><task><name>${S.task}</name><size>${S.namen.length}</size><mode>annotation</mode></task>` +
+    `<dumped>${new Date().toISOString()}</dumped><source>${VERSION}</source></meta>`];
+  let gruppe = 1, nGeprueft = 0;
+  S.namen.forEach((name, id) => {
+    const b = bildDaten(name);
+    z.push(`  <image id="${id}" name="${name}" width="${b.w}" height="${b.h}">`);
+    if (b.geprueft) { z.push('    <tag label="geprueft" source="manual"></tag>'); nGeprueft++; }
+    for (const o of b.objekte) {
+      const quelle = b.geprueft ? "manual" : o.quelle;
+      const hatPunkte = o.klasse === "kuh" && o.kp && o.kp.some((p) => p && p.v > 0);
+      const g = hatPunkte ? ` group_id="${gruppe}"` : "";
+      z.push(`    <box label="${o.klasse}" source="${quelle}" occluded="0" xtl="${r2(o.box[0])}" ytl="${r2(o.box[1])}" xbr="${r2(o.box[2])}" ybr="${r2(o.box[3])}" z_order="0"${g}></box>`);
+      if (hatPunkte) {
+        z.push(`    <skeleton label="kuh_pose" source="manual" z_order="0"${g}>`);
+        o.kp.forEach((p, k) => {
+          const aussen = !p || p.v === 0;
+          z.push(`      <points label="${KP_NAMEN[k]}" source="manual" outside="${aussen ? 1 : 0}" occluded="${!aussen && p.v === 1 ? 1 : 0}" points="${aussen ? "0.00,0.00" : r2(p.x) + "," + r2(p.y)}"></points>`);
+        });
+        z.push("    </skeleton>");
+        gruppe++;
+      }
+    }
+    z.push("  </image>");
+  });
+  z.push("</annotations>", "");
+  const blob = new Blob([z.join("\n")], { type: "application/xml" });
+  const stempel = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "").replace(/^(\d{8})/, "$1-");
+  const dateiname = `${S.task}_labels_${stempel}${zusatz}.xml`;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = dateiname;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  if (!zusatz) { S.seitExport = 0; speichern(); }
+  meldung(`Exportiert: ${dateiname} (${nGeprueft} geprüfte Bilder) — nach _training_v1/exporte/ legen, ältere Exporte dieses Pakets dort entfernen.`);
+  aktualisiereSeitenleiste();
+}
+
+// ============================================================================ Paket öffnen
+async function oeffnePaket(file) {
+  try {
+    meldung("lese " + file.name + " …");
+    const eintraege = await leseZip(file);
+    if (!eintraege.length) throw new Error("Keine Bilder im ZIP.");
+    if (S.task) speichern();
+    S.zip = file; S.eintraege = eintraege; S.namen = eintraege.map((e) => e.name);
+    S.task = file.name.replace(/\.zip$/i, "");
+    S.bilder = {}; S.rueck = {}; S.cache.clear(); S.bitmap = null; S.seitExport = 0; S.gesperrt = false; S.rev = 0;
+    const alt = ladeGespeichert(S.task);
+    let start = 0;
+    if (alt && alt.bilder) {
+      S.bilder = alt.bilder; S.seitExport = alt.seitExport || 0; S.naechsteId = alt.naechsteId || S.naechsteId;
+      S.rev = alt.rev || 0;
+      start = Math.min(alt.index || 0, S.namen.length - 1);
+      meldung(`${S.task}: gespeicherter Stand geladen (${Object.values(S.bilder).filter((b) => b.geprueft).length} geprüft).`);
+    } else {
+      meldung(`${S.task}: ${S.namen.length} Bilder. Jetzt die Vorschläge laden (Schritt 2).`);
+    }
+    speichern();                                   // Besitz anmelden: ein anderer Tab mit diesem Paket sperrt sich
+    await zeigeBild(start);
+  } catch (err) {
+    meldung("Paket nicht lesbar: " + err.message, true);
+  }
+}
+
+// ============================================================================ Hilfe / Modal
+function oeffneModal(html) { $("modalInhalt").innerHTML = html; $("modal").classList.add("offen"); }
+function schliesseModal() { $("modal").classList.remove("offen"); }
+$("modal").addEventListener("mousedown", (ev) => { if (ev.target === $("modal")) schliesseModal(); });
+function zeigeHilfe() {
+  oeffneModal(`<h2>Stall-Labeler – Kurzanleitung</h2>
+  <table>
+  <tr><td><b>Ablauf</b></td><td>Paket öffnen → Vorschläge laden → je Bild: Vorschlags-Boxen prüfen (falsche löschen,
+   fehlende Kühe mit <b>N</b> ziehen), je Kuh die drei Punkte mit <b>1 2 3</b> an der Mausposition setzen → <b>Enter</b>
+   (geprüft &amp; weiter). Zwischendurch und am Ende <b>Export</b>.</td></tr>
+  <tr><td><b>Punkte</b></td><td><b>1</b> spine_end (Widerrist: höchster Punkt über den Schulterblättern), <b>2</b> tail_base (Schwanzansatz),
+   <b>3</b> tail_tip (Schwanzspitze/Quaste). Mit <b>⇧</b>: verdeckt, aber Position eindeutig. Nicht sichtbar und Position
+   unklar: <b>Q W E</b> – <b>nie raten</b>, besonders tail_tip. Punkte lassen sich mit der Maus verschieben.</td></tr>
+  <tr><td><b>Prüfen</b></td><td><b>Enter</b> hakt das angezeigte Bild ab und geht weiter (gehaltene Taste wirkt nur einmal).
+   <b>⇧+Enter</b> oder Klick auf das grüne Feld nimmt die Prüfung zurück.</td></tr>
+  <tr><td><b>Boxen</b></td><td>Um das ganze sichtbare Tier inkl. Schwanz. Ecken/Kanten der gewählten Box ziehen,
+   innen ziehen = verschieben. <b>F</b> Fruchtblase, <b>K</b> Kälberfüße – nur bei echter Sichtung.</td></tr>
+  <tr><td><b>Nicht labeln</b></td><td>Kot, Urin, Pfützen-Reflexe, Ketten, Personen, Hund. Leere Bilder bleiben leer –
+   trotzdem mit <b>Enter</b> als geprüft markieren. Nur geprüfte Bilder kommen ins Training.</td></tr>
+  <tr><td><b>Ansicht</b></td><td>Mausrad zoomt, rechte Maustaste oder Leertaste+Ziehen verschiebt, <b>0</b> passt ein,
+   <b>B</b> hellt Nachtbilder auf (nur Anzeige).</td></tr>
+  <tr><td><b>Speichern</b></td><td>Automatisch im Browser je Paket. Sicher ist nur der <b>Export</b> (Strg+S):
+   XML nach <code>_training_v1/exporte/</code> legen – je Paket nur den neuesten Export. Ein Export kann über
+   „Vorschläge/Stand laden“ wieder geöffnet werden. Ein Paket immer nur in einem Tab bearbeiten (ein zweiter Tab
+   sperrt den ersten).</td></tr>
+  <tr><td><b>Datenschutz</b></td><td>Die Datei arbeitet ohne Netz. Bilder werden nur lokal gelesen (B7).</td></tr>
+  </table><div class="knoepfe"><button id="mZu" class="haupt">Schließen</button></div>`);
+  $("mZu").onclick = schliesseModal;
+}
+
+// ============================================================================ Verdrahtung
+$("zipWahl").addEventListener("change", (ev) => { if (ev.target.files[0]) oeffnePaket(ev.target.files[0]); ev.target.value = ""; });
+$("xmlWahl").addEventListener("change", (ev) => { if (ev.target.files[0]) importiereXml(ev.target.files[0]); ev.target.value = ""; });
+$("exportKnopf").onclick = exportiere;
+for (const k of document.querySelectorAll("header button, header label.knopf")) k.addEventListener("mouseup", () => setTimeout(() => k.blur(), 0));
+$("boostKnopf").onclick = () => { S.boost = !S.boost; zeichneAlles(); };
+$("hilfeKnopf").onclick = zeigeHilfe;
+$("status").addEventListener("click", () => { const b = aktuell(); if (b && b.geprueft) nimmPruefungZurueck(); });
+window.addEventListener("resize", () => { groesseAnpassen(); });
+groesseAnpassen();
+
+// Testzugang (wird von tests/test_labeler.py genutzt)
+window.__stallLabeler = { S, zuSchirm, zuBild, leseCvatXml, exportiere, zeigeBild, version: VERSION };
+</script>
+</body>
+</html>

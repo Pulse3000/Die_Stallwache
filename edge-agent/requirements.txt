@@ -6,9 +6,10 @@ numpy>=1.26,<3
 requests>=2.31,<3
 PyYAML>=6.0,<7
 
-# KI-Inferenz (YOLO-Pose + ByteTrack-Tracking). Erst noetig, wenn ein
-# trainiertes Modell (best.pt) vorliegt – der Silent Mode laeuft auch ohne.
-ultralytics>=8.2,<9
+# Analyse-Modus. Erst noetig, wenn ein trainiertes Modell (best_vN.onnx)
+# vorliegt – der Silent Mode laeuft auch ohne.
+onnxruntime>=1.17,<2  # Inferenz (B19): laeuft auch auf CPUs ohne SSE4.1/AVX
+ultralytics>=8.2,<9   # nur noch fuer ByteTrack (keine Faltung im Laufzeitpfad)
 lapx>=0.5.5           # Zuordnungsloeser fuer ByteTrack
 
 # Optionaler MQTT-Zusatzausgang (mqtt.host in config.yaml setzen)

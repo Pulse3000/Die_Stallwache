@@ -36,12 +36,26 @@ stream:
   totmann_minuten: 5
 
 modell:
-  # Pfad zum trainierten YOLO-Pose-Modell (best.pt aus dem Colab-Training).
+  # Trainiertes YOLOv8-Pose-Modell als ONNX (best_vN.onnx aus dem Colab-
+  # Notebook, B19). Nur .onnx wird ausgefuehrt: auf CPUs ohne SSE4.1 bricht
+  # PyTorch bei jeder Faltung ab, und die Abnahme-Gates gelten nur fuer die
+  # ONNX-Dekodierung. Laedt das Modell nicht, bleibt der Agent im Silent Mode
+  # und meldet das einmal per Telegram.
   # Leer lassen -> Silent Mode: Agent sammelt nur Trainingsbilder.
-  pfad: ""
+  pfad: ""             # z. B. modelle/best_v1.onnx
+  # Threads fuer ONNX Runtime. 0 = alle Kerne, die der Prozess bekommt
+  # (CPU-Affinitaet und Docker-Quote: cpus: 1 -> 1 Thread).
+  threads: 0
+  # Dekodierung wie abnahme_gates.py - nur zusammen mit den Gates aendern:
+  konfidenz_min: 0.25          # Logik (Winkel, Brunst, Austreibung) ab dieser Konfidenz
+  # ByteTrack bekommt Kuh-Boxen schon ab hier (wie Ultralytics model.track):
+  # haelt nachts schwach erkannte Kuehe, jede neue ID startet das Fenster neu.
+  tracker_konfidenz_min: 0.10
+  nms_iou: 0.7                 # NMS je Klasse
+  keypoint_sichtbar_min: 0.5   # Punkt darunter gilt als unsichtbar -> kein Schwanzwinkel
   # Keypoint-Indizes im eigenen Modell (Reihenfolge aus dem CVAT-Skeleton).
   keypoints:
-    spine_end: 0   # Nacken / Ruecken
+    spine_end: 0   # Widerrist (B15): Ende der Rueckenlinie ueber den Schulterblaettern
     tail_base: 1   # Schwanzansatz
     tail_tip: 2    # Schwanzspitze
   # Klassen-Indizes der Objekterkennung
@@ -54,7 +68,21 @@ modell:
   # ID-Wechsel bei Verdeckung — jede neue ID setzt das 30-Minuten-Fenster
   # zurueck!). Leer lassen -> Ultralytics-Default (bytetrack.yaml).
   # Feineinstellung & Verifikation: Skill `bytetrack-tuning`.
+  # Der Tracker bekommt nur Kuh-Boxen; Fruchtblase/Kaelberfuesse gehen
+  # ungetrackt in die Austreibungslogik (B19).
   tracker: tracker-kuh.yaml
+
+qualitaet:
+  # Bildqualitaets-Gate (B20): erkennt Dekodier-Streifen nach Paketverlust.
+  # Defektbilder zaehlen nicht fuer das Schwanzwinkel-Fenster; die
+  # Austreibungs-Erkennung laeuft auf ihnen weiter (nie unterdrueckt).
+  # Kalibriert an 36 Stichproben (intakt 0.000-0.033, defekt 0.050-0.750).
+  # Abschalten, falls z. B. Gitter faelschlich als Streifen gelten: 1.0
+  schwelle_defekt: 0.04
+  # Mehr als dieser Anteil Defektbilder ueber fenster_min -> genau eine
+  # Info-Meldung je Episode (Dashboard + Tagesbericht, kein Telegram).
+  degradiert_anteil: 0.5
+  fenster_min: 10
 
 logik:
   winkel_schwelle_grad: 45     # Schwanzwinkel-Schwelle
@@ -126,5 +154,6 @@ mqtt:
 
 silent_mode:
   # Ohne Modell werden regelmaessig Bilder fuer das spaetere Training gesammelt.
+  # Dateiname: <kamera>_<YYYYmmdd-HHMMSS>.jpg in UTC (B21, kamera = stream.kamera).
   ordner: ./aufnahmen
   intervall_sekunden: 120

@@ -59,7 +59,10 @@ python3 main.py
 
 Ohne Modell (`modell.pfad` leer) startet der Agent im **Silent Mode** und
 sammelt alle 2 Minuten ein Trainingsbild in `./aufnahmen` – genau das
-Material, das für Phase „Datensammlung" gebraucht wird.
+Material, das für Phase „Datensammlung" gebraucht wird. Dateiname:
+`<kamera>_<YYYYmmdd-HHMMSS>.jpg` in UTC (B21), z. B.
+`stallwache_20261102-031500.jpg`; ältere Bilder ohne Präfix lesen alle
+Werkzeuge weiterhin.
 
 ### Dauerbetrieb (systemd)
 
@@ -99,22 +102,32 @@ sudo systemctl enable --now stallblick-agent
    Dämmerung und IR-Nacht aus dem eigenen Stall.
 2. **Vorwissen holen:** Open-Source-Datensätze **CVB** (Cattle Visual
    Behaviors) und **CattleEyeView** (Top-Down) herunterladen.
-3. **Labeln mit CVAT** (app.cvat.ai, kostenlos): pro Kuh Bounding-Box +
-   Keypoints `Spine_End`, `Tail_Base`, `Tail_Tip`; zusätzlich Boxen für
-   `amniotic_sac` (Fruchtblase) und `calf_legs` (Kälberfüße). Export im
-   YOLO-Format.
-4. **Training in Google Colab (Free-GPU):**
+3. **Labeln lokal mit dem Stall-Labeler** (B18, kein Upload):
+   `aufnahmen/_training_v1/labeler/stall_labeler.html`, Anleitung
+   `aufnahmen/_cvat_v1/README_CVAT.md`. Pro Kuh Box + Keypoints
+   `spine_end` (Widerrist), `tail_base`, `tail_tip`; zusätzlich Boxen für
+   `amniotic_sac` (Fruchtblase) und `calf_legs` (Kälberfüße). Schema v2:
+   `../cvat_labels_stallwache_v2.json` (CVAT bleibt als Alternative).
+4. **Training in Google Colab (Free-GPU)** mit dem Notebook
+   `aufnahmen/_training_v1/colab/stallwache_training_v1.ipynb`
+   (Anleitung `README_TRAINING.md` daneben; der Datensatz liegt nur für den
+   Lauf in Drive, B22). Kern des Trainings:
 
    ```python
    !pip install ultralytics
    from ultralytics import YOLO
    modell = YOLO("yolov8n-pose.pt")          # vortrainiert, klein & CPU-tauglich
    modell.train(data="stall.yaml", epochs=100, imgsz=640)
-   # Ergebnis: runs/pose/train/weights/best.pt herunterladen
+   # Das Notebook exportiert danach best_v1.onnx (statisch, quadratisch) und legt
+   # Modell, Gates und Modellkarte in Drive ab
    ```
 
-5. **`best.pt` auf den Stall-Rechner kopieren** und in `config.yaml` unter
-   `modell.pfad` eintragen → Agent wechselt automatisch in den Analyse-Modus.
+5. **`best_v1.onnx` auf den Stall-Rechner kopieren** (nach `modelle/`) und in
+   `config.yaml` unter `modell.pfad` eintragen → Agent wechselt in den
+   Analyse-Modus. Der Agent führt **nur ONNX** aus (B19, ONNX Runtime auf der
+   CPU, Dekodierung wie die Abnahme-Gates); ein `.pt` oder ein Modell, das
+   nicht zum Label-Vertrag passt, lässt ihn im Silent Mode und erzeugt eine
+   Telegram-Meldung. Vorher die Abnahme-Gates (`abnahme_gates.py`) bestehen.
 6. **Fehlalarme nachtrainieren:** falsch erkannte Bilder zurück in CVAT als
    Negativ-Beispiele („Background") labeln und erneut trainieren.
 
@@ -128,6 +141,9 @@ sudo systemctl enable --now stallblick-agent
 | **Austreibung** | `amniotic_sac` oder `calf_legs` mit **> 80 %** Konfidenz | **Sofort-Alarm**, Zeitfilter übersprungen |
 | **Eskalation** | Austreibung läuft, aber nach **60 min** (konfigurierbar) sind weiterhin Fruchtblase/Füße sichtbar → kein Geburtsfortschritt | **dringender Kontroll-Alarm** (Komplikationsverdacht, Lely-Zeta-Prinzip) |
 | **Brunstverdacht** | Aufsprung: zwei Kuh-Boxen überlappen (IoU > 0.15), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert Spielverhalten) | Telegram + Dashboard |
+| Bildqualität (B20) | Bild mit Dekodier-Streifen (`defekt_anteil` > 0.04) zählt nicht fürs Schwanzwinkel-Fenster und nicht für den Tracker; die Austreibung wird trotzdem geprüft | > 50 % Defektbilder in 10 min → 1 Info je Episode ans Dashboard, Quote im Tagesbericht |
+| Tracking (B19) | ByteTrack nur für Kuh-Boxen (ab Konfidenz 0.10, Logik ab 0.25); Fruchtblase/Kälberfüße ungetrackt aus jedem Bild | ohne Tracker: Austreibung aktiv, Meldung „eingeschränkt“ per Telegram |
+| Ausfall-Wächter | Modell lädt nicht (auch Probe-Inferenz), Auswertung oder ByteTrack fallen ≥ `totmann_minuten` aus, nur gestreifte Bilder ≥ `totmann_minuten` | je 1 Telegram-Meldung („KI-WACHE AUS/EINGESCHRÄNKT/BLIND“) + Entwarnung; Modus im Tagesbericht |
 | Anti-Spam | **15 Min Cooldown** pro Kuh-ID und Alarmtyp | – |
 | Bildserie | Jeder Alarm sendet die **letzten 4 Frames als Telegram-Album** (`bildserie_frames`) | Fehlalarm-Triage direkt am Handy |
 | Wach-Modus | `logik.wach_modus: true` ~14 Tage vor Kalbetermin: halbierte Schwellen, frühere Verdachtsalarme | erhöhte Wachsamkeit nur, wenn bewusst scharfgeschaltet |
