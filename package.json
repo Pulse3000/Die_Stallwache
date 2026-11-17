@@ -9,7 +9,11 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types tests/*.test.ts"
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "test:kurz": "node --test --experimental-strip-types --test-reporter=dot tests/*.test.ts",
+    "geruest": "node scripts/geruest-pruefung.mjs",
+    "test:agent": "python3 edge-agent/tests/alle_tests.py --kurz",
+    "pruefen": "npm run typecheck && npm run lint && npm run test:kurz && npm run geruest && npm run test:agent && npm run build"
   },
   "dependencies": {
     "firebase": "^11.10.0",

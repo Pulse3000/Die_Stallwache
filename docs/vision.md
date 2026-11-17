@@ -185,12 +185,12 @@ wiederkehrende Aufgabe hat einen benannten Zuständigen:
 | Sicherheit härten | Skill `security-sweep` | vor Releases / nach neuen API-Routen |
 | Ausliefern | Skill `stallblick-deploy` | nach jedem Feature |
 | Futterwache-Cloud | Skill `tuya-futterwache` | sobald Tuya-Zugangsdaten vorliegen |
-| Stallwache live schalten | Skill `stallwache-live-schalten` | sobald der Tunnel-Hostname gemeldet ist |
+| Stallwache live schalten | Skill `stallwache-live-schalten` | sobald der Fernzugriff (Tailscale Funnel) eingerichtet ist |
 | Persistenz live schalten | Skill `persistenz-live-schalten` | sobald der KV-Store verknüpft ist |
 | Bereitschaft feststellen | Skill `betriebs-bereitschaft` | nach jedem Deploy, vor jeder Übergabe |
 | Push live schalten | Skill `push-live-schalten` | sobald Firebase eingerichtet ist; Nachtprobe einmalig |
 | GCP anbinden (Pub/Sub, Vertex) | Skill `gcp-anbindung` | sobald das Dienstkonto steht |
-| PWA abnehmen | Skill `pwa-abnahme` | nach Änderungen am Service Worker, Offline-Puffer, Manifest oder den vier Bereichen |
+| PWA abnehmen | Skill `pwa-abnahme` | nach Änderungen am Service Worker, Offline-Puffer, Manifest oder den fünf Bereichen |
 | Kamera aufnehmen | Skill `neue-kamera` | wenn der Betrieb um eine Kamera wächst |
 | Tuya-Störung eingrenzen | Skill `tuya-diagnose` | bei „sign invalid", „clientId is invalid", schwarzem Livebild |
 

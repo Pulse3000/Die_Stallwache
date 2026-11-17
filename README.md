@@ -229,7 +229,7 @@ installierbar (Homescreen).
 | `components/AlarmListe.tsx` + `AlarmBilder.tsx` | Aktivitätsprotokoll mit Filtern, Bild-Replay und Quittierung |
 | `components/GeraeteSteuerung.tsx` + `Assistent.tsx` | Tuya-Schaltflächen aus dem Gerätemodell; Freitext-/Sprachanfragen |
 | `lib/analytik.ts` + `components/AnalytikApp.tsx` | Langzeitauswertung (rein rechnende Schicht) und die antippbaren Diagramme dazu |
-| `tests/` | Testsuite der Auswertungslogik (24 Checks, `npm test`, ohne Build und ohne Zusatzpaket) |
+| `tests/` | Testsuite der Auswertungslogik (`npm test`, ohne Build und ohne Zusatzpaket) |
 | `public/sw.js` + `lib/offline.ts` | Service Worker (Offline-Shell, Push, Background Sync) und der lokale Puffer dazu |
 | `lib/push.ts` + `lib/gcp.ts` | FCM-Versand (HTTP v1) und Service-Account-Auth ohne Zusatzpaket |
 | `lib/pubsub.ts` | Spiegelung jedes Ereignisses in die bestehende GCP-Architektur |
@@ -237,10 +237,12 @@ installierbar (Homescreen).
 | `app/wache/` + `app/api/events/` | **KI-Wache**: Detailsicht & Ingest-API (persistiert automatisch, sobald ein Vercel-KV-Store verknüpft ist) |
 | `lib/stall-status.ts` + `app/api/stall-status/` | **Statusabfrage** „Status in der Stallwache?" → OK/WARNUNG/KRITISCH/UNBEKANNT je Kamera und Kuh; Session oder Lese-Token `STATUS_READ_TOKEN` (Spezifikation: `docs/statusabfrage-spezifikation.md`) |
 | `edge-agent/` | Python-Agent (YOLO-Pose + ByteTrack): Kalbe-/Brunsterkennung, Totmann, Feedback-Schleife; `setup.sh` = Ein-Befehl-Einrichtung |
-| `edge-agent/tests/` | Offline-Testsuite (77 Checks, pures Python ohne Installation) |
+| `edge-agent/tests/` | Offline-Testsuite (`npm run test:agent`; braucht nur `numpy`, alles andere ist gestubbt) |
 | `bridge/` | go2rtc (Default) + Fernzugriff (`fern-proxy.py`, Tailscale Funnel); `bridge/mediamtx/` = WHEP-Alternative (nur LAN/Tailnet) |
-| `docs/` | Vision, Roadmap (SSOT), Wettbewerbsanalyse, Metriken, 4 Feature-Spezifikationen, Orchestrierungs-Handbuch |
-| `.claude/` | 3 Projekt-Agenten + 12 Skills für die autonome Weiterentwicklung |
+| `docs/` | Vision, Roadmap (SSOT), Arbeitsvorrat, Wettbewerbsanalyse, Metriken, Spezifikationen, Orchestrierungs-Handbuch |
+| `.claude/` | Projekt-Agenten und Skills für die autonome Weiterentwicklung |
+| `CLAUDE.md` | Einstieg für jede Agenten-Sitzung: Regeln, Befehle, Karte |
+| `scripts/geruest-pruefung.mjs` | Hält Doku, Skills und Agenten deckungsgleich mit dem Code (`npm run geruest`) |
 
 ## Live
 

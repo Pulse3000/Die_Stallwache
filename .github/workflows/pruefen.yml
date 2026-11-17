@@ -1,0 +1,62 @@
+# Prueft jeden PR und jeden Stand auf main – dieselben Schritte wie lokal
+# `npm run pruefen`, einzeln aufgefuehrt, damit ein roter Lauf sofort zeigt,
+# welcher Schritt gefallen ist.
+#
+# Ein Merge auf main ist ein Produktions-Deploy (Vercel). Diese Pruefung ist
+# die Bedingung dafuer (CLAUDE.md, Abschnitt „Merge und Auslieferung").
+name: pruefen
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pruefen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pruefen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhaengigkeiten
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Web-Logiktests
+        run: npm run test:kurz
+
+      - name: Geruest (Doku, Skills, Agenten gegen den Code)
+        run: npm run geruest
+
+      # cv2, yaml, requests und torch werden gestubbt. Nur der Freeze-Watchdog
+      # rechnet mit echtem numpy (test_freeze_watchdog, test_watchdog_einbindung,
+      # NMS-Vergleich in test_ein_agent). Sonst bewusst kein Paket.
+      - name: numpy fuer die Watchdog-Tests
+        run: python3 -m pip install --quiet "numpy>=1.26,<3"
+
+      - name: Edge-Agent-Logiktests
+        run: npm run test:agent
+
+      - name: Produktions-Build
+        run: npm run build

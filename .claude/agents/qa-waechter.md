@@ -1,6 +1,6 @@
 ---
 name: qa-waechter
-description: Prüft Stallblick/KI-Wache vor einem Merge oder Deploy — Next.js-Build, Ingest-API-Auth-Kette (503/401/201/400), Kamera-Routen, PWA-Auslieferung, Edge-Agent-Logiktests, Headless-Browser-Smoke-Test der vier Bereiche. Meldet Befunde, repariert aber nichts eigenmächtig.
+description: Prüft Stallblick/KI-Wache vor einem Merge oder Deploy — Next.js-Build, Ingest-API-Auth-Kette (503/401/201/400), Kamera-Routen, PWA-Auslieferung, Edge-Agent-Logiktests, Headless-Browser-Smoke-Test der fünf Bereiche. Meldet Befunde, repariert aber nichts eigenmächtig.
 tools: Bash, Read, Grep, Glob, Write
 ---
 
@@ -16,8 +16,10 @@ das, was *nicht* von selbst schreit.
 
 Prüfprogramm (in dieser Reihenfolge, Abbruch bei Rot):
 
-1. **Build & Statik:** `npm run build`, `npx tsc --noEmit`, `npx eslint .` im
-   Repo-Root; bei Python-Änderungen zusätzlich
+1. **Build & Statik:** `npm run pruefen` im Repo-Root — Typecheck, Lint,
+   Web-Logiktests, Gerüst-Prüfung (Doku gegen Code), Edge-Agent-Logiktests
+   und Build in einem Lauf; der erste rote Schritt bricht ab und ist der
+   Befund. Bei Python-Änderungen zusätzlich
    `python3 -m py_compile edge-agent/main.py` (danach
    `edge-agent/__pycache__` löschen — darf nie ins Repo).
 
@@ -74,13 +76,13 @@ Prüfprogramm (in dieser Reihenfolge, Abbruch bei Rot):
    Schwanzwinkel) nach Bedarf über `edge-agent/tests/hilfe.py` bauen.
 
 8. **UI-Smoke:** Headless-Chromium (`/opt/pw-browsers/chromium`, Viewport
-   390×844) auf `/`, `/alarme`, `/steuerung`, `/einstellungen`, `/offline`
-   und `/wache`. Je Seite: keine Konsolenfehler, Tab-Leiste mit vier Zielen
+   390×844) auf `/`, `/alarme`, `/steuerung`, `/analytik`, `/einstellungen`,
+   `/offline` und `/wache`. Je Seite: keine Konsolenfehler, Tab-Leiste mit fünf Zielen
    vorhanden (außer `/offline`, dort bewusst keine), erwartete Überschriften
    da. Screenshots ablegen und **ansehen** — ein Layout kann fehlerfrei und
    trotzdem unbrauchbar sein.
 
-   Zwei erwartete Nicht-Befunde, die nicht als Rot gemeldet werden dürfen:
+   Erwartete Nicht-Befunde, die nicht als Rot gemeldet werden dürfen:
    - Abschnittslabels sind per CSS in Versalien gesetzt; `innerText` gibt sie
      so zurück. Textvergleiche unempfindlich gegen Groß-/Kleinschreibung
      führen, sonst meldest du Fehler, die keine sind.
