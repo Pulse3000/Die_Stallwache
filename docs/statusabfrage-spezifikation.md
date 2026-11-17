@@ -337,8 +337,7 @@ Am realen System (Beweispflicht, offen):
    Meldungen in 12 h kann ein älterer Alarm im Fenster aus der Liste fallen.
    Dann zeigt der Status `OK` statt `WARNUNG`/`KRITISCH`. Den Telegram-Alarm
    betrifft das nicht. Dieses Risiko bestand schon vor dieser Erweiterung.
-   **Folgepunkt:** Alarme und Meldungen getrennt speichern oder Alarme beim
-   Kürzen bevorzugen.
+   **Behoben (17.11.2026), Regel in 9.8.**
 4. **Ein Neustart verdeckt den Ausfall im Text:** Der Text nennt nur die
    jüngste Meldung (z. B. „Edge-Agent gestartet“). Den Ausfall davor zeigt
    nur das Feld `systemmeldungen`, das der Report liest. **Folgepunkt:**
@@ -352,3 +351,38 @@ Am realen System (Beweispflicht, offen):
 6. **Inhalt der Meldungen:** Die Texte stammen nur vom Agenten
    (Ingest-Token) und enthalten keine Stream-URLs oder Zugangsdaten. Die
    Lese-Antwort zeigt sie so, wie sie im Dashboard schon stehen.
+
+### 9.8 Alarme fallen nie wegen Systemmeldungen aus dem Speicher (17.11.2026)
+
+**Grundsatz.** Eine Systemmeldung darf keinen Alarm verdrängen. Sonst macht
+ein flackernder Stream aus `WARNUNG`/`KRITISCH` ein `OK` — Schweigen wäre
+wieder ein OK.
+
+**Regel.**
+
+1. **KV-Store:** Alarme (`kalbeverdacht`, `austreibung`, `brunstverdacht`)
+   und Systemmeldungen (`info`) liegen in getrennten Listen
+   (`kiwache:ereignisse`, `kiwache:meldungen`), jede mit eigener Obergrenze
+   von 200. Gewählt statt „beim Kürzen bevorzugen", weil das Kürzen im KV ein
+   einzelner `LTRIM` bleibt: kein Lesen-Ändern-Schreiben, also kein Wettlauf
+   mit einem gleichzeitig eintreffenden Alarm.
+2. **Instanz-Puffer** (ohne KV): eine Liste, beim Kürzen fallen zuerst die
+   ältesten Systemmeldungen. Ein Alarm fällt erst, wenn die Liste nur noch
+   aus Alarmen besteht.
+3. **Lesen:** Beide Listen werden zusammengeführt, neueste zuerst, jede ID
+   einmal. Einträge, die ein älterer Stand noch als Meldung in die Alarmliste
+   schrieb, bleiben so lesbar; es ist keine Migration nötig.
+4. **Lesefehler:** Als „aus dem KV gelesen" gilt die Antwort nur, wenn
+   **beide** Listen gelesen wurden. Sonst gilt die Regel aus Abschnitt 2
+   (Instanz-Puffer, Status `UNBEKANNT`).
+
+**Grenze.** Mehr als 200 Alarme im Fenster verdrängen weiterhin die ältesten
+Alarme. Bei einem Cooldown von 15 min je Kuh und Typ ist das im 12-h-Fenster
+nur bei einem defekten Agenten erreichbar.
+
+**Abnahme.** `tests/ereignis-modell.test.ts`: 300 Meldungen nach einem Alarm
+— der Alarm bleibt; nur Alarme — die ältesten fallen; Zusammenführen sortiert
+nach Zeit und entfernt Doppelte. Am laufenden Server: ein Alarm, danach 250
+Meldungen über `POST /api/events` → `GET /api/events` enthält den Alarm noch.
+**Offen:** Gegenprobe am echten KV-Store (erst nach dem Verknüpfen möglich).
+

@@ -67,3 +67,49 @@ export function zaehleOffeneAlarme(antwort: {
   if (antwort.quelle !== "edge-agent") return 0;
   return antwort.ereignisse.filter((e) => !e.quittiert).length;
 }
+
+/**
+ * Kuerzt eine Ereignisliste (neueste zuerst) auf `max` Eintraege und opfert
+ * dabei zuerst die aeltesten Systemmeldungen (`info`). Ein Alarm faellt erst
+ * heraus, wenn die Liste nur noch aus Alarmen besteht. Grund: Ein flackernder
+ * Stream erzeugt viele Meldungen; draengten sie einen Alarm aus der Liste,
+ * saehe die Statusabfrage `OK` statt `WARNUNG`/`KRITISCH`
+ * (docs/statusabfrage-spezifikation.md §9.8).
+ */
+export function kuerzeEreignisse<T extends { typ: EreignisTyp }>(
+  liste: T[],
+  max: number,
+): T[] {
+  if (liste.length <= max) return liste;
+  const aus = liste.slice();
+  for (let i = aus.length - 1; i >= 0 && aus.length > max; i--) {
+    if (aus[i].typ === "info") aus.splice(i, 1);
+  }
+  if (aus.length > max) aus.length = max;
+  return aus;
+}
+
+/**
+ * Fuehrt getrennt gespeicherte Alarme und Systemmeldungen zu einer Liste
+ * zusammen: neueste zuerst, jede ID nur einmal. Eintraege ohne lesbare Zeit
+ * stehen vorn (lieber sichtbar als verschluckt).
+ */
+export function fuehreEreignisseZusammen<T extends { id: string; zeit: string }>(
+  ...listen: T[][]
+): T[] {
+  const gesehen = new Set<string>();
+  const alle: T[] = [];
+  for (const liste of listen) {
+    for (const e of liste) {
+      if (gesehen.has(e.id)) continue;
+      gesehen.add(e.id);
+      alle.push(e);
+    }
+  }
+  const t = (e: T) => {
+    const z = Date.parse(e.zeit);
+    return Number.isNaN(z) ? Number.POSITIVE_INFINITY : z;
+  };
+  // Array.prototype.sort ist stabil: gleiche Zeit behaelt die Eingangsfolge.
+  return alle.sort((a, b) => t(b) - t(a));
+}

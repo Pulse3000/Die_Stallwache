@@ -27,6 +27,8 @@
 import {
   ALARM_TYPEN,
   EREIGNIS_TYPEN,
+  fuehreEreignisseZusammen,
+  kuerzeEreignisse,
   type EreignisTyp,
   type StallEreignis,
 } from "@/lib/ereignis-modell";
@@ -74,6 +76,9 @@ const KV_URL = process.env.KV_REST_API_URL?.trim() || "";
 const KV_TOKEN = process.env.KV_REST_API_TOKEN?.trim() || "";
 const kvAktiv = Boolean(KV_URL && KV_TOKEN);
 const KV_LISTE = "kiwache:ereignisse";
+/** Systemmeldungen (`info`) getrennt von den Alarmen (§9.8 der Statusabfrage). */
+const KV_MELDUNGEN = "kiwache:meldungen";
+const kvListeFuer = (typ: EreignisTyp) => (typ === "info" ? KV_MELDUNGEN : KV_LISTE);
 const KV_KONTAKT = "kiwache:kontakt";
 /** Hash-Schluessel: field = ereignis-ID, value = ISO-Zeitstempel der Quittierung. */
 const KV_QUITTIERT = "kiwache:quittiert";
@@ -150,16 +155,21 @@ export async function addEreignis(
   const jetzt = new Date().toISOString();
 
   // Immer auch in den Instanz-Puffer (Fallback + sofortige Lesbarkeit).
+  // Beim Kuerzen fallen zuerst alte Systemmeldungen, nie ein Alarm davor.
   store.ereignisse.unshift(voll);
   if (store.ereignisse.length > MAX_EREIGNISSE) {
-    store.ereignisse.length = MAX_EREIGNISSE;
+    const gekuerzt = kuerzeEreignisse(store.ereignisse, MAX_EREIGNISSE);
+    store.ereignisse.length = 0;
+    store.ereignisse.push(...gekuerzt);
   }
   store.letzterKontakt = jetzt;
   gueltige.forEach((b, i) => merkeBild(voll.id, i, b));
 
   await kvPipeline([
-    ["LPUSH", KV_LISTE, JSON.stringify(voll)],
-    ["LTRIM", KV_LISTE, 0, MAX_EREIGNISSE - 1],
+    // Alarme und Systemmeldungen in getrennten Listen: Meldungen koennen
+    // einen Alarm so nie aus dem Speicher draengen.
+    ["LPUSH", kvListeFuer(voll.typ), JSON.stringify(voll)],
+    ["LTRIM", kvListeFuer(voll.typ), 0, MAX_EREIGNISSE - 1],
     ["SET", KV_KONTAKT, jetzt],
     ...gueltige.map((b, i) => [
       "SET",
@@ -237,12 +247,16 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
     ["LRANGE", KV_LISTE, 0, MAX_EREIGNISSE - 1],
     ["GET", KV_KONTAKT],
     ["HGETALL", KV_QUITTIERT],
+    ["LRANGE", KV_MELDUNGEN, 0, MAX_EREIGNISSE - 1],
   ]);
   // Als „gelesen" gilt KV nur, wenn LRANGE wirklich eine Liste lieferte.
   // Upstash meldet Fehler einzelner Befehle mit HTTP 200 und {error} statt
   // {result} — das wie eine leere Liste zu behandeln, ergaebe in der
   // Statusabfrage ein falsches „OK".
-  const kvGelesen = kv !== null && Array.isArray(kv[0]?.result);
+  // Beide Listen muessen gelesen sein: Fehlten die Meldungen unbemerkt,
+  // faende die Statusabfrage z. B. ein „Stream weg" nicht.
+  const kvGelesen =
+    kv !== null && Array.isArray(kv[0]?.result) && Array.isArray(kv[3]?.result);
   // Kontakt zaehlt auch ohne Ereignis: Ein Agent im Silent Mode oder bei
   // ruhiger Herde schickt nur Lebenszeichen (leerer Stapel). Vorher fiel
   // der Kontakt dann weg und das Dashboard zeigte „nicht verbunden".
@@ -251,7 +265,23 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
     store.letzterKontakt,
   );
   if (kv && kvGelesen) {
-    const roh = kv[0].result as string[];
+    // Aeltere Staende schrieben Meldungen noch in die Alarmliste; das
+    // Zusammenfuehren (nach Zeit, jede ID einmal) deckt beide Staende ab.
+    const lies = (roh: string[]): StallEreignis[] => {
+      const aus: StallEreignis[] = [];
+      for (const s of roh) {
+        try {
+          aus.push(normalisiere(JSON.parse(s) as StallEreignis));
+        } catch {
+          // korrupten Einzeleintrag ueberspringen statt Liste zu verwerfen
+        }
+      }
+      return aus;
+    };
+    const gelesen = fuehreEreignisseZusammen(
+      lies(kv[0].result as string[]),
+      lies(kv[3].result as string[]),
+    );
     // HGETALL liefert ein flaches Array [feld1, wert1, feld2, wert2, …].
     const quittiert = new Map<string, string>();
     const hgetallRoh = Array.isArray(kv[2]?.result)
@@ -260,16 +290,10 @@ export async function getEreignisse(): Promise<EreignisAntwort> {
     for (let i = 0; i + 1 < hgetallRoh.length; i += 2) {
       quittiert.set(hgetallRoh[i], hgetallRoh[i + 1]);
     }
-    const ereignisse: StallEreignis[] = [];
-    for (const s of roh) {
-      try {
-        const e = normalisiere(JSON.parse(s) as StallEreignis);
-        const qt = quittiert.get(e.id);
-        ereignisse.push(qt ? { ...e, quittiert: qt } : e);
-      } catch {
-        // korrupten Einzeleintrag ueberspringen statt Liste zu verwerfen
-      }
-    }
+    const ereignisse = gelesen.map((e) => {
+      const qt = quittiert.get(e.id);
+      return qt ? { ...e, quittiert: qt } : e;
+    });
     if (ereignisse.length > 0) {
       return {
         ereignisse,
