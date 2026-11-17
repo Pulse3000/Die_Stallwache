@@ -1,6 +1,6 @@
 ---
 name: pwa-abnahme
-description: Abnahmeprüfung der mobilen PWA — Installierbarkeit, Service Worker, Offline-Betrieb, Aktions-Warteschlange, Bild-Replay und Datensparen am echten Gerät durchspielen. Nutzen nach Änderungen an public/sw.js, lib/offline.ts, app/layout.tsx, dem Manifest oder den vier Bereichen, sowie vor jeder Übergabe an den Betrieb.
+description: Abnahmeprüfung der mobilen PWA — Installierbarkeit, Service Worker, Offline-Betrieb, Aktions-Warteschlange, Bild-Replay und Datensparen am echten Gerät durchspielen. Nutzen nach Änderungen an public/sw.js, lib/offline.ts, app/layout.tsx, dem Manifest oder den fünf Bereichen, sowie vor jeder Übergabe an den Betrieb.
 ---
 
 # PWA-Abnahme (installierbar, offlinefähig, weckfähig)
@@ -43,7 +43,7 @@ curl -s "$BASIS/manifest.webmanifest" | python3 -m json.tool
 ### A3. Browser-Smoketest
 
 Chromium headless (`/opt/pw-browsers/chromium`), Viewport **390×844**, je
-Bereich: keine Konsolenfehler, Tab-Leiste mit vier Zielen vorhanden,
+Bereich: keine Konsolenfehler, Tab-Leiste mit fünf Zielen vorhanden,
 erwartete Überschriften da. Screenshots ansehen, nicht nur den Exit-Code —
 ein Layout kann fehlerfrei und trotzdem unbrauchbar sein.
 

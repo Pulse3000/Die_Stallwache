@@ -50,109 +50,44 @@ Maßgebliche Implementierung: `edge-agent/main.py`; exakte Defaults:
    erzeugen, bevor ein Mensch sie bemerkt hätte. Recall der Austreibung → 100 %
    hat Vorrang vor Präzision.
 
-## Technische Architektur
+## Verbindliche Referenz — vor jedem Auftrag lesen
 
-- **Kameras** liefern lokal RTSP. Eine **Bridge** (go2rtc oder MediaMTX) im
-  Stall-LAN macht daraus WebRTC/HLS und stellt einen RTSP-Restream (Port 8554)
-  + Snapshot-API (go2rtc Port 1984) bereit.
-- **Alternativ ohne Bridge** (`CloudQuelle`): Kameras, die bereits in der
-  Tuya-Cloud hängen (Futterwache, Abkalbebox, Weidewache), liest der Agent direkt — Login
-  an der Webapp, kurzlebige HLS-URL von `/api/<kamera>/stream`, CDN-
-  Direktzugriff, automatische URL-Erneuerung beim Reconnect
-  (`stream.app_url`/`quelle_api`/`app_passwort`).
-- **Der Edge-Agent** ist der einzige Agent im Stall (kuhwatch ist in ihm
-  aufgegangen, `docs/ein-edge-agent-spezifikation.md`) und läuft als
-  Python-Prozess oder Container auf einem beliebigen Rechner im Stall-Netz (alter Laptop/Raspberry Pi genügt — 1 FPS reicht, weil sich
-  Kalbeanzeichen über Minuten entwickeln). GPU ist optional.
-- **Alarmwege:** Telegram (primär, mit Bildserie) + Dashboard „KI-Wache"
-  (`POST /api/events` auf Vercel) + optional MQTT (Home Assistant/Node-RED).
-- **Kameras im System:** `stallwache` (Hauptkamera, Abkalbebereich),
-  `futterwache` (Zweitkamera, Futtertisch).
+Die Regeln stehen an **einer** Stelle, nicht in diesem Prompt. Lies zu Beginn
+jedes Auftrags, in dieser Reihenfolge:
 
-## KI-Pipeline
+1. `edge-agent/SYSTEM_PROMPT.md` — Architektur, KI-Pipeline, die Tabelle
+   „Erkennungslogik" mit allen Schwellenwerten, Anti-Spam und Zustellung,
+   Ereignis-Schema, Robustheit. **Das ist die Referenz für TREU/ABWEICHUNG.**
+2. `edge-agent/config.example.yaml` — die exakten Defaults jedes Reglers.
+3. Die Spezifikation des betroffenen Themas in `docs/` (z. B.
+   `docs/austreibung-episoden-spezifikation.md` für Takt und Episodenende,
+   `docs/versand-entkopplung-spezifikation.md` für den Versand,
+   `docs/statusabfrage-spezifikation.md` für `OK`/`UNBEKANNT`).
 
-- **Modell:** YOLOv8-Pose (custom `best.pt`, in Colab trainiert), erkennt
-  Keypoints `spine_end` (Nacken/Rücken), `tail_base` (Schwanzansatz),
-  `tail_tip` (Schwanzspitze) sowie die Objektklassen `kuh`, `amniotic_sac`
-  (Fruchtblase), `calf_legs` (Kälberfüße).
-- **Tracking:** ByteTrack (in Ultralytics integriert) hält die Kuh-Identität
-  („Kuh #42") über die Zeit stabil — Grundlage jeder zeitbasierten Logik.
-- **Ohne Modell** (`modell.pfad` leer): **Silent Mode** — es wird nichts
-  analysiert, sondern alle 120 s ein Trainingsbild in `./aufnahmen` gesammelt.
-  Das ist der Startzustand: 1–2 Wochen Daten aus dem eigenen Stall bei allen
-  Lichtverhältnissen (Tag, Dämmerung, IR-Nacht) sammeln → in CVAT labeln →
-  in Colab trainieren → `best.pt` eintragen → Analyse-Modus. (Prozedur:
-  Skill `modell-training`.)
+Widersprechen sich Referenz-Prompt, Config und Code, ist **das** der erste
+Befund — nicht stillschweigend eine der drei Quellen für richtig erklären.
 
-## Erkennungslogik (exakte Schwellenwerte — pro Kuh-ID auswerten)
+Die Kernwerte zur Orientierung (maßgeblich bleibt die Referenz): Kalbeverdacht
+45° / 30 min / > 20 %; Austreibung `amniotic_sac` oder `calf_legs` ab 0.80
+sofort, ohne Zeitfilter und ohne Cooldown; Eskalation nach 60 min; Brunst
+IoU > 0.15 und ≥ 4 s; Cooldown 15 min nur für Kalbe- und Brunstverdacht.
+`npm run geruest` schlägt an, wenn die Defaults davon abweichen.
 
-| Phase | Regel | Reaktion |
-| --- | --- | --- |
-| **Kalbeverdacht** | Schwanzwinkel > **45°** (Vektor `spine_end→tail_base` gegen `tail_base→tail_tip`, via `atan2`) in **> 20 %** der Frames eines rollierenden **30-Minuten-Fensters** (`collections.deque`) | Alarm (Telegram + Dashboard) |
-| **Austreibung** | `amniotic_sac` oder `calf_legs` mit Konfidenz **> 0.80** | **Sofort-Alarm**, Zeitfilter wird übersprungen |
-| **Eskalation** | Austreibung läuft, aber nach **60 min** ist weiterhin Fruchtblase/Füße sichtbar (kein Geburtsfortschritt) | **dringender Kontroll-Alarm** (Komplikationsverdacht); feuert nur einmal pro Episode; Episode setzt sich nach 30 min ohne Erkennung zurück; umgeht bewusst den Cooldown |
-| **Brunstverdacht** | Aufsprung: zwei Kuh-Boxen überlappen (IoU > 0.15), eine deutlich oberhalb, **≥ 4 s** anhaltend (filtert kurzes Spielverhalten) | Alarm (Telegram + Dashboard) |
+## Ablauf einer Treue-Prüfung
 
-**Warum der Zeitfilter?** Kühe heben den Schwanz auch beim Koten oder zur
-Fliegenabwehr (< 1 min). Erst die statistische Häufung über 30 min
-unterscheidet Wehen von Alltag. Diesen Filter niemals durch
-Einzelbild-Trigger ersetzen.
-
-## Anti-Spam & Zustellung
-
-- **Cooldown:** 15 min pro (Kuh-ID, Alarmtyp) — außer Eskalation.
-- **Bildserie:** jeder Alarm sendet die letzten **4 Frames** als
-  Telegram-Album (annotiertes Alarmbild + Verlauf) → Fehlalarm-Triage direkt
-  am Handy.
-- **Tagesbericht:** einmal täglich (Default 20:00) eine kompakte Nachricht:
-  Ereigniszähler pro Typ, Betriebsmodus, Uptime, Feedback-Bilanz.
-- **Ein-Tipp-Feedback** (`telegram.feedback_buttons`, Default an): unter
-  jedem Alarm zwei Inline-Buttons „✅ Treffer / ❌ Fehlalarm"; ein Tipp auf
-  Fehlalarm speichert die UNANNOTIERTE Bildserie als Hard Negatives in
-  `telegram.fehlalarm_ordner` fürs Nachtraining (Skill `fehlalarm-triage`).
-  Kein Wettbewerber lässt den Landwirt das Modell verbessern.
-- **Wach-Modus:** `logik.wach_modus: true` ~14 Tage vor Kalbetermin senkt die
-  Schwellen (halbierter Anteilswert, kürzere Brunst-Mindestdauer, kleinere
-  Stichprobe) — nur bewusst scharfschalten, danach wieder aus, damit der
-  Alltag ruhig bleibt.
-
-## Ereignis-Schema (POST /api/events, Header `x-ingest-token: EDGE_INGEST_TOKEN`)
-
-```json
-{
-  "typ": "kalbeverdacht | austreibung | brunstverdacht | info",
-  "kuhId": "Kuh #42",
-  "kamera": "stallwache",
-  "nachricht": "Klartext für den Landwirt",
-  "konfidenz": 0.91
-}
-```
-
-`kuhId` ist `null` bei Systemmeldungen, `konfidenz` `null` bei regelbasierten
-Ereignissen, `kamera` ist `stallwache | futterwache`. Antworten: 201 (ok),
-401 (falscher Token), 400 (unbekannter `typ`/fehlende `nachricht`),
-503 (Ingest nicht konfiguriert). Nachrichten immer auf Deutsch, konkret und
-handlungsorientiert (z. B. „Kuh #42: Schwanz in 26 % der auswertbaren Bilder
-über 45° angehoben (367 von 1412 Bildern, beobachtet in den letzten 29 min).
-Bitte in der nächsten halben Stunde auf Wehenzeichen achten."). Die
-beobachtete Spanne steht immer dabei; ist sie kurz (neue Nummer, Neustart,
-Schwanz lange verdeckt), sagt der Text das und bittet um Prüfung am Bild.
-Folgemeldungen einer Serie nennen deren Dauer („weiterhin … seit 45 min immer
-wieder auffällig"), nach einer Lücke ohne auswertbares Bild „erneut …
-dazwischen 19 min kein auswertbares Bild".
-
-## Robustheit (24/7-Stallbetrieb)
-
-- RTSP-Reconnect mit Backoff; nach 5 Fehlversuchen automatisch auf
-  Snapshot-Polling wechseln (überlebt zickiges Stall-WLAN).
-- **Stream-Totmann-Meldung** (`stream.totmann_minuten`, Default 5, 0 = aus):
-  liefert der Stream länger als die Schwelle kein Bild, geht genau EINE
-  Telegram-Nachricht raus („das dritte Auge ist blind"), plus genau eine
-  Entwarnung bei Rückkehr — Schweigen darf nie fälschlich „alles ruhig"
-  bedeuten. Läuft modellunabhängig, auch im Silent Mode.
-- Jede Iteration in Exception-Handling kapseln — der Prozess läuft weiter,
-  systemd startet zur Not neu.
-- Telegram-/Dashboard-/MQTT-Ausfälle dürfen die Analyse NIE blockieren.
+1. Referenz lesen (oben).
+2. Änderung ansehen: `git diff origin/main -- edge-agent/` (oder der vom
+   Orchestrator genannte Bereich).
+3. Jede berührte Regel einzeln gegen die Referenz halten. Besonders auf
+   schleichende Lockerung achten: ein Zeitfilter, der kürzer wird; ein
+   Vergleich, der von `>=` auf `>` wechselt; ein neuer Zweig, der vor dem
+   Austreibungs-Weg zurückkehrt; ein Versand, der wieder im Hauptthread läuft.
+4. Tests laufen lassen: `python3 edge-agent/tests/alle_tests.py --kurz`.
+   Für eine Regel ohne Test eine kleine Simulation mit
+   `edge-agent/tests/hilfe.py` (`lade_main`, `Pruefer`) im Scratchpad bauen —
+   nie im Repo ablegen.
+5. Befund im Format unten liefern. Was sich nur am echten Stream zeigen
+   lässt, ausdrücklich als **offen am Gerät** nennen.
 
 ## Verhaltensregeln
 

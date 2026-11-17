@@ -21,11 +21,11 @@ Spezifikations-Pipeline verhindern sollte.
 
 | Spezifikation | Voraussetzung | Was **ohne** sie umsetzbar ist |
 | --- | --- | --- |
-| [`eskalationskette-spezifikation.md`](../../docs/eskalationskette-spezifikation.md) | KV-Store verknüpft (Roadmap P1); Weckton zusätzlich: MQTT-Broker + Weckgerät **im Haus** | **Stufen 1–2 komplett** (Wiederholung, zweiter Empfänger, Zustandsdatei, Quittierungsabfrage) — modellunabhängig. `weckruf.aktiv: false` bleibt, bis §9 der Spec abgearbeitet ist |
-| [`festliege-spezifikation.md`](../../docs/festliege-spezifikation.md) | erstes `best.pt`; Seitenlage zusätzlich: Klasse `kuh_seitenlage` im 2. Training | Klassengerüst `FestliegeWaechter` mit injizierbarem `jetzt` + Logiktests (Geometrie stubbar) |
-| [`brunst-fusion-spezifikation.md`](../../docs/brunst-fusion-spezifikation.md) | Modell + zwei Kameras auf dieselbe Bucht + Broker | MQTT-Peer-Topologie und Zeit-Koinzidenz sind ohne Modell testbar |
-| [`kalbe-akte-spezifikation.md`](../../docs/kalbe-akte-spezifikation.md) | Modell (Teil-Akte); 2. Training (Voll-Akte) | Akten-Format und stille Zustellung |
-| [`lahmheit-spezifikation.md`](../../docs/lahmheit-spezifikation.md) | Keypoint `spine_mid` im 2. Training + eigene Validierung | nichts Sinnvolles — bewusst warten |
+| [`eskalationskette-spezifikation.md`](../../../docs/eskalationskette-spezifikation.md) | KV-Store verknüpft (Roadmap P1); Weckton zusätzlich: MQTT-Broker + Weckgerät **im Haus** | **Stufen 1–2 komplett** (Wiederholung, zweiter Empfänger, Zustandsdatei, Quittierungsabfrage) — modellunabhängig. `weckruf.aktiv: false` bleibt, bis §9 der Spec abgearbeitet ist |
+| [`festliege-spezifikation.md`](../../../docs/festliege-spezifikation.md) | erstes `best.pt`; Seitenlage zusätzlich: Klasse `kuh_seitenlage` im 2. Training | Klassengerüst `FestliegeWaechter` mit injizierbarem `jetzt` + Logiktests (Geometrie stubbar) |
+| [`brunst-fusion-spezifikation.md`](../../../docs/brunst-fusion-spezifikation.md) | Modell + zwei Kameras auf dieselbe Bucht + Broker | MQTT-Peer-Topologie und Zeit-Koinzidenz sind ohne Modell testbar |
+| [`kalbe-akte-spezifikation.md`](../../../docs/kalbe-akte-spezifikation.md) | Modell (Teil-Akte); 2. Training (Voll-Akte) | Akten-Format und stille Zustellung |
+| [`lahmheit-spezifikation.md`](../../../docs/lahmheit-spezifikation.md) | Keypoint `spine_mid` im 2. Training + eigene Validierung | nichts Sinnvolles — bewusst warten |
 
 Steht die Voraussetzung **nicht**: Umfang auf die freie Spalte schneiden,
 Feature per Default `aktiv: false` ausliefern und das im Commit sagen. Nie den

@@ -5,11 +5,21 @@ das Betriebshandbuch für die autonome Weiterentwicklung. Prinzip: **Der
 Hauptagent orchestriert und entscheidet; Subagenten recherchieren und prüfen;
 Skills kapseln wiederkehrende Abläufe.**
 
+## Wo was steht
+
+| Frage | Ort |
+| --- | --- |
+| Regeln, Befehle, Karte — in jeder Sitzung geladen | [`CLAUDE.md`](../CLAUDE.md) |
+| Was ist als Nächstes zu tun? | [`arbeitsvorrat.md`](./arbeitsvorrat.md) |
+| Was ist gebaut, offen, blockiert? | [`roadmap.md`](./roadmap.md) |
+| Wer macht was, wann welcher Skill? | dieses Handbuch |
+| Stimmt die Doku noch mit dem Code? | `npm run geruest` (`scripts/geruest-pruefung.mjs`) |
+
 ## Rollen
 
 | Rolle | Wer | Darf | Darf nicht |
 | --- | --- | --- | --- |
-| **Orchestrator** | Hauptagent (diese Session) | delegieren, entscheiden, committen, mergen | Prüfergebnisse blind übernehmen |
+| **Orchestrator** | Hauptagent (die laufende Sitzung) | delegieren, entscheiden, committen, mergen | Prüfergebnisse blind übernehmen |
 | **Rechercheur** | Agent `markt-analyst` | WebSearch, lesen, Bericht liefern | Dateien ändern |
 | **Prüfer** | Agent `qa-waechter` | Build/Tests/Smoke ausführen, Befund liefern | committen/pushen, Fixes anwenden |
 | **Fachexperte** | Agent `ki-wache` | Erkennungslogik prüfen/erklären, Logik-Simulationen, Alarm-Texte formulieren | Dateien ändern, Schwellenwerte lockern |
@@ -22,7 +32,7 @@ ein Agent) aufruft. Sie zerfallen in drei Gruppen:
 | **Scharfschalten** (einmalig je Baustein) | `stallwache-live-schalten`, `persistenz-live-schalten`, `push-live-schalten`, `gcp-anbindung`, `tuya-futterwache`, `modell-training` | Einen fertig gebauten, aber schlafenden Baustein in Betrieb nehmen — und den Betrieb **beweisen**, nicht nur konfigurieren |
 | **Prüfen & Ausliefern** | `betriebs-bereitschaft`, `stallblick-deploy`, `ki-wache-smoketest`, `pwa-abnahme`, `security-sweep` | Vor und nach jeder Auslieferung |
 | **Betrieb & Störung** | `tuya-diagnose`, `neue-kamera`, `fehlalarm-triage`, `bytetrack-tuning`, `wettbewerbs-check` | Wenn im laufenden Betrieb etwas klemmt oder nachgeschärft wird |
-| **Bauen** | `spezifikation-umsetzen` | Der Rückweg der Spezifikations-Pipeline: aus einer der fünf Spec-Dateien wird gemergter Code — mit dem Umfang auf den Teil geschnitten, dessen Voraussetzung wirklich existiert |
+| **Bauen** | `spezifikation-umsetzen` | Der Rückweg der Spezifikations-Pipeline: aus einer Spezifikation in `docs/` wird gemergter Code — mit dem Umfang auf den Teil geschnitten, dessen Voraussetzung wirklich existiert |
 
 Die Scharfschalt-Skills teilen ein Muster, das sich bewährt hat: Die App
 **degradiert still**, wenn ein Baustein fehlt (kein Push, keine Persistenz,
@@ -46,7 +56,7 @@ Neue Aufgabe
 ├─ Tuya-Zugangsdaten liegen vor                → Skill tuya-futterwache
 ├─ Tuya meldet "sign invalid"/"clientId"       → Skill tuya-diagnose
 ├─ Kamera dazu / Kamera umbenennen             → Skill neue-kamera
-├─ Tunnel-Hostname gemeldet                    → Skill stallwache-live-schalten
+├─ Funnel läuft / Fernzugriff eingerichtet     → Skill stallwache-live-schalten
 ├─ KV-Store verknüpft                          → Skill persistenz-live-schalten
 ├─ Firebase eingerichtet / Push fehlt          → Skill push-live-schalten
 ├─ Pub/Sub, Vertex AI, Dienstkonto             → Skill gcp-anbindung
@@ -57,7 +67,7 @@ Neue Aufgabe
 └─ Blocker einer Spezifikation ist weg         → Skill spezifikation-umsetzen
 ```
 
-## Koordinationsmuster (bewährt in dieser Session)
+## Koordinationsmuster
 
 1. **Parallelisieren:** Rechercheur/Prüfer im Hintergrund starten, während der
    Orchestrator am Code weiterarbeitet. Nicht auf einen Agenten warten, wenn
@@ -69,9 +79,12 @@ Neue Aufgabe
 3. **Entscheidung vor Code:** Produktentscheidungen landen zuerst in
    `docs/wettbewerbsanalyse.md` (Was/Warum) und `docs/roadmap.md` (Status);
    Code folgt der Entscheidung, nie umgekehrt.
-4. **Verifizieren vor Merge:** Kein Merge ohne grünen `qa-waechter`-Befund
-   bzw. lokal grüne Build-/Smoke-/Sicherheits-Suite. Reine Sicherheits-Fixes
-   dürfen im Selbst-Review-Modus direkt gemergt werden.
+4. **Verifizieren vor Merge:** Kein Merge ohne `npm run pruefen` grün, CI
+   grün und grünen `qa-waechter`-Befund. Der Befund ist nicht nötig, wenn ein
+   PR ausschließlich Doku, Skills oder Agenten ändert — dann genügen
+   `npm run pruefen` und CI. Reine Sicherheits-Fixes dürfen im
+   Selbst-Review-Modus direkt gemergt werden. Die vollständige
+   Merge-Bedingung steht in `CLAUDE.md`, Abschnitt „Merge und Auslieferung".
 5. **Nicht-destruktiv bleiben — Historie vorwärts bauen:** Nach einem
    Squash-Merge trägt der Feature-Branch veraltete Historie. Force-Push ist
    dafür der falsche Reflex und inzwischen ohnehin durch eine
@@ -120,6 +133,43 @@ Neue Aufgabe
 - **Tierart-Neutralität wahren:** Im Edge-Agenten keine Rind-Hardcodierung
   neu einführen (Klassen, Keypoints, Schwellen bleiben Konfiguration) —
   hält die dokumentierte Zweitmarkt-Option Abfohlen offen, kostet nichts.
+
+## Auftragsvorlage für eine Delegation
+
+Ein Subagent startet ohne den Kontext der Sitzung. Der Auftrag muss für sich
+stehen. Diese sechs Punkte, in dieser Reihenfolge:
+
+```
+Ziel:        <ein Satz: was am Ende vorliegen soll>
+Anlass:      <was geändert wurde oder welche Frage offen ist>
+Dateien:     <Pfade, die der Agent lesen soll — nicht „such mal">
+Umfang:      <was ausdrücklich NICHT zu prüfen oder zu tun ist>
+Ergebnis:    <Format: Befundzeilen GRÜN/ROT bzw. TREU/ABWEICHUNG, Textvorschläge>
+Widerspruch: Widersprich, wenn die Entscheidung fachlich nicht trägt.
+```
+
+Nach der Rückgabe: Jeden Befund am Code nachvollziehen, bevor er eingebaut
+wird. Ein Befund ohne Datei und Zeile ist eine Vermutung.
+
+## Das Gerüst pflegen
+
+Anweisungen veralten leise. Deshalb gilt für jede Änderung am Gerüst:
+
+- **Neuer Skill:** Ordner `.claude/skills/<name>/SKILL.md` mit Kopfdaten
+  (`name` = Ordnername, `description` mit den Auslöse-Formulierungen), Zeile
+  in der Gruppentabelle oben **und** im Entscheidungsbaum.
+- **Neuer Agent:** `.claude/agents/<name>.md` mit `name`, `description`,
+  `tools`; Zeile in der Rollentabelle. Kein `model:` — das Gerüst bleibt
+  modellneutral.
+- **Regeln nur an einer Stelle.** Schwellenwerte stehen in
+  `edge-agent/config.example.yaml`, erklärt in `edge-agent/SYSTEM_PROMPT.md`.
+  Agenten und Skills verweisen dorthin, statt die Tabelle zu kopieren.
+- **Keine Zählerstände in Fließtext** (Anzahl der Skills, der Checks, der
+  Spezifikationen). Sie stimmen nach der nächsten Änderung nicht mehr.
+- **Neue Env-Variable:** in `.env.example` beschreiben.
+- **Neue Spezifikation:** in `roadmap.md` verlinken, mit Status.
+
+`npm run geruest` prüft das alles und nennt bei Rot Datei und Zeile.
 
 ## Reifegrad-Regel
 

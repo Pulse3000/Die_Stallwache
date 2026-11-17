@@ -1,5 +1,8 @@
 # AGENTS.md — Base44 Entwicklungsumgebung
 
+Diese Datei beschreibt nur die Docker-Dev-Umgebung (Base44). Projektregeln,
+Befehle und Arbeitsablauf stehen in [`CLAUDE.md`](CLAUDE.md) — zuerst lesen.
+
 ## Starten (Runbook)
 
 ```bash
@@ -50,7 +53,7 @@ docker compose -f docker-compose.base44.yml logs -f web
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/          # 200
 curl -s http://localhost:3000/ | grep -o turbopack                        # Dev-Quelle
 curl -s "http://localhost:3000/api/events?stunden=24" | head -c 200       # Demo-Events
-npm test                                                                  # 24 Checks, ohne Build
+npm test                                                                  # Web-Logiktests, ohne Build
 ```
 
 Produktions-Build zur Kontrolle (baut aktuell fehlerfrei):
@@ -73,7 +76,8 @@ Regeln in `docs/vorschau-status-spezifikation.md`),
 
 Der Betreiber erlaubt Agenten dauerhaft, eigene PRs gegen `main` selbst zu
 mergen (Merge = Vercel-Produktionsdeploy) – aber nur, wenn
-`npm run typecheck && npm run lint && npm test && npm run build` grün ist,
+`npm run pruefen` grün ist (Typecheck, Lint, Web-Tests, Gerüst-Prüfung,
+Edge-Agent-Tests, Build), die CI (`.github/workflows/pruefen.yml`) grün ist,
 die Vercel-Preview „Ready" meldet, keine Review-Threads offen sind und kein
 Merge-Konflikt besteht. Danach Live-Check laut
 `.claude/skills/stallblick-deploy/SKILL.md`.
