@@ -8,7 +8,7 @@
 #
 # Bewusst NICHT installiert: edge-agent/requirements.txt (ultralytics/torch,
 # mehrere GB) — der Edge-Agent laeuft im Stall, nicht in der Web-Session;
-# seine Logiktests sind pures Python und brauchen keine Pakete.
+# seine Logiktests brauchen nur numpy (im Container vorhanden).
 set -euo pipefail
 
 # Nur in der Remote-Umgebung (Claude Code on the web) noetig.

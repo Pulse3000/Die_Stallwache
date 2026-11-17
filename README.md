@@ -237,7 +237,7 @@ installierbar (Homescreen).
 | `app/wache/` + `app/api/events/` | **KI-Wache**: Detailsicht & Ingest-API (persistiert automatisch, sobald ein Vercel-KV-Store verknüpft ist) |
 | `lib/stall-status.ts` + `app/api/stall-status/` | **Statusabfrage** „Status in der Stallwache?" → OK/WARNUNG/KRITISCH/UNBEKANNT je Kamera und Kuh; Session oder Lese-Token `STATUS_READ_TOKEN` (Spezifikation: `docs/statusabfrage-spezifikation.md`) |
 | `edge-agent/` | Python-Agent (YOLO-Pose + ByteTrack): Kalbe-/Brunsterkennung, Totmann, Feedback-Schleife; `setup.sh` = Ein-Befehl-Einrichtung |
-| `edge-agent/tests/` | Offline-Testsuite (`npm run test:agent`, pures Python ohne Installation) |
+| `edge-agent/tests/` | Offline-Testsuite (`npm run test:agent`; braucht nur `numpy`, alles andere ist gestubbt) |
 | `bridge/` | go2rtc (Default) + Fernzugriff (`fern-proxy.py`, Tailscale Funnel); `bridge/mediamtx/` = WHEP-Alternative (nur LAN/Tailnet) |
 | `docs/` | Vision, Roadmap (SSOT), Arbeitsvorrat, Wettbewerbsanalyse, Metriken, Spezifikationen, Orchestrierungs-Handbuch |
 | `.claude/` | Projekt-Agenten und Skills für die autonome Weiterentwicklung |

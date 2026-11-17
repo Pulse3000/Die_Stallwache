@@ -49,8 +49,12 @@ jobs:
       - name: Geruest (Doku, Skills, Agenten gegen den Code)
         run: npm run geruest
 
-      # Pures Python: cv2, numpy, yaml und requests werden gestubbt.
-      # Bewusst KEIN pip install – die Tests muessen ohne Pakete laufen.
+      # cv2, yaml, requests und torch werden gestubbt. Nur der Freeze-Watchdog
+      # rechnet mit echtem numpy (test_freeze_watchdog, test_watchdog_einbindung,
+      # NMS-Vergleich in test_ein_agent). Sonst bewusst kein Paket.
+      - name: numpy fuer die Watchdog-Tests
+        run: python3 -m pip install --quiet "numpy>=1.26,<3"
+
       - name: Edge-Agent-Logiktests
         run: npm run test:agent
 

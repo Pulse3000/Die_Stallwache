@@ -78,8 +78,10 @@ npm run build        # Produktions-Build
 npm run dev          # Dev-Server auf Port 3000
 ```
 
-- Die Agent-Tests sind pures Python: `cv2`, `numpy`, `yaml`, `requests`
-  werden gestubbt. **Nichts installieren** (kein `pip install`, kein torch).
+- Die Agent-Tests brauchen außer `numpy` kein Paket: `cv2`, `yaml`,
+  `requests`, torch werden gestubbt. Zwei Dateien (Freeze-Watchdog) rechnen
+  mit echtem `numpy`; fehlt es, sind sie rot. **Sonst nichts installieren**
+  (kein torch, kein ultralytics).
   Eine einzelne Datei: `python3 edge-agent/tests/test_versand.py`.
 - Die Webapp läuft ohne jede Zugangsdaten; fehlende Bausteine antworten mit
   503 und einem Hinweistext. Das ist Absicht, kein Fehler.
